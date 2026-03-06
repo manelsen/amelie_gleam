@@ -1,0 +1,26 @@
+# Gleam build output
+build/
+
+# Dependency lock (regenerado por gleam deps download)
+manifest.toml
+
+# Banco de dados local
+*.sqlite
+*.sqlite-journal
+db/
+
+# Variáveis de ambiente
+.env
+
+# Arquivos de mídia temporários
+tmp/
+/tmp/
+
+# Logs
+*.log
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo

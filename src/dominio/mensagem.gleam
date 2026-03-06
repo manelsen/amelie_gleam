@@ -1,0 +1,44 @@
+// Tipos de domínio puros — sem efeitos, sem imports externos.
+
+pub type Mensagem {
+  Mensagem(
+    chat_id: String,
+    remetente: String,
+    corpo: Conteudo,
+    timestamp: Int,
+    em_grupo: Bool,
+    menciona_bot: Bool,
+  )
+}
+
+pub type Conteudo {
+  Texto(body: String)
+  Imagem(mime: String, dados: BitArray)
+  Audio(mime: String, dados: BitArray)
+  Video(caminho_temp: String, mime: String)
+  Documento(mime: String, dados: BitArray, nome: String)
+  Comando(nome: String, args: String)
+}
+
+pub type Turno {
+  TurnoUsuario(conteudo: String)
+  TurnoAssistente(conteudo: String)
+}
+
+pub fn e_comando(msg: Mensagem) -> Bool {
+  case msg.corpo {
+    Comando(..) -> True
+    Texto(body) -> case body {
+      "." <> _ -> True
+      _ -> False
+    }
+    _ -> False
+  }
+}
+
+pub fn e_midia(msg: Mensagem) -> Bool {
+  case msg.corpo {
+    Imagem(..) | Audio(..) | Video(..) | Documento(..) -> True
+    _ -> False
+  }
+}
