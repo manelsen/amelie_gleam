@@ -1,10 +1,10 @@
 // Monta prompts para a IA. Puro — sem efeitos.
 
-import dominio/config.{type Config}
+import dominio/config.{type Config, Curto, Longo, Normal}
 import dominio/mensagem.{type Turno, TurnoAssistente, TurnoUsuario}
 import gleam/int
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/string
 
 pub fn montar(
@@ -50,14 +50,35 @@ fn formatar_turno(turno: Turno) -> String {
   }
 }
 
-pub fn montar_para_imagem(config: Config) -> String {
-  case config.prompt_sistema {
+// ---------------------------------------------------------------------------
+// Prompts de mídia — consideram modo_descricao e legenda opcional (caption)
+// ---------------------------------------------------------------------------
+
+fn sufixo_modo(config: Config) -> String {
+  case config.modo_descricao {
+    Longo ->
+      " Forneça uma descrição completa e detalhada, incluindo todos os elementos visíveis, cores, textos, posições e contexto."
+    Curto -> " Seja concisa e objetiva na descrição."
+    Normal -> ""
+  }
+}
+
+fn sufixo_legenda(legenda: Option(String)) -> String {
+  case legenda {
+    Some(caption) -> "\n\nO usuário pediu foco em: " <> caption
+    None -> ""
+  }
+}
+
+pub fn montar_para_imagem(config: Config, legenda: Option(String)) -> String {
+  let base = case config.prompt_sistema {
     Some(p) -> p <> "\n\nDescreva esta imagem de forma útil e acessível."
     None ->
       "Você é Amélie. Descreva esta imagem de forma útil e acessível, em "
       <> config.idioma
       <> "."
   }
+  base <> sufixo_modo(config) <> sufixo_legenda(legenda)
 }
 
 pub fn montar_para_audio(config: Config) -> String {
@@ -70,12 +91,40 @@ pub fn montar_para_audio(config: Config) -> String {
   }
 }
 
-pub fn montar_para_video(config: Config) -> String {
-  case config.prompt_sistema {
+pub fn montar_para_video(config: Config, legenda: Option(String)) -> String {
+  let base = case config.prompt_sistema {
     Some(p) -> p <> "\n\nAnalise e resuma este vídeo."
     None ->
       "Você é Amélie. Analise e resuma este vídeo em "
       <> config.idioma
       <> "."
   }
+  base <> sufixo_modo(config) <> sufixo_legenda(legenda)
 }
+
+pub fn montar_para_legenda(config: Config) -> String {
+  case config.prompt_sistema {
+    Some(p) ->
+      p
+      <> "\n\nTranscreva a trilha de áudio deste vídeo, gerando legendas acessíveis."
+    None ->
+      "Você é Amélie. Transcreva a trilha de áudio deste vídeo em "
+      <> config.idioma
+      <> ", gerando legendas acessíveis para pessoas surdas ou com deficiência auditiva."
+  }
+}
+
+pub fn montar_para_documento(
+  config: Config,
+  legenda: Option(String),
+) -> String {
+  let base = case config.prompt_sistema {
+    Some(p) -> p <> "\n\nAnalise e resuma este documento."
+    None ->
+      "Você é Amélie. Analise e resuma este documento em "
+      <> config.idioma
+      <> "."
+  }
+  base <> sufixo_modo(config) <> sufixo_legenda(legenda)
+}
+

@@ -1,5 +1,11 @@
 import gleam/option.{type Option, None}
 
+pub type ModoDescricao {
+  Curto
+  Longo
+  Normal
+}
+
 pub type Config {
   Config(
     chat_id: String,
@@ -10,7 +16,9 @@ pub type Config {
     imagem_ativo: Bool,
     video_ativo: Bool,
     doc_ativo: Bool,
+    legenda_ativo: Bool,
     idioma: String,
+    modo_descricao: ModoDescricao,
   )
 }
 
@@ -24,6 +32,24 @@ pub fn padrao(chat_id: String) -> Config {
     imagem_ativo: True,
     video_ativo: True,
     doc_ativo: True,
+    legenda_ativo: False,
     idioma: "pt-BR",
+    modo_descricao: Curto,
   )
+}
+
+pub fn modo_para_string(modo: ModoDescricao) -> String {
+  case modo {
+    Curto -> "curto"
+    Longo -> "longo"
+    Normal -> "normal"
+  }
+}
+
+pub fn string_para_modo(s: String) -> ModoDescricao {
+  case s {
+    "longo" -> Longo
+    "normal" -> Normal
+    _ -> Curto
+  }
 }

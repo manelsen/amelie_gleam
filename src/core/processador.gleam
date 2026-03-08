@@ -22,13 +22,30 @@ pub fn processar(
 ) -> Result(List(Acao), Erro) {
   use msg_val <- result.try(validacao.validar_mensagem(msg))
 
-  case msg_val.corpo {
-    Texto(body) -> processar_texto(body, config, historico)
-    Comando(nome, args) -> processar_comando(nome, args, config)
-    Imagem(..) -> processar_midia(msg_val, config, MidiaImagem)
-    Audio(..) -> processar_midia(msg_val, config, MidiaAudio)
-    Video(..) -> processar_midia(msg_val, config, MidiaVideo)
-    Documento(..) -> processar_midia(msg_val, config, MidiaDocumento)
+  // Ignora mensagens do próprio bot (previne loops)
+  case validacao.e_mensagem_propria(msg_val) {
+    True -> Ok([NaoResponder])
+    False -> processar_filtrado(msg_val, config, historico)
+  }
+}
+
+fn processar_filtrado(
+  msg: Mensagem,
+  config: Config,
+  historico: List(Turno),
+) -> Result(List(Acao), Erro) {
+  // Em grupos, ignora mensagens que não mencionam o bot (exceto comandos)
+  case msg.em_grupo && !msg.menciona_bot && !mensagem.e_comando(msg) {
+    True -> Ok([NaoResponder])
+    False ->
+      case msg.corpo {
+        Texto(body) -> processar_texto(body, config, historico)
+        Comando(nome, args) -> processar_comando(nome, args, config)
+        Imagem(..) -> processar_midia(msg, config, MidiaImagem)
+        Audio(..) -> processar_midia(msg, config, MidiaAudio)
+        Video(..) -> processar_midia(msg, config, MidiaVideo)
+        Documento(..) -> processar_midia(msg, config, MidiaDocumento)
+      }
   }
 }
 
