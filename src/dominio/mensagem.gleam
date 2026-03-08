@@ -1,4 +1,4 @@
-// Tipos de domínio puros — sem efeitos, sem imports externos.
+import gleam/option.{type Option}
 
 pub type Mensagem {
   Mensagem(
@@ -7,7 +7,9 @@ pub type Mensagem {
     corpo: Conteudo,
     timestamp: Int,
     em_grupo: Bool,
+    nome_grupo: Option(String),
     menciona_bot: Bool,
+    legenda: Option(String),
   )
 }
 
