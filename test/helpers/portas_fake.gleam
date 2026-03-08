@@ -1,14 +1,18 @@
-// Portas falsas para testes — sem efeitos reais.
-
+import dominio/config
 import dominio/erro.{type Erro}
 import dominio/mensagem.{type Turno}
 import gleam/erlang/process
+import gleam/option.{None}
 import portas/config_porta.{type ConfigPorta, ConfigPorta}
+import portas/grupo_porta.{type GrupoPorta, GrupoPorta}
 import portas/historico_porta.{type HistoricoPorta, HistoricoPorta}
 import portas/ia_porta.{type IAPorta, IAPorta}
+import portas/prompt_porta.{type PromptPorta, PromptPorta}
+import portas/usuario_porta.{type UsuarioPorta, UsuarioPorta}
 import portas/whatsapp_porta.{type WhatsappPorta, WhatsappPorta}
 import shell/fila_midia
 import shell/handler_mensagem.{type Portas, Portas}
+import shell/metricas
 
 // ---------------------------------------------------------------------------
 // WhatsApp fake
@@ -106,6 +110,18 @@ pub fn config_erro(e: Erro) -> ConfigPorta {
   )
 }
 
+// Captura cada Config passado a `salvar` no Subject.
+pub fn config_capturar(ref: process.Subject(config.Config)) -> ConfigPorta {
+  ConfigPorta(
+    obter: fn(chat_id) { Ok(config.padrao(chat_id)) },
+    salvar: fn(cfg) {
+      process.send(ref, cfg)
+      Ok(Nil)
+    },
+    resetar: fn(_) { Ok(Nil) },
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Histórico fake
 // ---------------------------------------------------------------------------
@@ -130,14 +146,53 @@ pub fn historico_erro(e: Erro) -> HistoricoPorta {
   )
 }
 
+// Captura cada chat_id passado a `limpar` no Subject.
+pub fn historico_capturar_limpezas(
+  ref: process.Subject(String),
+) -> HistoricoPorta {
+  HistoricoPorta(
+    obter: fn(_) { Ok([]) },
+    adicionar: fn(_, _) { Ok(Nil) },
+    limpar: fn(chat_id) {
+      process.send(ref, chat_id)
+      Ok(Nil)
+    },
+  )
+}
+
+pub fn usuario_noop() -> UsuarioPorta {
+  UsuarioPorta(
+    registrar: fn(_cid) { Ok(Nil) },
+    contar: fn() { Ok(0) },
+    listar: fn() { Ok([]) },
+  )
+}
+
+pub fn prompt_noop() -> PromptPorta {
+  PromptPorta(
+    definir: fn(_cid, _nome, _texto) { Ok(Nil) },
+    obter: fn(_cid, _nome) { Ok(None) },
+    listar: fn(_cid) { Ok([]) },
+    excluir: fn(_cid, _nome) { Ok(Nil) },
+  )
+}
+
+pub fn grupo_noop() -> GrupoPorta {
+  GrupoPorta(registrar: fn(_cid, _nome) { Ok(Nil) }, listar: fn() { Ok([]) })
+}
+
 // ---------------------------------------------------------------------------
 // Portas completas para testes de integração
 // ---------------------------------------------------------------------------
 
 pub fn portas_ok(cfg, resposta_ia: String) -> Portas {
-  let fila = case fila_midia.iniciar() {
+  let fila = case fila_midia.iniciar_todas() {
     Ok(f) -> f
     Error(_) -> panic as "falha ao iniciar fila de mídia nos testes"
+  }
+  let met = case metricas.iniciar() {
+    Ok(m) -> m
+    Error(_) -> panic as "falha ao iniciar métricas nos testes"
   }
   Portas(
     whatsapp: whatsapp_ok(),
@@ -145,5 +200,9 @@ pub fn portas_ok(cfg, resposta_ia: String) -> Portas {
     config: config_ok(cfg),
     historico: historico_vazio(),
     fila: fila,
+    prompts: prompt_noop(),
+    metricas: met,
+    usuarios: usuario_noop(),
+    grupos: grupo_noop(),
   )
 }

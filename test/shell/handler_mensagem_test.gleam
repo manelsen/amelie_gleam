@@ -5,10 +5,17 @@ import helpers/fixtures
 import helpers/portas_fake
 import shell/fila_midia
 import shell/handler_mensagem
+import shell/metricas
+
+fn met() {
+  let assert Ok(m) = metricas.iniciar()
+  m
+}
 
 pub fn handle_texto_simples_retorna_ok_test() {
   let msg = fixtures.mensagem_texto("Olá!")
-  let portas = portas_fake.portas_ok(fixtures.config_padrao(), "Olá! Posso ajudar.")
+  let portas =
+    portas_fake.portas_ok(fixtures.config_padrao(), "Olá! Posso ajudar.")
   let result = handler_mensagem.handle(msg, portas)
   result |> should.be_ok
 }
@@ -17,7 +24,7 @@ pub fn handle_texto_envia_para_whatsapp_test() {
   let ref = process.new_subject()
   let cfg = fixtures.config_padrao()
   let msg = fixtures.mensagem_texto("teste")
-  let fila = case fila_midia.iniciar() {
+  let fila = case fila_midia.iniciar_todas() {
     Ok(f) -> f
     Error(_) -> panic as "fila"
   }
@@ -28,6 +35,10 @@ pub fn handle_texto_envia_para_whatsapp_test() {
       config: portas_fake.config_ok(cfg),
       historico: portas_fake.historico_vazio(),
       fila: fila,
+      prompts: portas_fake.prompt_noop(),
+      metricas: met(),
+      usuarios: portas_fake.usuario_noop(),
+      grupos: portas_fake.grupo_noop(),
     )
   let _ = handler_mensagem.handle(msg, portas)
   // Verifica que whatsapp recebeu a mensagem
@@ -40,7 +51,7 @@ pub fn handle_texto_envia_para_whatsapp_test() {
 
 pub fn handle_erro_config_retorna_erro_test() {
   let msg = fixtures.mensagem_texto("Olá")
-  let fila = case fila_midia.iniciar() {
+  let fila = case fila_midia.iniciar_todas() {
     Ok(f) -> f
     Error(_) -> panic as "fila"
   }
@@ -51,6 +62,10 @@ pub fn handle_erro_config_retorna_erro_test() {
       config: portas_fake.config_erro(erro.ErroBancoDados("DB offline")),
       historico: portas_fake.historico_vazio(),
       fila: fila,
+      prompts: portas_fake.prompt_noop(),
+      metricas: met(),
+      usuarios: portas_fake.usuario_noop(),
+      grupos: portas_fake.grupo_noop(),
     )
   let result = handler_mensagem.handle(msg, portas)
   result |> should.be_error
@@ -58,7 +73,7 @@ pub fn handle_erro_config_retorna_erro_test() {
 
 pub fn handle_erro_ia_retorna_erro_test() {
   let msg = fixtures.mensagem_texto("Olá")
-  let fila = case fila_midia.iniciar() {
+  let fila = case fila_midia.iniciar_todas() {
     Ok(f) -> f
     Error(_) -> panic as "fila"
   }
@@ -69,6 +84,10 @@ pub fn handle_erro_ia_retorna_erro_test() {
       config: portas_fake.config_ok(fixtures.config_padrao()),
       historico: portas_fake.historico_vazio(),
       fila: fila,
+      prompts: portas_fake.prompt_noop(),
+      metricas: met(),
+      usuarios: portas_fake.usuario_noop(),
+      grupos: portas_fake.grupo_noop(),
     )
   let result = handler_mensagem.handle(msg, portas)
   result |> should.be_error

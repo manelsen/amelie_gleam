@@ -1,9 +1,8 @@
 // Fixtures de teste — constantes compartilhadas entre todos os testes.
 
-import dominio/config.{type Config, Config}
+import dominio/config.{type Config, Config, Curto}
 import dominio/mensagem.{
-  type Mensagem, type Turno, Audio, Comando, Imagem, Mensagem, Texto,
-  TurnoAssistente, TurnoUsuario, Video,
+  type Mensagem, type Turno, Mensagem, TurnoAssistente, TurnoUsuario,
 }
 import gleam/option.{None, Some}
 
@@ -25,7 +24,9 @@ pub fn config_padrao() -> Config {
     imagem_ativo: True,
     video_ativo: True,
     doc_ativo: True,
+    legenda_ativo: False,
     idioma: "pt-BR",
+    modo_descricao: Curto,
   )
 }
 
@@ -50,10 +51,12 @@ pub fn mensagem_texto(body: String) -> Mensagem {
   Mensagem(
     chat_id: chat_id(),
     remetente: remetente(),
-    corpo: Texto(body),
+    corpo: mensagem.Texto(body),
     timestamp: 1_700_000_000,
     em_grupo: False,
+    nome_grupo: None,
     menciona_bot: False,
+    legenda: None,
   )
 }
 
@@ -61,10 +64,12 @@ pub fn mensagem_comando(nome: String, args: String) -> Mensagem {
   Mensagem(
     chat_id: chat_id(),
     remetente: remetente(),
-    corpo: Comando(nome, args),
+    corpo: mensagem.Comando(nome, args),
     timestamp: 1_700_000_000,
     em_grupo: False,
+    nome_grupo: None,
     menciona_bot: False,
+    legenda: None,
   )
 }
 
@@ -72,10 +77,12 @@ pub fn mensagem_imagem() -> Mensagem {
   Mensagem(
     chat_id: chat_id(),
     remetente: remetente(),
-    corpo: Imagem(mime: "image/jpeg", dados: <<255, 216, 255>>),
+    corpo: mensagem.Imagem(mime: "image/jpeg", dados: <<255, 216, 255>>),
     timestamp: 1_700_000_000,
     em_grupo: False,
+    nome_grupo: None,
     menciona_bot: False,
+    legenda: None,
   )
 }
 
@@ -83,10 +90,16 @@ pub fn mensagem_audio() -> Mensagem {
   Mensagem(
     chat_id: chat_id(),
     remetente: remetente(),
-    corpo: Audio(mime: "audio/ogg; codecs=opus", dados: <<79, 103, 103>>),
+    corpo: mensagem.Audio(mime: "audio/ogg; codecs=opus", dados: <<
+      79,
+      103,
+      103,
+    >>),
     timestamp: 1_700_000_000,
     em_grupo: False,
+    nome_grupo: None,
     menciona_bot: False,
+    legenda: None,
   )
 }
 
@@ -94,10 +107,12 @@ pub fn mensagem_video() -> Mensagem {
   Mensagem(
     chat_id: chat_id(),
     remetente: remetente(),
-    corpo: Video(caminho_temp: "/tmp/video.mp4", mime: "video/mp4"),
+    corpo: mensagem.Video(caminho_temp: "/tmp/video.mp4", mime: "video/mp4"),
     timestamp: 1_700_000_000,
     em_grupo: False,
+    nome_grupo: None,
     menciona_bot: False,
+    legenda: None,
   )
 }
 
