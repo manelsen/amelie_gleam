@@ -9,11 +9,21 @@ import dominio/mensagem.{type Mensagem, Audio, Documento, Imagem, Video}
 import gleam/erlang/process.{type Subject}
 import gleam/otp/actor
 import gleam/result
+import logging
 import portas/ia_porta.{type IAPorta}
 import portas/whatsapp_porta.{type WhatsappPorta}
 
 pub type FilaMidia =
   Subject(MensagemFila)
+
+pub type FilasMidia {
+  FilasMidia(
+    imagem: FilaMidia,
+    audio: FilaMidia,
+    video: FilaMidia,
+    documento: FilaMidia,
+  )
+}
 
 pub type MensagemFila {
   Enfileirar(
@@ -27,8 +37,7 @@ pub type MensagemFila {
   Parar
 }
 
-// gleam_otp 1.x — builder pattern
-pub fn iniciar() -> Result(FilaMidia, actor.StartError) {
+fn iniciar_uma() -> Result(FilaMidia, actor.StartError) {
   actor.new(Nil)
   |> actor.on_message(fn(state, msg) {
     case msg {
@@ -43,8 +52,16 @@ pub fn iniciar() -> Result(FilaMidia, actor.StartError) {
   |> result.map(fn(started) { started.data })
 }
 
+pub fn iniciar_todas() -> Result(FilasMidia, actor.StartError) {
+  use img <- result.try(iniciar_uma())
+  use aud <- result.try(iniciar_uma())
+  use vid <- result.try(iniciar_uma())
+  use doc <- result.try(iniciar_uma())
+  Ok(FilasMidia(imagem: img, audio: aud, video: vid, documento: doc))
+}
+
 pub fn enfileirar(
-  fila: FilaMidia,
+  filas: FilasMidia,
   chat_id: String,
   msg: Mensagem,
   tipo: TipoMidia,
@@ -52,6 +69,12 @@ pub fn enfileirar(
   ia: IAPorta,
   whatsapp: WhatsappPorta,
 ) -> Result(Nil, Erro) {
+  let fila = case tipo {
+    MidiaImagem -> filas.imagem
+    MidiaAudio -> filas.audio
+    MidiaVideo -> filas.video
+    MidiaDocumento -> filas.documento
+  }
   process.send(fila, Enfileirar(chat_id, msg, tipo, cfg, ia, whatsapp))
   Ok(Nil)
 }
@@ -81,8 +104,10 @@ fn processar_imagem(
 ) -> Result(Nil, Erro) {
   case msg.corpo {
     Imagem(mime: mime, dados: dados) -> {
-      let prompt = builder.montar_para_imagem(cfg)
+      logging.log(logging.Info, "[Imagem] Iniciando processamento para " <> chat_id)
+      let prompt = builder.montar_para_imagem(cfg, msg.legenda)
       use resposta <- result.try(ia.processar_imagem(dados, mime, prompt, cfg.modelo))
+      logging.log(logging.Info, "[Imagem] Concluído para " <> chat_id)
       whatsapp.enviar(chat_id, resposta)
     }
     _ -> Ok(Nil)
@@ -98,7 +123,9 @@ fn processar_audio(
 ) -> Result(Nil, Erro) {
   case msg.corpo {
     Audio(mime: mime, dados: dados) -> {
+      logging.log(logging.Info, "[Áudio] Iniciando processamento para " <> chat_id)
       use resposta <- result.try(ia.processar_audio(dados, mime, cfg.modelo))
+      logging.log(logging.Info, "[Áudio] Concluído para " <> chat_id)
       whatsapp.enviar(chat_id, resposta)
     }
     _ -> Ok(Nil)
@@ -114,11 +141,17 @@ fn processar_video(
 ) -> Result(Nil, Erro) {
   case msg.corpo {
     Video(caminho_temp: caminho, mime: mime) -> {
-      let prompt = builder.montar_para_video(cfg)
+      logging.log(logging.Info, "[Vídeo] Iniciando upload e processamento para " <> chat_id)
+      let prompt = case cfg.legenda_ativo {
+        True -> builder.montar_para_legenda(cfg)
+        False -> builder.montar_para_video(cfg, msg.legenda)
+      }
       use uri <- result.try(ia.fazer_upload_video(caminho, mime))
       use _ <- result.try(ia.aguardar_video_ativo(uri))
       use resposta <- result.try(ia.processar_video(uri, prompt, cfg.modelo))
       use _ <- result.try(ia.deletar_arquivo(uri))
+      let _ = simplifile_delete(caminho)
+      logging.log(logging.Info, "[Vídeo] Concluído para " <> chat_id)
       whatsapp.enviar(chat_id, resposta)
     }
     _ -> Ok(Nil)
@@ -134,12 +167,20 @@ fn processar_documento(
 ) -> Result(Nil, Erro) {
   case msg.corpo {
     Documento(mime: mime, dados: dados, nome: _nome) -> {
-      let prompt = builder.montar_para_audio(cfg)
+      logging.log(logging.Info, "[Doc] Iniciando processamento para " <> chat_id)
+      let prompt = builder.montar_para_documento(cfg, msg.legenda)
       use resposta <- result.try(
         ia.processar_documento(dados, mime, prompt, cfg.modelo),
       )
+      logging.log(logging.Info, "[Doc] Concluído para " <> chat_id)
       whatsapp.enviar(chat_id, resposta)
     }
     _ -> Ok(Nil)
   }
 }
+
+@external(erlang, "file", "delete")
+fn simplifile_delete(path: String) -> Result(Nil, ErlFileError)
+
+type ErlFileError
+

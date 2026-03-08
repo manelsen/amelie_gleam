@@ -1,5 +1,8 @@
 import core/processador
-import dominio/acao.{EnfileirarMidia, EnviarTexto, MidiaAudio, MidiaImagem, MidiaVideo, NaoResponder}
+import dominio/acao.{
+  EnfileirarMidia, EnviarResposta, EnviarTexto, MidiaAudio, MidiaImagem,
+  MidiaVideo, NaoResponder,
+}
 import dominio/erro
 import dominio/mensagem
 import gleam/string
@@ -37,7 +40,8 @@ pub fn processar_comando_ponto_no_texto_test() {
   let cfg = fixtures.config_padrao()
   let result = processador.processar(msg, cfg, [])
   result |> should.be_ok
-  let assert Ok([EnviarTexto(_, _)]) = result
+  // Comandos retornam EnviarResposta (direto, sem IA)
+  let assert Ok([EnviarResposta(_, _)]) = result
 }
 
 pub fn processar_imagem_ativa_test() {
@@ -86,4 +90,61 @@ pub fn processar_remetente_vazio_retorna_erro_test() {
   let cfg = fixtures.config_padrao()
   let result = processador.processar(msg, cfg, [])
   result |> should.be_error
+}
+
+// ---------------------------------------------------------------------------
+// Filtragem de mensagens próprias e de grupo
+// ---------------------------------------------------------------------------
+
+pub fn processar_mensagem_propria_retorna_nao_responder_test() {
+  // remetente terminando em ":bot" é self-message
+  let msg =
+    mensagem.Mensagem(
+      ..fixtures.mensagem_texto("echo"),
+      remetente: "bot@c.us:bot",
+    )
+  let cfg = fixtures.config_padrao()
+  let result = processador.processar(msg, cfg, [])
+  result |> should.be_ok
+  let assert Ok([acao.NaoResponder]) = result
+}
+
+pub fn processar_grupo_sem_mencao_ignora_test() {
+  let msg =
+    mensagem.Mensagem(
+      ..fixtures.mensagem_texto("Oie pessoal"),
+      em_grupo: True,
+      menciona_bot: False,
+    )
+  let cfg = fixtures.config_padrao()
+  let result = processador.processar(msg, cfg, [])
+  result |> should.be_ok
+  let assert Ok([acao.NaoResponder]) = result
+}
+
+pub fn processar_grupo_com_mencao_processa_test() {
+  let msg =
+    mensagem.Mensagem(
+      ..fixtures.mensagem_texto("@amelie como está?"),
+      em_grupo: True,
+      menciona_bot: True,
+    )
+  let cfg = fixtures.config_padrao()
+  let result = processador.processar(msg, cfg, [])
+  result |> should.be_ok
+  let assert Ok([EnviarTexto(_, _)]) = result
+}
+
+pub fn processar_grupo_comando_sem_mencao_passa_test() {
+  // Comandos (começando com ".") devem passar mesmo em grupo sem menção
+  let msg =
+    mensagem.Mensagem(
+      ..fixtures.mensagem_texto(".ajuda"),
+      em_grupo: True,
+      menciona_bot: False,
+    )
+  let cfg = fixtures.config_padrao()
+  let result = processador.processar(msg, cfg, [])
+  result |> should.be_ok
+  let assert Ok([acao.EnviarResposta(_, _)]) = result
 }
