@@ -17,6 +17,7 @@ pub fn remetente() -> String {
 pub fn config_padrao() -> Config {
   Config(
     chat_id: chat_id(),
+    provedor: "gemini",
     modelo: "gemini-2.5-flash-lite",
     historico_max: 10,
     prompt_sistema: None,

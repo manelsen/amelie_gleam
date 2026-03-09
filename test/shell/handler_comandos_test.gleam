@@ -27,7 +27,7 @@ pub fn audio_off_persiste_config_test() {
   let portas =
     Portas(
       whatsapp: portas_fake.whatsapp_ok(),
-      ia: portas_fake.ia_ok("ok"),
+      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
       config: portas_fake.config_capturar(ref),
       historico: portas_fake.historico_vazio(),
       fila: fila(),
@@ -35,6 +35,8 @@ pub fn audio_off_persiste_config_test() {
       metricas: met(),
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
+      transacoes: portas_fake.transacao_noop(),
+      providers_config: portas_fake.providers_config_ok(),
     )
   let msg = fixtures.mensagem_comando("audio", "off")
   let _ = handler_mensagem.handle(msg, portas)
@@ -48,7 +50,7 @@ pub fn audio_on_persiste_config_test() {
   let portas =
     Portas(
       whatsapp: portas_fake.whatsapp_ok(),
-      ia: portas_fake.ia_ok("ok"),
+      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
       config: portas_fake.config_capturar(ref),
       historico: portas_fake.historico_vazio(),
       fila: fila(),
@@ -56,6 +58,8 @@ pub fn audio_on_persiste_config_test() {
       metricas: met(),
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
+      transacoes: portas_fake.transacao_noop(),
+      providers_config: portas_fake.providers_config_ok(),
     )
   let msg = fixtures.mensagem_comando("audio", "on")
   let _ = handler_mensagem.handle(msg, portas)
@@ -69,7 +73,7 @@ pub fn reset_limpa_historico_test() {
   let portas =
     Portas(
       whatsapp: portas_fake.whatsapp_ok(),
-      ia: portas_fake.ia_ok("ok"),
+      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
       config: portas_fake.config_ok(fixtures.config_padrao()),
       historico: portas_fake.historico_capturar_limpezas(ref),
       fila: fila(),
@@ -77,6 +81,8 @@ pub fn reset_limpa_historico_test() {
       metricas: met(),
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
+      transacoes: portas_fake.transacao_noop(),
+      providers_config: portas_fake.providers_config_ok(),
     )
   let msg = fixtures.mensagem_comando("reset", "")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -90,7 +96,7 @@ pub fn cego_persiste_config_test() {
   let portas =
     Portas(
       whatsapp: portas_fake.whatsapp_ok(),
-      ia: portas_fake.ia_ok("ok"),
+      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
       config: portas_fake.config_capturar(ref),
       historico: portas_fake.historico_vazio(),
       fila: fila(),
@@ -98,6 +104,8 @@ pub fn cego_persiste_config_test() {
       metricas: met(),
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
+      transacoes: portas_fake.transacao_noop(),
+      providers_config: portas_fake.providers_config_ok(),
     )
   let msg = fixtures.mensagem_comando("cego", "")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -107,45 +115,6 @@ pub fn cego_persiste_config_test() {
   nova_cfg.audio_ativo |> should.be_false
 }
 
-pub fn prompt_novo_persiste_config_test() {
-  let ref = process.new_subject()
-  let portas =
-    Portas(
-      whatsapp: portas_fake.whatsapp_ok(),
-      ia: portas_fake.ia_ok("ok"),
-      config: portas_fake.config_capturar(ref),
-      historico: portas_fake.historico_vazio(),
-      fila: fila(),
-      prompts: portas_fake.prompt_noop(),
-      metricas: met(),
-      usuarios: portas_fake.usuario_noop(),
-      grupos: portas_fake.grupo_noop(),
-    )
-  let msg = fixtures.mensagem_comando("prompt", "Seja concisa.")
-  handler_mensagem.handle(msg, portas) |> should.be_ok
-
-  let assert Ok(nova_cfg): Result(config.Config, _) = process.receive(ref, 1000)
-  let assert option.Some(p) = nova_cfg.prompt_sistema
-  p |> should.equal("Seja concisa.")
-}
-
-pub fn comando_envia_direto_sem_chamar_ia_test() {
-  let portas =
-    Portas(
-      whatsapp: portas_fake.whatsapp_ok(),
-      ia: portas_fake.ia_erro(erro.ErroIA("não deveria ser chamada")),
-      config: portas_fake.config_ok(fixtures.config_padrao()),
-      historico: portas_fake.historico_vazio(),
-      fila: fila(),
-      prompts: portas_fake.prompt_noop(),
-      metricas: met(),
-      usuarios: portas_fake.usuario_noop(),
-      grupos: portas_fake.grupo_noop(),
-    )
-  let msg = fixtures.mensagem_comando("ajuda", "")
-  handler_mensagem.handle(msg, portas) |> should.be_ok
-}
-
 // Testes para novos comandos
 
 pub fn longo_persiste_config_test() {
@@ -153,7 +122,7 @@ pub fn longo_persiste_config_test() {
   let portas =
     Portas(
       whatsapp: portas_fake.whatsapp_ok(),
-      ia: portas_fake.ia_ok("ok"),
+      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
       config: portas_fake.config_capturar(ref),
       historico: portas_fake.historico_vazio(),
       fila: fila(),
@@ -161,6 +130,8 @@ pub fn longo_persiste_config_test() {
       metricas: met(),
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
+      transacoes: portas_fake.transacao_noop(),
+      providers_config: portas_fake.providers_config_ok(),
     )
   let msg = fixtures.mensagem_comando("longo", "")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -174,7 +145,7 @@ pub fn curto_persiste_config_test() {
   let portas =
     Portas(
       whatsapp: portas_fake.whatsapp_ok(),
-      ia: portas_fake.ia_ok("ok"),
+      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
       config: portas_fake.config_capturar(ref),
       historico: portas_fake.historico_vazio(),
       fila: fila(),
@@ -182,6 +153,8 @@ pub fn curto_persiste_config_test() {
       metricas: met(),
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
+      transacoes: portas_fake.transacao_noop(),
+      providers_config: portas_fake.providers_config_ok(),
     )
   let msg = fixtures.mensagem_comando("curto", "")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -195,7 +168,7 @@ pub fn legenda_on_persiste_config_test() {
   let portas =
     Portas(
       whatsapp: portas_fake.whatsapp_ok(),
-      ia: portas_fake.ia_ok("ok"),
+      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
       config: portas_fake.config_capturar(ref),
       historico: portas_fake.historico_vazio(),
       fila: fila(),
@@ -203,6 +176,8 @@ pub fn legenda_on_persiste_config_test() {
       metricas: met(),
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
+      transacoes: portas_fake.transacao_noop(),
+      providers_config: portas_fake.providers_config_ok(),
     )
   let msg = fixtures.mensagem_comando("legenda", "on")
   handler_mensagem.handle(msg, portas) |> should.be_ok
