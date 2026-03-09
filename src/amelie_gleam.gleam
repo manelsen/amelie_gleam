@@ -2,10 +2,14 @@ import adaptadores/config_sqlite
 import adaptadores/gemini_http
 import adaptadores/grupo_sqlite
 import adaptadores/historico_sqlite
+import adaptadores/openrouter_http
 import adaptadores/prompt_sqlite
+import adaptadores/transacao_sqlite
 import adaptadores/usuario_sqlite
 import adaptadores/whatsmeow_http
+import core/ia_dispatcher
 import dominio/mensagem.{type Mensagem, Mensagem, Texto}
+import dominio/providers_config
 import gleam/bit_array
 import gleam/bytes_tree
 import gleam/dynamic/decode
@@ -14,11 +18,12 @@ import gleam/http/request.{type Request}
 import gleam/http/response
 import gleam/int
 import gleam/json
-import gleam/result
 import gleam/option
+import gleam/result
 import gleam/string
 import mist.{type Connection, type ResponseData}
 import shell/fila_midia
+import shell/fila_offline
 import shell/handler_mensagem.{type Portas, Portas}
 import shell/metricas
 import sqlight
@@ -36,11 +41,14 @@ fn get_env(name: String) -> Result(String, Nil)
 pub fn main() {
   dot_env.new()
   |> dot_env.load
-  
+
   logging.configure()
 
-  let api_key =
+  let gemini_api_key =
     get_env("GEMINI_API_KEY")
+    |> result.unwrap(or: "")
+  let openrouter_api_key =
+    get_env("OPENROUTER_API_KEY")
     |> result.unwrap(or: "")
   let bridge_url =
     get_env("WHATSMEOW_URL")
@@ -51,19 +59,36 @@ pub fn main() {
   let port_str =
     get_env("PORT")
     |> result.unwrap(or: "4000")
+  let offline_retry_interval_str =
+    get_env("OFFLINE_RETRY_INTERVAL_MS")
+    |> result.unwrap(or: "30000")
   let port =
     int.parse(port_str)
     |> result.unwrap(or: 4000)
+  let offline_retry_interval_ms =
+    int.parse(offline_retry_interval_str)
+    |> result.unwrap(or: 30000)
+
+  let providers_config = case
+    providers_config.ler_arquivo("./config/providers.yaml")
+  {
+    Ok(cfg) -> cfg
+    Error(_) -> providers_config.padrao()
+  }
 
   use conn <- sqlight.with_connection(db_path)
 
-  let ia = gemini_http.criar(api_key)
+  let gemini_ia = gemini_http.criar(gemini_api_key)
+  let openrouter_ia = openrouter_http.criar(openrouter_api_key)
+  let ia_dispatcher =
+    ia_dispatcher.IADispatcher(gemini: gemini_ia, openrouter: openrouter_ia)
   let whatsapp = whatsmeow_http.criar(bridge_url)
   let config_p = config_sqlite.criar(conn)
   let historico_p = historico_sqlite.criar(conn)
   let prompts_p = prompt_sqlite.criar(conn)
   let usuarios_p = usuario_sqlite.criar(conn)
   let grupos_p = grupo_sqlite.criar(conn)
+  let transacoes_p = transacao_sqlite.criar(conn)
 
   let fila = case fila_midia.iniciar_todas() {
     Ok(f) -> f
@@ -75,10 +100,20 @@ pub fn main() {
     Error(_) -> panic as "falha ao iniciar métricas"
   }
 
+  let fila_offline_actor = case fila_offline.iniciar(transacoes_p, whatsapp, 3) {
+    Ok(f) -> f
+    Error(_) -> panic as "falha ao iniciar fila offline"
+  }
+  let _ =
+    fila_offline.agendar_processamento(
+      fila_offline_actor,
+      offline_retry_interval_ms,
+    )
+
   let portas =
     Portas(
       whatsapp: whatsapp,
-      ia: ia,
+      ia_dispatcher: ia_dispatcher,
       config: config_p,
       historico: historico_p,
       fila: fila,
@@ -86,6 +121,8 @@ pub fn main() {
       metricas: metricas_actor,
       usuarios: usuarios_p,
       grupos: grupos_p,
+      transacoes: transacoes_p,
+      providers_config: providers_config,
     )
 
   let assert Ok(_) =
@@ -154,7 +191,7 @@ fn mensagem_decoder() -> decode.Decoder(Mensagem) {
     option.None,
     decode.string |> decode.map(option.Some),
   )
-  
+
   use tipo <- decode.optional_field("tipo", "texto", decode.string)
   use mime <- decode.optional_field("mime", "", decode.string)
   use dados <- decode.optional_field("dados", "", decode.string)

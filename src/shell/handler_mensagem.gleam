@@ -1,11 +1,12 @@
 // Shell — executa os efeitos prescritos pelo core.
 // Este módulo tem side effects: chama portas, grava histórico.
 
+import core/ia_dispatcher
 import core/processador
 import dominio/acao.{
   AtivarPrompt, ConsultarMetricas, EnfileirarMidia, EnviarReacao, EnviarResposta,
   EnviarTexto, ExcluirPrompt, LimparHistorico, ListarGrupos, ListarPrompts,
-  ListarUsuarios, NaoResponder, SalvarConfig, SalvarPrompt,
+  ListarUsuarios, NaoResponder, SalvarConfig, SalvarPrompt, SnapshotHistorico,
 }
 import dominio/config
 import dominio/erro.{type Erro}
@@ -13,6 +14,8 @@ import dominio/mensagem.{
   type Mensagem, type Turno, Audio, Documento, Imagem, Texto, TurnoAssistente,
   TurnoUsuario, Video,
 }
+import dominio/providers_config.{type ProvidersConfig}
+import gleam/int
 import gleam/list
 import gleam/option
 import gleam/result
@@ -21,17 +24,18 @@ import logging
 import portas/config_porta.{type ConfigPorta}
 import portas/grupo_porta.{type GrupoPorta}
 import portas/historico_porta.{type HistoricoPorta}
-import portas/ia_porta.{type IAPorta}
 import portas/prompt_porta.{type PromptPorta}
+import portas/transacao_porta.{type TransacaoPorta}
 import portas/usuario_porta.{type UsuarioPorta}
 import portas/whatsapp_porta.{type WhatsappPorta}
+import shell/entrega_auditada
 import shell/fila_midia.{type FilasMidia}
 import shell/metricas.{type Metricas}
 
 pub type Portas {
   Portas(
     whatsapp: WhatsappPorta,
-    ia: IAPorta,
+    ia_dispatcher: ia_dispatcher.IADispatcher,
     config: ConfigPorta,
     historico: HistoricoPorta,
     fila: FilasMidia,
@@ -39,6 +43,8 @@ pub type Portas {
     metricas: Metricas,
     usuarios: UsuarioPorta,
     grupos: GrupoPorta,
+    transacoes: TransacaoPorta,
+    providers_config: ProvidersConfig,
   )
 }
 
@@ -108,8 +114,21 @@ fn executar_acao(
     // O core montou o prompt no corpo de EnviarTexto — o shell chama a IA.
     EnviarTexto(para, prompt) -> {
       logging.log(logging.Info, "Enviando texto gerado pela IA para " <> para)
-      use resposta <- result.try(portas.ia.gerar_texto(prompt, hist, cfg.modelo))
-      use _ <- result.try(portas.whatsapp.enviar(para, resposta))
+      use resposta <- result.try(ia_dispatcher.gerar_texto(
+        portas.ia_dispatcher,
+        prompt,
+        hist,
+        cfg.provedor,
+        cfg.modelo,
+      ))
+      use _ <- result.try(entrega_auditada.enviar(
+        para,
+        "amelie",
+        "ia_texto",
+        resposta,
+        portas.whatsapp,
+        portas.transacoes,
+      ))
       use _ <- result.try(portas.historico.adicionar(
         msg.chat_id,
         TurnoUsuario(extrair_texto_usuario(msg)),
@@ -119,10 +138,25 @@ fn executar_acao(
 
     EnviarResposta(para, corpo) -> {
       logging.log(logging.Info, "Enviando resposta direta para " <> para)
-      portas.whatsapp.enviar(para, corpo)
+      entrega_auditada.enviar(
+        para,
+        "amelie",
+        "texto",
+        corpo,
+        portas.whatsapp,
+        portas.transacoes,
+      )
     }
 
-    EnviarReacao(para, emoji) -> portas.whatsapp.enviar(para, emoji)
+    EnviarReacao(para, emoji) ->
+      entrega_auditada.enviar(
+        para,
+        "amelie",
+        "reacao",
+        emoji,
+        portas.whatsapp,
+        portas.transacoes,
+      )
 
     SalvarConfig(nova_cfg) -> portas.config.salvar(nova_cfg)
 
@@ -133,14 +167,21 @@ fn executar_acao(
         logging.Info,
         "Enfileirando mídia para processamento no chat " <> chat_id,
       )
+      let ia_porta =
+        ia_dispatcher.como_porta(ia_dispatcher.IADispatcherPorta(
+          dispatcher: portas.ia_dispatcher,
+          provedor: cfg.provedor,
+          modelo: cfg.modelo,
+        ))
       fila_midia.enfileirar(
         portas.fila,
         chat_id,
         msg,
         tipo,
         cfg,
-        portas.ia,
+        ia_porta,
         portas.whatsapp,
+        portas.transacoes,
       )
     }
 
@@ -155,12 +196,23 @@ fn executar_acao(
         option.Some(texto) -> {
           let nova = config.Config(..cfg, prompt_sistema: option.Some(texto))
           use _ <- result.try(portas.config.salvar(nova))
-          portas.whatsapp.enviar(chat_id, "Prompt `" <> nome <> "` ativado.")
+          entrega_auditada.enviar(
+            chat_id,
+            "amelie",
+            "texto",
+            "Prompt `" <> nome <> "` ativado.",
+            portas.whatsapp,
+            portas.transacoes,
+          )
         }
         option.None ->
-          portas.whatsapp.enviar(
+          entrega_auditada.enviar(
             chat_id,
+            "amelie",
+            "texto",
             "Prompt `" <> nome <> "` não encontrado.",
+            portas.whatsapp,
+            portas.transacoes,
           )
       }
     }
@@ -173,12 +225,26 @@ fn executar_acao(
           "*Prompts salvos:*\n\n"
           <> string.join(list.map(nomes, fn(n) { "- `" <> n <> "`" }), "\n")
       }
-      portas.whatsapp.enviar(chat_id, texto)
+      entrega_auditada.enviar(
+        chat_id,
+        "amelie",
+        "texto",
+        texto,
+        portas.whatsapp,
+        portas.transacoes,
+      )
     }
 
     ConsultarMetricas(chat_id) -> {
       let estado = metricas.consultar(portas.metricas)
-      portas.whatsapp.enviar(chat_id, metricas.formatar(estado))
+      entrega_auditada.enviar(
+        chat_id,
+        "amelie",
+        "texto",
+        metricas.formatar(estado),
+        portas.whatsapp,
+        portas.transacoes,
+      )
     }
 
     ListarUsuarios(chat_id) -> {
@@ -188,7 +254,14 @@ fn executar_acao(
         Ok(usrs) -> "👥 Usuários ativos:\n" <> string.join(usrs, "\n")
         Error(_) -> "Vazio ou Erro"
       }
-      portas.whatsapp.enviar(chat_id, msg_users)
+      entrega_auditada.enviar(
+        chat_id,
+        "amelie",
+        "texto",
+        msg_users,
+        portas.whatsapp,
+        portas.transacoes,
+      )
     }
 
     ListarGrupos(chat_id) -> {
@@ -196,7 +269,73 @@ fn executar_acao(
         Ok(grps) -> "👥 Grupos ativos:\n" <> string.join(grps, "\n")
         Error(_) -> "Vazio ou Erro"
       }
-      portas.whatsapp.enviar(chat_id, msg_grupos)
+      entrega_auditada.enviar(
+        chat_id,
+        "amelie",
+        "texto",
+        msg_grupos,
+        portas.whatsapp,
+        portas.transacoes,
+      )
+    }
+
+    SnapshotHistorico(chat_id) -> {
+      logging.log(
+        logging.Info,
+        "Fazendo snapshot do histórico do chat " <> chat_id,
+      )
+      use hist <- result.try(portas.historico.obter(chat_id))
+
+      case list.length(hist) > 50 {
+        True -> {
+          let prompt =
+            "Resuma esta conversa de forma concisa, mantendo os pontos importantes:"
+          let historia_texto =
+            hist
+            |> list.map(fn(t) {
+              case t {
+                TurnoUsuario(c) -> "Usuário: " <> c
+                TurnoAssistente(c) -> "Assistente: " <> c
+              }
+            })
+            |> string.join("\n")
+
+          use resumo <- result.try(ia_dispatcher.gerar_texto(
+            portas.ia_dispatcher,
+            prompt <> "\n\n" <> historia_texto,
+            [],
+            "gemini",
+            "gemini-2.5-flash-lite",
+          ))
+
+          use _ <- result.try(portas.historico.limpar(chat_id))
+          use _ <- result.try(portas.historico.adicionar(
+            chat_id,
+            TurnoUsuario(resumo),
+          ))
+
+          entrega_auditada.enviar(
+            chat_id,
+            "amelie",
+            "texto",
+            "🗃️ Histórico compactado com sucesso!",
+            portas.whatsapp,
+            portas.transacoes,
+          )
+        }
+        False -> {
+          entrega_auditada.enviar(
+            chat_id,
+            "amelie",
+            "texto",
+            "📊 Histórico não precisa de compactação ("
+              <> int.to_string(list.length(hist))
+              <> " mensagens).",
+            portas.whatsapp,
+            portas.transacoes,
+          )
+        }
+      }
     }
 
     NaoResponder -> Ok(Nil)
