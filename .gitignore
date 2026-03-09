@@ -9,6 +9,9 @@ manifest.toml
 *.sqlite-journal
 db/
 
+# whatsmeow-bridge database
+whatsmeow-bridge/db/
+
 # Variáveis de ambiente
 .env
 
@@ -24,3 +27,4 @@ tmp/
 .vscode/
 *.swp
 *.swo
+erl_crash.dump
