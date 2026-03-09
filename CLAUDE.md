@@ -4,10 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Amélie is a WhatsApp bot written in Gleam (targeting the BEAM/Erlang runtime). It receives webhook events from a `whatsmeow` Go bridge, processes them through a pure functional core, and responds via Google Gemini AI.
+Amélie is a WhatsApp bot written in Gleam (targeting the BEAM/Erlang runtime). It receives webhook events from a `whatsmeow` Go bridge (included in `whatsmeow-bridge/`), processes them through a pure functional core, and responds via Google Gemini AI.
+
+**Structure:**
+- `src/` - Gleam code (functional core)
+- `whatsmeow-bridge/` - Go bridge for WhatsApp connection
+- `docker-compose.yml` - Orchestrate both services
+- `DEPLOYMENT.md` - Full deployment guide
 
 ## Commands
 
+### Development
 ```bash
 # Build
 gleam build
@@ -15,9 +22,23 @@ gleam build
 # Run tests
 gleam test
 
-# Run the bot (requires env vars)
+# Run the Gleam app only (requires bridge running separately)
 GEMINI_API_KEY=... WHATSMEOW_URL=http://localhost:8080 DB_PATH=./db/amelie.sqlite PORT=4000 gleam run
 ```
+
+### Production (Docker Compose)
+```bash
+# Build and start both services (bridge + Gleam app)
+docker-compose up -d --build
+
+# View logs
+docker-compose logs -f
+
+# Stop
+docker-compose down
+```
+
+**See `DEPLOYMENT.md` for full deployment guide.**
 
 ## Environment Variables
 
