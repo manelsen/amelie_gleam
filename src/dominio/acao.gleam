@@ -23,6 +23,8 @@ pub type Acao {
   ConsultarMetricas(chat_id: String)
   ListarUsuarios(chat_id: String)
   ListarGrupos(chat_id: String)
+  // Manutenção
+  SnapshotHistorico(chat_id: String)
   NaoResponder
 }
 
@@ -32,4 +34,3 @@ pub type TipoMidia {
   MidiaVideo
   MidiaDocumento
 }
-
