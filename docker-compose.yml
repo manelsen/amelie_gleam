@@ -1,0 +1,20 @@
+services:
+  amelie:
+    build: .
+    container_name: amelie
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - TZ=America/Sao_Paulo
+      - DB_PATH=/data/amelie.sqlite
+      - BRIDGE_DB_PATH=/data/bridge/whatsapp.db
+    volumes:
+      - ./db:/data
+    ports:
+      - "4001:4000"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,13 +1,17 @@
+import core/ia_dispatcher
 import dominio/config
 import dominio/erro.{type Erro}
 import dominio/mensagem.{type Turno}
+import dominio/providers_config
+import dominio/transacao
 import gleam/erlang/process
-import gleam/option.{None}
+import gleam/option.{None, Some}
 import portas/config_porta.{type ConfigPorta, ConfigPorta}
 import portas/grupo_porta.{type GrupoPorta, GrupoPorta}
 import portas/historico_porta.{type HistoricoPorta, HistoricoPorta}
 import portas/ia_porta.{type IAPorta, IAPorta}
 import portas/prompt_porta.{type PromptPorta, PromptPorta}
+import portas/transacao_porta.{type TransacaoPorta, TransacaoPorta}
 import portas/usuario_porta.{type UsuarioPorta, UsuarioPorta}
 import portas/whatsapp_porta.{type WhatsappPorta, WhatsappPorta}
 import shell/fila_midia
@@ -19,20 +23,35 @@ import shell/metricas
 // ---------------------------------------------------------------------------
 
 pub fn whatsapp_ok() -> WhatsappPorta {
-  WhatsappPorta(enviar: fn(_, _) { Ok(Nil) })
+  WhatsappPorta(
+    enviar: fn(_, _) { Ok(Nil) },
+    enviar_citando: fn(_, _, _, _) { Ok(Nil) },
+    reagir: fn(_, _, _, _) { Ok(Nil) },
+  )
 }
 
 pub fn whatsapp_capturar(
   ref: process.Subject(#(String, String)),
 ) -> WhatsappPorta {
-  WhatsappPorta(enviar: fn(chat_id, texto) {
-    process.send(ref, #(chat_id, texto))
-    Ok(Nil)
-  })
+  WhatsappPorta(
+    enviar: fn(chat_id, texto) {
+      process.send(ref, #(chat_id, texto))
+      Ok(Nil)
+    },
+    enviar_citando: fn(chat_id, _quoted_id, _quoted_sender, texto) {
+      process.send(ref, #(chat_id, texto))
+      Ok(Nil)
+    },
+    reagir: fn(_, _, _, _) { Ok(Nil) },
+  )
 }
 
 pub fn whatsapp_erro(e: Erro) -> WhatsappPorta {
-  WhatsappPorta(enviar: fn(_, _) { Error(e) })
+  WhatsappPorta(
+    enviar: fn(_, _) { Error(e) },
+    enviar_citando: fn(_, _, _, _) { Error(e) },
+    reagir: fn(_, _, _, _) { Error(e) },
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -88,6 +107,17 @@ pub fn ia_capturar_prompt(ref: process.Subject(String)) -> IAPorta {
     aguardar_video_ativo: fn(_) { Ok(Nil) },
     deletar_arquivo: fn(_) { Ok(Nil) },
   )
+}
+
+pub fn ia_dispatcher_ok(resposta: String) -> ia_dispatcher.IADispatcher {
+  ia_dispatcher.IADispatcher(
+    gemini: ia_ok(resposta),
+    openrouter: ia_ok(resposta),
+  )
+}
+
+pub fn ia_dispatcher_erro(e: Erro) -> ia_dispatcher.IADispatcher {
+  ia_dispatcher.IADispatcher(gemini: ia_erro(e), openrouter: ia_erro(e))
 }
 
 // ---------------------------------------------------------------------------
@@ -160,6 +190,10 @@ pub fn historico_capturar_limpezas(
   )
 }
 
+pub fn providers_config_ok() -> providers_config.ProvidersConfig {
+  providers_config.padrao()
+}
+
 pub fn usuario_noop() -> UsuarioPorta {
   UsuarioPorta(
     registrar: fn(_cid) { Ok(Nil) },
@@ -181,6 +215,73 @@ pub fn grupo_noop() -> GrupoPorta {
   GrupoPorta(registrar: fn(_cid, _nome) { Ok(Nil) }, listar: fn() { Ok([]) })
 }
 
+pub fn transacao_noop() -> TransacaoPorta {
+  TransacaoPorta(
+    registrar: fn(tx) {
+      Ok(transacao.Transacao(
+        id: Some(1),
+        chat_id: tx.chat_id,
+        remetente: tx.remetente,
+        tipo: tx.tipo,
+        conteudo: tx.conteudo,
+        status: tx.status,
+        criado_em: tx.criado_em,
+        atualizado_em: tx.atualizado_em,
+        tentativas: tx.tentativas,
+        erro: tx.erro,
+      ))
+    },
+    atualizar_status: fn(_, _) { Ok(Nil) },
+    atualizar_erro: fn(_, _, _) { Ok(Nil) },
+    obter_pendentes: fn() { Ok([]) },
+    obter_por_chat: fn(_) { Ok([]) },
+    marcar_entregue: fn(_) { Ok(Nil) },
+    limpar_antigas: fn() { Ok(Nil) },
+  )
+}
+
+pub type EventoTransacao {
+  Registrada(transacao.Transacao)
+  ErroAtualizado(id: Int, mensagem: String, tentativas: Int)
+  MarcadaEntregue(id: Int)
+}
+
+pub fn transacao_capturar(
+  ref: process.Subject(EventoTransacao),
+) -> TransacaoPorta {
+  TransacaoPorta(
+    registrar: fn(tx) {
+      let registrada =
+        transacao.Transacao(
+          id: Some(1),
+          chat_id: tx.chat_id,
+          remetente: tx.remetente,
+          tipo: tx.tipo,
+          conteudo: tx.conteudo,
+          status: tx.status,
+          criado_em: tx.criado_em,
+          atualizado_em: tx.atualizado_em,
+          tentativas: tx.tentativas,
+          erro: tx.erro,
+        )
+      process.send(ref, Registrada(registrada))
+      Ok(registrada)
+    },
+    atualizar_status: fn(_, _) { Ok(Nil) },
+    atualizar_erro: fn(id, mensagem, tentativas) {
+      process.send(ref, ErroAtualizado(id, mensagem, tentativas))
+      Ok(Nil)
+    },
+    obter_pendentes: fn() { Ok([]) },
+    obter_por_chat: fn(_) { Ok([]) },
+    marcar_entregue: fn(id) {
+      process.send(ref, MarcadaEntregue(id))
+      Ok(Nil)
+    },
+    limpar_antigas: fn() { Ok(Nil) },
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Portas completas para testes de integração
 // ---------------------------------------------------------------------------
@@ -196,7 +297,7 @@ pub fn portas_ok(cfg, resposta_ia: String) -> Portas {
   }
   Portas(
     whatsapp: whatsapp_ok(),
-    ia: ia_ok(resposta_ia),
+    ia_dispatcher: ia_dispatcher_ok(resposta_ia),
     config: config_ok(cfg),
     historico: historico_vazio(),
     fila: fila,
@@ -204,5 +305,7 @@ pub fn portas_ok(cfg, resposta_ia: String) -> Portas {
     metricas: met,
     usuarios: usuario_noop(),
     grupos: grupo_noop(),
+    transacoes: transacao_noop(),
+    providers_config: providers_config.padrao(),
   )
 }

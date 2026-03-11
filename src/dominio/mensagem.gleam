@@ -4,6 +4,7 @@ pub type Mensagem {
   Mensagem(
     chat_id: String,
     remetente: String,
+    message_id: Option(String),
     corpo: Conteudo,
     timestamp: Int,
     em_grupo: Bool,

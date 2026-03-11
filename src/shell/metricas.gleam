@@ -72,7 +72,7 @@ pub fn consultar(metricas: Metricas) -> Estado {
 }
 
 pub fn formatar(estado: Estado) -> String {
-  "*Status das Filas*\n\n"
+  "*Métricas*\n\n"
   <> "Mensagens processadas: `"
   <> int.to_string(estado.mensagens)
   <> "`\n"
@@ -91,8 +91,27 @@ pub fn formatar(estado: Estado) -> String {
   <> "`\n"
   <> "- Documentos: `"
   <> int.to_string(estado.documentos)
+  <> "`\n\n"
+  <> "*BEAM:*\n"
+  <> "- Memória total: `"
+  <> int.to_string(memoria_total_mb())
+  <> " MB`\n"
+  <> "- Memória processos: `"
+  <> int.to_string(memoria_processos_mb())
+  <> " MB`\n"
+  <> "- Processos ativos: `"
+  <> int.to_string(contagem_processos())
   <> "`"
 }
+
+@external(erlang, "amelie_gleam_ffi", "memoria_total_mb")
+fn memoria_total_mb() -> Int
+
+@external(erlang, "amelie_gleam_ffi", "memoria_processos_mb")
+fn memoria_processos_mb() -> Int
+
+@external(erlang, "amelie_gleam_ffi", "contagem_processos")
+fn contagem_processos() -> Int
 
 fn incrementar(state: Estado, tipo: TipoContador) -> Estado {
   case tipo {

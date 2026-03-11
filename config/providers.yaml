@@ -1,0 +1,18 @@
+providers:
+  gemini:
+    name: "Google Gemini"
+    models:
+      - "gemini-2.5-flash-lite"
+      - "gemini-2.5-pro"
+      - "gemini-1.5-flash"
+      - "gemini-1.5-pro"
+
+  openrouter:
+    name: "OpenRouter"
+    models:
+      - "anthropic/claude-3.5-sonnet"
+      - "anthropic/claude-3.5-haiku"
+      - "openai/gpt-4o"
+      - "openai/gpt-4o-mini"
+      - "google/gemini-pro-1.5"
+      - "meta-llama/llama-3.1-405b-instruct"

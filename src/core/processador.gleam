@@ -5,15 +5,18 @@ import core/comando/dispatcher
 import core/prompt/builder
 import core/validacao
 import dominio/acao.{
-  type Acao, EnfileirarMidia, EnviarTexto, NaoResponder, MidiaAudio,
-  MidiaDocumento, MidiaImagem, MidiaVideo,
+  type Acao, BuscarUrlEResponder, EnfileirarMidia, EnviarTexto, MidiaAudio,
+  MidiaDocumento, MidiaImagem, MidiaVideo, NaoResponder,
 }
 import dominio/config.{type Config}
 import dominio/erro.{type Erro}
 import dominio/mensagem.{
   type Mensagem, type Turno, Audio, Comando, Documento, Imagem, Texto, Video,
 }
+import gleam/list
+import gleam/option
 import gleam/result
+import gleam/string
 
 pub fn processar(
   msg: Mensagem,
@@ -59,12 +62,32 @@ fn processar_texto(
     Ok(#(nome, args)) -> processar_comando(nome, args, config)
     Error(_) -> {
       use texto_val <- result.try(validacao.validar_texto(body))
-      let prompt = builder.montar(texto_val, config, historico)
-      // Nota: a chamada à IA é efeito — o core retorna o prompt montado
-      // e o shell chama a IA com ele.
-      Ok([EnviarTexto(para: config.chat_id, corpo: prompt)])
+      case extrair_url(texto_val) {
+        option.Some(url) ->
+          Ok([
+            BuscarUrlEResponder(
+              para: config.chat_id,
+              texto: texto_val,
+              url: url,
+            ),
+          ])
+        option.None -> {
+          let prompt = builder.montar(texto_val, config, historico)
+          Ok([EnviarTexto(para: config.chat_id, corpo: prompt)])
+        }
+      }
     }
   }
+}
+
+fn extrair_url(texto: String) -> option.Option(String) {
+  texto
+  |> string.split(" ")
+  |> list.find(fn(palavra) {
+    string.starts_with(palavra, "https://")
+    || string.starts_with(palavra, "http://")
+  })
+  |> option.from_result
 }
 
 fn processar_comando(

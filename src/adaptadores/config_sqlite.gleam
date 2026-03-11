@@ -11,6 +11,7 @@ import sqlight
 
 const schema = "CREATE TABLE IF NOT EXISTS configs (
   chat_id TEXT PRIMARY KEY,
+  provedor TEXT NOT NULL DEFAULT 'gemini',
   modelo TEXT NOT NULL DEFAULT 'gemini-2.5-flash-lite',
   historico_max INTEGER NOT NULL DEFAULT 50,
   prompt_sistema TEXT NOT NULL DEFAULT '',
@@ -34,12 +35,19 @@ pub fn criar(conn: sqlight.Connection) -> ConfigPorta {
 
 fn obter(conn: sqlight.Connection, chat_id: String) -> Result(Config, Erro) {
   let sql =
-    "SELECT chat_id, modelo, historico_max, prompt_sistema,
+    "SELECT chat_id, provedor, modelo, historico_max, prompt_sistema,
             audio_ativo, imagem_ativo, video_ativo, doc_ativo,
             legenda_ativo, idioma, modo_descricao
      FROM configs WHERE chat_id = ?"
 
-  case sqlight.query(sql, on: conn, with: [sqlight.text(chat_id)], expecting: config_decoder()) {
+  case
+    sqlight.query(
+      sql,
+      on: conn,
+      with: [sqlight.text(chat_id)],
+      expecting: config_decoder(),
+    )
+  {
     Ok([cfg, ..]) -> Ok(cfg)
     Ok([]) -> inserir_padrao(conn, chat_id)
     Error(e) -> Error(erro.ErroBancoDados(e.message))
@@ -48,18 +56,20 @@ fn obter(conn: sqlight.Connection, chat_id: String) -> Result(Config, Erro) {
 
 fn config_decoder() -> decode.Decoder(Config) {
   use chat_id <- decode.then(decode.at([0], decode.string))
-  use modelo <- decode.then(decode.at([1], decode.string))
-  use hist_max <- decode.then(decode.at([2], decode.int))
-  use prompt_str <- decode.then(decode.at([3], decode.string))
-  use audio <- decode.then(decode.at([4], decode.int))
-  use imagem <- decode.then(decode.at([5], decode.int))
-  use video <- decode.then(decode.at([6], decode.int))
-  use doc <- decode.then(decode.at([7], decode.int))
-  use legenda <- decode.then(decode.at([8], decode.int))
-  use idioma <- decode.then(decode.at([9], decode.string))
-  use modo_str <- decode.then(decode.at([10], decode.string))
+  use provedor <- decode.then(decode.at([1], decode.string))
+  use modelo <- decode.then(decode.at([2], decode.string))
+  use hist_max <- decode.then(decode.at([3], decode.int))
+  use prompt_str <- decode.then(decode.at([4], decode.string))
+  use audio <- decode.then(decode.at([5], decode.int))
+  use imagem <- decode.then(decode.at([6], decode.int))
+  use video <- decode.then(decode.at([7], decode.int))
+  use doc <- decode.then(decode.at([8], decode.int))
+  use legenda <- decode.then(decode.at([9], decode.int))
+  use idioma <- decode.then(decode.at([10], decode.string))
+  use modo_str <- decode.then(decode.at([11], decode.string))
   decode.success(Config(
     chat_id: chat_id,
+    provedor: provedor,
     modelo: modelo,
     historico_max: hist_max,
     prompt_sistema: case string.trim(prompt_str) {
@@ -76,7 +86,10 @@ fn config_decoder() -> decode.Decoder(Config) {
   ))
 }
 
-fn inserir_padrao(conn: sqlight.Connection, chat_id: String) -> Result(Config, Erro) {
+fn inserir_padrao(
+  conn: sqlight.Connection,
+  chat_id: String,
+) -> Result(Config, Erro) {
   let cfg = config.padrao(chat_id)
   use _ <- result.try(salvar(conn, cfg))
   Ok(cfg)
@@ -85,11 +98,12 @@ fn inserir_padrao(conn: sqlight.Connection, chat_id: String) -> Result(Config, E
 fn salvar(conn: sqlight.Connection, cfg: Config) -> Result(Nil, Erro) {
   let sql =
     "INSERT INTO configs
-       (chat_id, modelo, historico_max, prompt_sistema,
-        audio_ativo, imagem_ativo, video_ativo, doc_ativo,
-        legenda_ativo, idioma, modo_descricao)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       (chat_id, provedor, modelo, historico_max, prompt_sistema,
+         audio_ativo, imagem_ativo, video_ativo, doc_ativo,
+         legenda_ativo, idioma, modo_descricao)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(chat_id) DO UPDATE SET
+       provedor = excluded.provedor,
        modelo = excluded.modelo,
        historico_max = excluded.historico_max,
        prompt_sistema = excluded.prompt_sistema,
@@ -111,6 +125,7 @@ fn salvar(conn: sqlight.Connection, cfg: Config) -> Result(Nil, Erro) {
     on: conn,
     with: [
       sqlight.text(cfg.chat_id),
+      sqlight.text(cfg.provedor),
       sqlight.text(cfg.modelo),
       sqlight.int(cfg.historico_max),
       prompt_val,
@@ -145,4 +160,3 @@ fn bool_to_int(b: Bool) -> Int {
     False -> 0
   }
 }
-

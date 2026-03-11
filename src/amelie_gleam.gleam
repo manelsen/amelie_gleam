@@ -2,10 +2,14 @@ import adaptadores/config_sqlite
 import adaptadores/gemini_http
 import adaptadores/grupo_sqlite
 import adaptadores/historico_sqlite
+import adaptadores/openrouter_http
 import adaptadores/prompt_sqlite
+import adaptadores/transacao_sqlite
 import adaptadores/usuario_sqlite
 import adaptadores/whatsmeow_http
+import core/ia_dispatcher
 import dominio/mensagem.{type Mensagem, Mensagem, Texto}
+import dominio/providers_config
 import gleam/bit_array
 import gleam/bytes_tree
 import gleam/dynamic/decode
@@ -14,12 +18,17 @@ import gleam/http/request.{type Request}
 import gleam/http/response
 import gleam/int
 import gleam/json
-import gleam/result
 import gleam/option
+import gleam/result
 import gleam/string
 import mist.{type Connection, type ResponseData}
+import shell/cache_ia
+import shell/circuit_breaker
 import shell/fila_midia
+import shell/fila_offline
 import shell/handler_mensagem.{type Portas, Portas}
+import shell/ia_resiliente
+import shell/manutencao
 import shell/metricas
 import sqlight
 
@@ -33,14 +42,20 @@ import logging
 @external(erlang, "amelie_gleam_ffi", "get_env")
 fn get_env(name: String) -> Result(String, Nil)
 
+@external(erlang, "amelie_gleam_ffi", "spawn_fn")
+fn spawn_fn(f: fn() -> a) -> Nil
+
 pub fn main() {
   dot_env.new()
   |> dot_env.load
-  
+
   logging.configure()
 
-  let api_key =
+  let gemini_api_key =
     get_env("GEMINI_API_KEY")
+    |> result.unwrap(or: "")
+  let openrouter_api_key =
+    get_env("OPENROUTER_API_KEY")
     |> result.unwrap(or: "")
   let bridge_url =
     get_env("WHATSMEOW_URL")
@@ -51,19 +66,57 @@ pub fn main() {
   let port_str =
     get_env("PORT")
     |> result.unwrap(or: "4000")
+  let offline_retry_interval_str =
+    get_env("OFFLINE_RETRY_INTERVAL_MS")
+    |> result.unwrap(or: "30000")
   let port =
     int.parse(port_str)
     |> result.unwrap(or: 4000)
+  let offline_retry_interval_ms =
+    int.parse(offline_retry_interval_str)
+    |> result.unwrap(or: 30000)
+
+  let providers_config = case
+    providers_config.ler_arquivo("./config/providers.yaml")
+  {
+    Ok(cfg) -> cfg
+    Error(_) -> providers_config.padrao()
+  }
 
   use conn <- sqlight.with_connection(db_path)
 
-  let ia = gemini_http.criar(api_key)
+  let cb_gemini = case circuit_breaker.iniciar() {
+    Ok(cb) -> cb
+    Error(_) -> panic as "falha ao iniciar circuit breaker gemini"
+  }
+  let cb_openrouter = case circuit_breaker.iniciar() {
+    Ok(cb) -> cb
+    Error(_) -> panic as "falha ao iniciar circuit breaker openrouter"
+  }
+  let cache_gemini = case cache_ia.iniciar() {
+    Ok(c) -> c
+    Error(_) -> panic as "falha ao iniciar cache gemini"
+  }
+  let cache_openrouter = case cache_ia.iniciar() {
+    Ok(c) -> c
+    Error(_) -> panic as "falha ao iniciar cache openrouter"
+  }
+
+  let gemini_ia =
+    gemini_http.criar(gemini_api_key)
+    |> ia_resiliente.envolver(cb_gemini, cache_gemini)
+  let openrouter_ia =
+    openrouter_http.criar(openrouter_api_key)
+    |> ia_resiliente.envolver(cb_openrouter, cache_openrouter)
+  let ia_dispatcher =
+    ia_dispatcher.IADispatcher(gemini: gemini_ia, openrouter: openrouter_ia)
   let whatsapp = whatsmeow_http.criar(bridge_url)
   let config_p = config_sqlite.criar(conn)
   let historico_p = historico_sqlite.criar(conn)
   let prompts_p = prompt_sqlite.criar(conn)
   let usuarios_p = usuario_sqlite.criar(conn)
   let grupos_p = grupo_sqlite.criar(conn)
+  let transacoes_p = transacao_sqlite.criar(conn)
 
   let fila = case fila_midia.iniciar_todas() {
     Ok(f) -> f
@@ -75,10 +128,21 @@ pub fn main() {
     Error(_) -> panic as "falha ao iniciar métricas"
   }
 
+  let fila_offline_actor = case fila_offline.iniciar(transacoes_p, whatsapp, 3) {
+    Ok(f) -> f
+    Error(_) -> panic as "falha ao iniciar fila offline"
+  }
+  let _ =
+    fila_offline.agendar_processamento(
+      fila_offline_actor,
+      offline_retry_interval_ms,
+    )
+  let _ = manutencao.agendar_padrao(transacoes_p)
+
   let portas =
     Portas(
       whatsapp: whatsapp,
-      ia: ia,
+      ia_dispatcher: ia_dispatcher,
       config: config_p,
       historico: historico_p,
       fila: fila,
@@ -86,11 +150,14 @@ pub fn main() {
       metricas: metricas_actor,
       usuarios: usuarios_p,
       grupos: grupos_p,
+      transacoes: transacoes_p,
+      providers_config: providers_config,
     )
 
   let assert Ok(_) =
     mist.new(fn(req) { handle_request(req, portas) })
     |> mist.port(port)
+    |> mist.bind("0.0.0.0")
     |> mist.start
 
   process.sleep_forever()
@@ -121,8 +188,10 @@ fn handle_webhook(
       case parse_webhook(req_with_body.body) {
         Error(_) -> json_response(400, "{\"error\":\"invalid payload\"}")
         Ok(msg) -> {
-          let _ = handler_mensagem.handle(msg, portas)
-          json_response(200, "{\"ok\":true}")
+          // Processa em processo isolado — webhook retorna imediatamente.
+          // Evita bloquear o Mist durante chamadas à IA (2-10s).
+          spawn_fn(fn() { handler_mensagem.handle(msg, portas) })
+          json_response(202, "{\"ok\":true}")
         }
       }
   }
@@ -140,6 +209,11 @@ fn parse_webhook(body: BitArray) -> Result(Mensagem, Nil) {
 fn mensagem_decoder() -> decode.Decoder(Mensagem) {
   use chat_id <- decode.field("chat_id", decode.string)
   use from <- decode.field("from", decode.string)
+  use message_id <- decode.optional_field(
+    "message_id",
+    option.None,
+    decode.string |> decode.map(option.Some),
+  )
   use text <- decode.optional_field("text", "", decode.string)
   use ts <- decode.field("ts", decode.int)
   use em_grupo <- decode.field("em_grupo", decode.bool)
@@ -154,7 +228,7 @@ fn mensagem_decoder() -> decode.Decoder(Mensagem) {
     option.None,
     decode.string |> decode.map(option.Some),
   )
-  
+
   use tipo <- decode.optional_field("tipo", "texto", decode.string)
   use mime <- decode.optional_field("mime", "", decode.string)
   use dados <- decode.optional_field("dados", "", decode.string)
@@ -164,6 +238,7 @@ fn mensagem_decoder() -> decode.Decoder(Mensagem) {
   decode.success(Mensagem(
     chat_id: chat_id,
     remetente: from,
+    message_id: message_id,
     corpo: corpo,
     timestamp: ts,
     em_grupo: em_grupo,

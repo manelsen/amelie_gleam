@@ -5,6 +5,7 @@ import dominio/erro.{type Erro}
 import dominio/mensagem.{type Turno, TurnoAssistente, TurnoUsuario}
 import gleam/bit_array
 import gleam/dynamic/decode
+import gleam/erlang/process
 import gleam/http
 import gleam/http/request
 import gleam/httpc
@@ -102,6 +103,11 @@ fn processar_inline(
   prompt: String,
   modelo: String,
 ) -> Result(String, Erro) {
+  // Gemini não aceita parâmetros de codec no MIME type (ex: "audio/ogg; codecs=opus").
+  let mime = case string.split_once(mime, ";") {
+    Ok(#(base, _)) -> string.trim(base)
+    Error(_) -> mime
+  }
   let b64 = bit_array.base64_encode(dados, True)
   let parts =
     json.preprocessed_array([
@@ -170,71 +176,64 @@ fn fazer_upload_video(
   caminho: String,
   mime: String,
 ) -> Result(String, Erro) {
-  use dados <- result.try(ler_arquivo(caminho))
-  let b64 = bit_array.base64_encode(dados, True)
-
-  let url =
-    "https://generativelanguage.googleapis.com/upload/v1beta/files?key="
-    <> api_key
-
-  let body =
-    json.object([
-      #("file", json.object([#("mimeType", json.string(mime))])),
-      #("data", json.string(b64)),
-    ])
-    |> json.to_string
-
-  use req <- result.try(
-    request.to(url)
-    |> result.map_error(fn(_) { erro.ErroComunicacao("url de upload inválida") }),
-  )
-
-  let req =
-    req
-    |> request.set_method(http.Post)
-    |> request.set_header("content-type", "application/json")
-    |> request.set_body(body)
-
-  use resp <- result.try(
-    httpc.send(req)
-    |> result.map_error(fn(_) { erro.ErroUpload("falha ao fazer upload") }),
-  )
-
-  case resp.status {
-    200 ->
-      extrair_uri_arquivo(resp.body)
-      |> result.map_error(fn(_) { erro.ErroUpload("uri ausente na resposta") })
-    status ->
-      Error(erro.ErroUpload("upload retornou status " <> int.to_string(status)))
-  }
+  // Gemini File API exige multipart binary — usamos FFI para enviar o arquivo diretamente.
+  upload_file_ffi(api_key, caminho, mime)
+  |> result.map_error(fn(msg) { erro.ErroUpload(msg) })
+  |> result.try(fn(body) {
+    extrair_uri_arquivo(body)
+    |> result.map_error(fn(_) { erro.ErroUpload("uri ausente na resposta") })
+  })
 }
 
+// Polling com até 20 tentativas (3s cada = 60s máximo).
 fn aguardar_video_ativo(api_key: String, uri: String) -> Result(Nil, Erro) {
-  let url = uri <> "?key=" <> api_key
-  use req <- result.try(
-    request.to(url)
-    |> result.map_error(fn(_) { erro.ErroComunicacao("url de status inválida") }),
-  )
+  aguardar_loop(api_key, uri, 20)
+}
 
-  use resp <- result.try(
-    httpc.send(req)
-    |> result.map_error(fn(_) {
-      erro.ErroProcessamentoVideo("falha ao verificar status do vídeo")
-    }),
-  )
-
-  case resp.status {
-    200 ->
-      case string.contains(resp.body, "\"ACTIVE\"") {
-        True -> Ok(Nil)
-        False -> Error(erro.ErroProcessamentoVideo("vídeo ainda não está ativo"))
-      }
-    status ->
-      Error(
-        erro.ErroProcessamentoVideo(
-          "status inesperado " <> int.to_string(status),
-        ),
+fn aguardar_loop(
+  api_key: String,
+  uri: String,
+  restantes: Int,
+) -> Result(Nil, Erro) {
+  case restantes {
+    0 ->
+      Error(erro.ErroProcessamentoVideo("timeout aguardando vídeo ficar ativo"))
+    n -> {
+      let url = uri <> "?key=" <> api_key
+      use req <- result.try(
+        request.to(url)
+        |> result.map_error(fn(_) {
+          erro.ErroComunicacao("url de status inválida")
+        }),
       )
+      use resp <- result.try(
+        httpc.send(req)
+        |> result.map_error(fn(_) {
+          erro.ErroProcessamentoVideo("falha ao verificar status do vídeo")
+        }),
+      )
+      case resp.status {
+        200 ->
+          case string.contains(resp.body, "\"ACTIVE\"") {
+            True -> Ok(Nil)
+            False -> {
+              process.sleep(3000)
+              aguardar_loop(api_key, uri, n - 1)
+            }
+          }
+        // 5xx são transitórios — retentar
+        s if s >= 500 -> {
+          process.sleep(3000)
+          aguardar_loop(api_key, uri, n - 1)
+        }
+        status ->
+          Error(
+            erro.ErroProcessamentoVideo(
+              "status inesperado " <> int.to_string(status),
+            ),
+          )
+      }
+    }
   }
 }
 
@@ -311,13 +310,12 @@ fn extrair_uri_arquivo(json_str: String) -> Result(String, Nil) {
 }
 
 // ---------------------------------------------------------------------------
-// FFI — leitura de arquivo (para upload de vídeo)
+// FFI
 // ---------------------------------------------------------------------------
 
-@external(erlang, "amelie_gleam_ffi", "read_file")
-fn ler_arquivo_ffi(caminho: String) -> Result(BitArray, String)
-
-fn ler_arquivo(caminho: String) -> Result(BitArray, Erro) {
-  ler_arquivo_ffi(caminho)
-  |> result.map_error(fn(msg) { erro.ErroMidia(msg) })
-}
+@external(erlang, "amelie_gleam_ffi", "upload_file")
+fn upload_file_ffi(
+  api_key: String,
+  caminho: String,
+  mime: String,
+) -> Result(String, String)

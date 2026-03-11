@@ -7,11 +7,14 @@ import dominio/config.{type Config}
 import dominio/erro.{type Erro}
 import dominio/mensagem.{type Mensagem, Audio, Documento, Imagem, Video}
 import gleam/erlang/process.{type Subject}
+import gleam/option
 import gleam/otp/actor
 import gleam/result
 import logging
 import portas/ia_porta.{type IAPorta}
+import portas/transacao_porta.{type TransacaoPorta}
 import portas/whatsapp_porta.{type WhatsappPorta}
+import shell/entrega_auditada
 
 pub type FilaMidia =
   Subject(MensagemFila)
@@ -33,6 +36,7 @@ pub type MensagemFila {
     cfg: Config,
     ia: IAPorta,
     whatsapp: WhatsappPorta,
+    transacoes: TransacaoPorta,
   )
   Parar
 }
@@ -42,8 +46,15 @@ fn iniciar_uma() -> Result(FilaMidia, actor.StartError) {
   |> actor.on_message(fn(state, msg) {
     case msg {
       Parar -> actor.stop()
-      Enfileirar(chat_id, mensagem, tipo, cfg, ia, whatsapp) -> {
-        let _ = processar(chat_id, mensagem, tipo, cfg, ia, whatsapp)
+      Enfileirar(chat_id, mensagem, tipo, cfg, ia, whatsapp, transacoes) -> {
+        case processar(chat_id, mensagem, tipo, cfg, ia, whatsapp, transacoes) {
+          Ok(_) -> Nil
+          Error(e) ->
+            logging.log(
+              logging.Warning,
+              "Erro ao processar mídia em " <> chat_id <> ": " <> erro.descricao(e),
+            )
+        }
         actor.continue(state)
       }
     }
@@ -68,6 +79,7 @@ pub fn enfileirar(
   cfg: Config,
   ia: IAPorta,
   whatsapp: WhatsappPorta,
+  transacoes: TransacaoPorta,
 ) -> Result(Nil, Erro) {
   let fila = case tipo {
     MidiaImagem -> filas.imagem
@@ -75,7 +87,10 @@ pub fn enfileirar(
     MidiaVideo -> filas.video
     MidiaDocumento -> filas.documento
   }
-  process.send(fila, Enfileirar(chat_id, msg, tipo, cfg, ia, whatsapp))
+  process.send(
+    fila,
+    Enfileirar(chat_id, msg, tipo, cfg, ia, whatsapp, transacoes),
+  )
   Ok(Nil)
 }
 
@@ -86,12 +101,14 @@ fn processar(
   cfg: Config,
   ia: IAPorta,
   whatsapp: WhatsappPorta,
+  transacoes: TransacaoPorta,
 ) -> Result(Nil, Erro) {
   case tipo {
-    MidiaImagem -> processar_imagem(chat_id, msg, cfg, ia, whatsapp)
-    MidiaAudio -> processar_audio(chat_id, msg, cfg, ia, whatsapp)
-    MidiaVideo -> processar_video(chat_id, msg, cfg, ia, whatsapp)
-    MidiaDocumento -> processar_documento(chat_id, msg, cfg, ia, whatsapp)
+    MidiaImagem -> processar_imagem(chat_id, msg, cfg, ia, whatsapp, transacoes)
+    MidiaAudio -> processar_audio(chat_id, msg, cfg, ia, whatsapp, transacoes)
+    MidiaVideo -> processar_video(chat_id, msg, cfg, ia, whatsapp, transacoes)
+    MidiaDocumento ->
+      processar_documento(chat_id, msg, cfg, ia, whatsapp, transacoes)
   }
 }
 
@@ -101,14 +118,17 @@ fn processar_imagem(
   cfg: Config,
   ia: IAPorta,
   whatsapp: WhatsappPorta,
+  transacoes: TransacaoPorta,
 ) -> Result(Nil, Erro) {
   case msg.corpo {
     Imagem(mime: mime, dados: dados) -> {
       logging.log(logging.Info, "[Imagem] Iniciando processamento para " <> chat_id)
+      reagir(msg, "⌛", whatsapp)
       let prompt = builder.montar_para_imagem(cfg, msg.legenda)
       use resposta <- result.try(ia.processar_imagem(dados, mime, prompt, cfg.modelo))
       logging.log(logging.Info, "[Imagem] Concluído para " <> chat_id)
-      whatsapp.enviar(chat_id, resposta)
+      reagir(msg, "🆗", whatsapp)
+      entregar(chat_id, "imagem", resposta, msg, whatsapp, transacoes)
     }
     _ -> Ok(Nil)
   }
@@ -120,13 +140,16 @@ fn processar_audio(
   cfg: Config,
   ia: IAPorta,
   whatsapp: WhatsappPorta,
+  transacoes: TransacaoPorta,
 ) -> Result(Nil, Erro) {
   case msg.corpo {
     Audio(mime: mime, dados: dados) -> {
       logging.log(logging.Info, "[Áudio] Iniciando processamento para " <> chat_id)
+      reagir(msg, "⌛", whatsapp)
       use resposta <- result.try(ia.processar_audio(dados, mime, cfg.modelo))
       logging.log(logging.Info, "[Áudio] Concluído para " <> chat_id)
-      whatsapp.enviar(chat_id, resposta)
+      reagir(msg, "🆗", whatsapp)
+      entregar(chat_id, "audio", resposta, msg, whatsapp, transacoes)
     }
     _ -> Ok(Nil)
   }
@@ -138,21 +161,35 @@ fn processar_video(
   cfg: Config,
   ia: IAPorta,
   whatsapp: WhatsappPorta,
+  transacoes: TransacaoPorta,
 ) -> Result(Nil, Erro) {
   case msg.corpo {
     Video(caminho_temp: caminho, mime: mime) -> {
       logging.log(logging.Info, "[Vídeo] Iniciando upload e processamento para " <> chat_id)
+      reagir(msg, "⌛", whatsapp)
       let prompt = case cfg.legenda_ativo {
         True -> builder.montar_para_legenda(cfg)
         False -> builder.montar_para_video(cfg, msg.legenda)
       }
-      use uri <- result.try(ia.fazer_upload_video(caminho, mime))
-      use _ <- result.try(ia.aguardar_video_ativo(uri))
-      use resposta <- result.try(ia.processar_video(uri, prompt, cfg.modelo))
-      use _ <- result.try(ia.deletar_arquivo(uri))
-      let _ = simplifile_delete(caminho)
-      logging.log(logging.Info, "[Vídeo] Concluído para " <> chat_id)
-      whatsapp.enviar(chat_id, resposta)
+      case ia.fazer_upload_video(caminho, mime) {
+        Error(e) -> {
+          let _ = simplifile_delete(caminho)
+          Error(e)
+        }
+        Ok(uri) -> {
+          let processamento = {
+            use _ <- result.try(ia.aguardar_video_ativo(uri))
+            use resposta <- result.try(ia.processar_video(uri, prompt, cfg.modelo))
+            Ok(resposta)
+          }
+          let _ = ia.deletar_arquivo(uri)
+          let _ = simplifile_delete(caminho)
+          use resposta <- result.try(processamento)
+          logging.log(logging.Info, "[Vídeo] Concluído para " <> chat_id)
+          reagir(msg, "🆗", whatsapp)
+          entregar(chat_id, "video", resposta, msg, whatsapp, transacoes)
+        }
+      }
     }
     _ -> Ok(Nil)
   }
@@ -164,18 +201,58 @@ fn processar_documento(
   cfg: Config,
   ia: IAPorta,
   whatsapp: WhatsappPorta,
+  transacoes: TransacaoPorta,
 ) -> Result(Nil, Erro) {
   case msg.corpo {
     Documento(mime: mime, dados: dados, nome: _nome) -> {
       logging.log(logging.Info, "[Doc] Iniciando processamento para " <> chat_id)
+      reagir(msg, "⌛", whatsapp)
       let prompt = builder.montar_para_documento(cfg, msg.legenda)
       use resposta <- result.try(
         ia.processar_documento(dados, mime, prompt, cfg.modelo),
       )
       logging.log(logging.Info, "[Doc] Concluído para " <> chat_id)
-      whatsapp.enviar(chat_id, resposta)
+      reagir(msg, "🆗", whatsapp)
+      entregar(chat_id, "documento", resposta, msg, whatsapp, transacoes)
     }
     _ -> Ok(Nil)
+  }
+}
+
+// Reage à mensagem original. Fire-and-forget — ignora falha.
+fn reagir(msg: Mensagem, emoji: String, whatsapp: WhatsappPorta) -> Nil {
+  case msg.message_id {
+    option.Some(mid) -> {
+      let _ = whatsapp.reagir(msg.chat_id, mid, msg.remetente, emoji)
+      Nil
+    }
+    option.None -> Nil
+  }
+}
+
+// Entrega citando a mensagem original quando possível.
+fn entregar(
+  chat_id: String,
+  tipo: String,
+  resposta: String,
+  msg: Mensagem,
+  whatsapp: WhatsappPorta,
+  transacoes: TransacaoPorta,
+) -> Result(Nil, Erro) {
+  case msg.message_id {
+    option.Some(mid) ->
+      entrega_auditada.enviar_citando(
+        chat_id,
+        "amelie",
+        tipo,
+        resposta,
+        mid,
+        msg.remetente,
+        whatsapp,
+        transacoes,
+      )
+    option.None ->
+      entrega_auditada.enviar(chat_id, "amelie", tipo, resposta, whatsapp, transacoes)
   }
 }
 
@@ -183,4 +260,3 @@ fn processar_documento(
 fn simplifile_delete(path: String) -> Result(Nil, ErlFileError)
 
 type ErlFileError
-

@@ -21,6 +21,9 @@ pub type Erro {
   ErroMidia(descricao: String)
   ErroUpload(descricao: String)
   ErroProcessamentoVideo(descricao: String)
+
+  // Configuração
+  ErroConfig(descricao: String)
 }
 
 pub fn descricao(erro: Erro) -> String {
@@ -38,5 +41,6 @@ pub fn descricao(erro: Erro) -> String {
     ErroMidia(d) -> "Mídia: " <> d
     ErroUpload(d) -> "Upload: " <> d
     ErroProcessamentoVideo(d) -> "Vídeo: " <> d
+    ErroConfig(d) -> "Configuração: " <> d
   }
 }

@@ -9,6 +9,7 @@ pub type ModoDescricao {
 pub type Config {
   Config(
     chat_id: String,
+    provedor: String,
     modelo: String,
     historico_max: Int,
     prompt_sistema: Option(String),
@@ -25,6 +26,7 @@ pub type Config {
 pub fn padrao(chat_id: String) -> Config {
   Config(
     chat_id: chat_id,
+    provedor: "gemini",
     modelo: "gemini-2.5-flash-lite",
     historico_max: 50,
     prompt_sistema: None,

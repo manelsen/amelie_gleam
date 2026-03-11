@@ -20,6 +20,24 @@ pub fn montar(
   |> string.join("\n\n")
 }
 
+pub fn montar_com_url(
+  texto: String,
+  url: String,
+  conteudo_url: String,
+  config: Config,
+  historico: List(Turno),
+) -> String {
+  let base = montar(texto, config, historico)
+  let ctx =
+    "\n\n--- [Conteúdo lido da URL: "
+    <> url
+    <> "] ---\n"
+    <> conteudo_url
+    <> "\n--- [Fim do conteúdo] ---\n"
+    <> "Use este conteúdo se o usuário pedir resumo ou informações sobre o link."
+  base <> ctx
+}
+
 fn montar_cabecalho(config: Config) -> String {
   case config.prompt_sistema {
     Some(prompt) -> prompt
