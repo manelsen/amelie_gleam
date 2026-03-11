@@ -2,9 +2,7 @@
 // Verificam que o handler executa corretamente SalvarConfig e LimparHistorico.
 
 import dominio/config
-import dominio/erro
 import gleam/erlang/process
-import gleam/option
 import gleeunit/should
 import helpers/fixtures
 import helpers/portas_fake

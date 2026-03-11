@@ -52,6 +52,7 @@ pub fn mensagem_texto(body: String) -> Mensagem {
   Mensagem(
     chat_id: chat_id(),
     remetente: remetente(),
+    message_id: Some("MSG001"),
     corpo: mensagem.Texto(body),
     timestamp: 1_700_000_000,
     em_grupo: False,
@@ -65,6 +66,7 @@ pub fn mensagem_comando(nome: String, args: String) -> Mensagem {
   Mensagem(
     chat_id: chat_id(),
     remetente: remetente(),
+    message_id: Some("MSG001"),
     corpo: mensagem.Comando(nome, args),
     timestamp: 1_700_000_000,
     em_grupo: False,
@@ -78,6 +80,7 @@ pub fn mensagem_imagem() -> Mensagem {
   Mensagem(
     chat_id: chat_id(),
     remetente: remetente(),
+    message_id: Some("MSG001"),
     corpo: mensagem.Imagem(mime: "image/jpeg", dados: <<255, 216, 255>>),
     timestamp: 1_700_000_000,
     em_grupo: False,
@@ -91,6 +94,7 @@ pub fn mensagem_audio() -> Mensagem {
   Mensagem(
     chat_id: chat_id(),
     remetente: remetente(),
+    message_id: Some("MSG001"),
     corpo: mensagem.Audio(mime: "audio/ogg; codecs=opus", dados: <<
       79,
       103,
@@ -108,6 +112,7 @@ pub fn mensagem_video() -> Mensagem {
   Mensagem(
     chat_id: chat_id(),
     remetente: remetente(),
+    message_id: Some("MSG001"),
     corpo: mensagem.Video(caminho_temp: "/tmp/video.mp4", mime: "video/mp4"),
     timestamp: 1_700_000_000,
     em_grupo: False,

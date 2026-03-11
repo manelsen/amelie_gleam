@@ -23,20 +23,35 @@ import shell/metricas
 // ---------------------------------------------------------------------------
 
 pub fn whatsapp_ok() -> WhatsappPorta {
-  WhatsappPorta(enviar: fn(_, _) { Ok(Nil) })
+  WhatsappPorta(
+    enviar: fn(_, _) { Ok(Nil) },
+    enviar_citando: fn(_, _, _, _) { Ok(Nil) },
+    reagir: fn(_, _, _, _) { Ok(Nil) },
+  )
 }
 
 pub fn whatsapp_capturar(
   ref: process.Subject(#(String, String)),
 ) -> WhatsappPorta {
-  WhatsappPorta(enviar: fn(chat_id, texto) {
-    process.send(ref, #(chat_id, texto))
-    Ok(Nil)
-  })
+  WhatsappPorta(
+    enviar: fn(chat_id, texto) {
+      process.send(ref, #(chat_id, texto))
+      Ok(Nil)
+    },
+    enviar_citando: fn(chat_id, _quoted_id, _quoted_sender, texto) {
+      process.send(ref, #(chat_id, texto))
+      Ok(Nil)
+    },
+    reagir: fn(_, _, _, _) { Ok(Nil) },
+  )
 }
 
 pub fn whatsapp_erro(e: Erro) -> WhatsappPorta {
-  WhatsappPorta(enviar: fn(_, _) { Error(e) })
+  WhatsappPorta(
+    enviar: fn(_, _) { Error(e) },
+    enviar_citando: fn(_, _, _, _) { Error(e) },
+    reagir: fn(_, _, _, _) { Error(e) },
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -221,6 +236,7 @@ pub fn transacao_noop() -> TransacaoPorta {
     obter_pendentes: fn() { Ok([]) },
     obter_por_chat: fn(_) { Ok([]) },
     marcar_entregue: fn(_) { Ok(Nil) },
+    limpar_antigas: fn() { Ok(Nil) },
   )
 }
 
@@ -262,6 +278,7 @@ pub fn transacao_capturar(
       process.send(ref, MarcadaEntregue(id))
       Ok(Nil)
     },
+    limpar_antigas: fn() { Ok(Nil) },
   )
 }
 
