@@ -38,6 +38,7 @@ pub fn criar(conn: sqlight.Connection) -> transacao_porta.TransacaoPorta {
     obter_pendentes: fn() { obter_pendentes(conn) },
     obter_por_chat: fn(chat_id) { obter_por_chat(conn, chat_id) },
     marcar_entregue: fn(id) { marcar_entregue(conn, id) },
+    limpar_antigas: fn() { limpar_antigas(conn) },
   )
 }
 
@@ -69,7 +70,7 @@ fn registrar(
     "SELECT last_insert_rowid() as id",
     on: conn,
     with: [],
-    expecting: decode.int,
+    expecting: decode.at([0], decode.int),
   )
   |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
   |> result.map(fn(ids) {
@@ -179,6 +180,20 @@ fn marcar_entregue(conn: sqlight.Connection, id: Int) -> Result(Nil, Erro) {
     with: [sqlight.int(id)],
     expecting: decode.dynamic,
   )
+  |> result.map(fn(_) { Nil })
+  |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
+}
+
+// Remove transações entregues ou descartadas com mais de 7 dias.
+// Retorna o número de linhas deletadas.
+// Remove transações entregues ou descartadas com mais de 7 dias.
+fn limpar_antigas(conn: sqlight.Connection) -> Result(Nil, Erro) {
+  let sql =
+    "DELETE FROM transacoes
+     WHERE status IN ('entregue', 'descartada')
+       AND criado_em < unixepoch() - 7 * 24 * 60 * 60"
+
+  sqlight.query(sql, on: conn, with: [], expecting: decode.dynamic)
   |> result.map(fn(_) { Nil })
   |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
 }

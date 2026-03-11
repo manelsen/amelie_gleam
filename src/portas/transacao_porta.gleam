@@ -9,5 +9,6 @@ pub type TransacaoPorta {
     obter_pendentes: fn() -> Result(List(Transacao), Erro),
     obter_por_chat: fn(String) -> Result(List(Transacao), Erro),
     marcar_entregue: fn(Int) -> Result(Nil, Erro),
+    limpar_antigas: fn() -> Result(Nil, Erro),
   )
 }
