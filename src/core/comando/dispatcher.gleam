@@ -1,9 +1,8 @@
 // Despacha comandos. Puro — retorna Acao, não executa efeitos.
 
-import dominio/acao.{type Acao, EnviarResposta, LimparHistorico, SalvarConfig}
+import dominio/acao.{type Acao, AlterarModelo, EnviarResposta, LimparHistorico, SalvarConfig}
 import dominio/config.{type Config, Config, Curto, Longo}
 import dominio/erro.{type Erro}
-import gleam/int
 import gleam/option.{Some}
 import gleam/string
 
@@ -19,10 +18,11 @@ pub fn executar(
     "imagem" -> toggle("imagem", args, config)
     "video" -> toggle("video", args, config)
     "doc" -> toggle("doc", args, config)
-    "legenda" -> toggle("legenda", args, config)
+    "legenda" -> Ok(legenda_cmd(config))
     "longo" -> Ok(modo_descricao_cmd(Longo, config))
     "curto" -> Ok(modo_descricao_cmd(Curto, config))
     "cego" -> Ok(cego_cmd(config))
+    "modelo" -> Ok(modelo_cmd(args, config))
     outro -> Error(erro.ErroComandoDesconhecido(outro))
   }
 }
@@ -36,11 +36,47 @@ fn ajuda(cfg: Config) -> List(Acao) {
     <> "`.imagem on|off` — ativar/desativar análise de imagem\n"
     <> "`.video on|off` — ativar/desativar análise de vídeo\n"
     <> "`.doc on|off` — ativar/desativar análise de documento\n"
-    <> "`.legenda on|off` — ativar/desativar legenda de vídeo\n"
+    <> "`.legenda` — alternar legenda de vídeo\n"
     <> "`.longo` — usar descrição detalhada\n"
     <> "`.curto` — usar descrição concisa\n"
-    <> "`.cego` — modo acessibilidade para deficientes visuais"
+    <> "`.cego` — modo acessibilidade para deficientes visuais\n"
+    <> "`.modelo` — mostrar provedor/modelo atual\n"
+    <> "`.modelo provedor/modelo` — alterar provedor e modelo"
   [EnviarResposta(para: cfg.chat_id, corpo: texto)]
+}
+
+fn modelo_cmd(args: String, cfg: Config) -> List(Acao) {
+  case string.trim(args) {
+    "" ->
+      [
+        EnviarResposta(
+          cfg.chat_id,
+          "Provedor atual: `"
+            <> cfg.provedor
+            <> "`\nModelo atual: `"
+            <> cfg.modelo
+            <> "`",
+        ),
+      ]
+    spec ->
+      case string.split_once(spec, "/") {
+        Ok(#(provedor, modelo)) ->
+          [
+            AlterarModelo(
+              chat_id: cfg.chat_id,
+              provedor: string.trim(provedor),
+              modelo: string.trim(modelo),
+            ),
+          ]
+        Error(_) ->
+          [
+            EnviarResposta(
+              cfg.chat_id,
+              "Formato inválido. Use: `.modelo provedor/modelo`\nEx: `.modelo gemini/gemini-2.5-pro`",
+            ),
+          ]
+      }
+  }
 }
 
 fn reset(cfg: Config) -> List(Acao) {
@@ -96,6 +132,15 @@ fn modo_descricao_cmd(modo: config.ModoDescricao, cfg: Config) -> List(Acao) {
     SalvarConfig(nova),
     EnviarResposta(cfg.chat_id, "Modo de descrição: " <> label <> "."),
   ]
+}
+
+fn legenda_cmd(cfg: Config) -> List(Acao) {
+  let nova = Config(..cfg, legenda_ativo: !cfg.legenda_ativo)
+  let status = case nova.legenda_ativo {
+    True -> "ativada"
+    False -> "desativada"
+  }
+  [SalvarConfig(nova), EnviarResposta(cfg.chat_id, "Legenda " <> status <> ".")]
 }
 
 fn cego_cmd(cfg: Config) -> List(Acao) {
