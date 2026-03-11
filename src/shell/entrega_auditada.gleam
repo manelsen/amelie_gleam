@@ -28,6 +28,31 @@ pub fn enviar(
   }
 }
 
+pub fn enviar_citando(
+  chat_id: String,
+  remetente: String,
+  tipo: String,
+  conteudo: String,
+  quoted_id: String,
+  quoted_sender: String,
+  whatsapp: WhatsappPorta,
+  transacoes: TransacaoPorta,
+) -> Result(Nil, Erro) {
+  let tx = transacao.novo(chat_id, remetente, tipo, conteudo)
+  use registrada <- result.try(transacoes.registrar(tx))
+
+  case whatsapp.enviar_citando(chat_id, quoted_id, quoted_sender, conteudo) {
+    Ok(_) -> {
+      let _ = marcar_entregue(transacoes, registrada.id)
+      Ok(Nil)
+    }
+    Error(e) -> {
+      let _ = marcar_falha(transacoes, registrada, e)
+      Error(e)
+    }
+  }
+}
+
 fn marcar_entregue(
   transacoes: TransacaoPorta,
   tx_id: option.Option(Int),
