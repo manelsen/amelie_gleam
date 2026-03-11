@@ -20,9 +20,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	"database/sql"
+	moderncsqlite "modernc.org/sqlite"
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"go.mau.fi/whatsmeow/store/sqlstore"
@@ -31,6 +34,12 @@ import (
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 )
+
+func init() {
+	// Registra modernc.org/sqlite (pure Go, sem CGO) como driver "sqlite3"
+	// para compatibilidade com o sqlstore do whatsmeow.
+	sql.Register("sqlite3", &moderncsqlite.Driver{})
+}
 
 // ---------------------------------------------------------------------------
 // Configuração
@@ -67,6 +76,7 @@ func getEnv(key, fallback string) string {
 type IncomingWebhook struct {
 	ChatID    string `json:"chat_id"`
 	From      string `json:"from"`
+	MessageID string `json:"message_id,omitempty"`
 	Text      string `json:"text"`
 	Timestamp int64  `json:"ts"`
 	InGroup   bool   `json:"em_grupo"`
@@ -78,15 +88,33 @@ type IncomingWebhook struct {
 	Caminho   string `json:"caminho_temp,omitempty"`
 }
 
+// ReactRequest é o payload recebido do Gleam para enviar uma reação.
+type ReactRequest struct {
+	ChatID    string `json:"chat_id"`
+	MessageID string `json:"message_id"`
+	Sender    string `json:"sender"`
+	Emoji     string `json:"emoji"`
+}
+
 // SendRequest é o payload recebido do Gleam para enviar uma mensagem.
 type SendRequest struct {
-	ChatID string `json:"chat_id"`
-	Text   string `json:"text"`
+	ChatID          string `json:"chat_id"`
+	Text            string `json:"text"`
+	QuotedMessageID string `json:"quoted_message_id,omitempty"`
+	QuotedSender    string `json:"quoted_sender,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
 // Bridge
 // ---------------------------------------------------------------------------
+
+// httpClient sem Expect: 100-continue — evita MalformedRequest no Mist
+// para payloads binários grandes (áudio, imagem, documento).
+var httpClient = &http.Client{
+	Transport: &http.Transport{
+		ExpectContinueTimeout: 0,
+	},
+}
 
 type Bridge struct {
 	cfg    Config
@@ -95,7 +123,7 @@ type Bridge struct {
 
 func NewBridge(cfg Config) (*Bridge, error) {
 	dbLog := waLog.Stdout("Database", "WARN", true)
-	container, err := sqlstore.New(context.Background(), "sqlite3", "file:"+cfg.DBPath+"?_foreign_keys=on", dbLog)
+	container, err := sqlstore.New(context.Background(), "sqlite3", "file:"+cfg.DBPath+"?_pragma=foreign_keys(1)", dbLog)
 	if err != nil {
 		return nil, fmt.Errorf("abrindo banco de dados: %w", err)
 	}
@@ -178,15 +206,16 @@ func (b *Bridge) processMessage(evt *events.Message) {
 	from := evt.Info.Sender.String()
 	inGroup := evt.Info.IsGroup
 	timestamp := evt.Info.Timestamp.Unix()
-	
+
 	var groupName string
 	if inGroup {
-		groupName = evt.Info.PushName // For groups, pushname sometimes contains group info, but actually we might need to get it from group info. Let's send PushName for now, or just trust the backend. Wait, in whatsmeow, evt.Info.PushName is the sender's name. To get the group name we need to request GroupInfo from the client.
+		groupName = evt.Info.PushName
 	}
 
 	payload := IncomingWebhook{
 		ChatID:    chatID,
 		From:      from,
+		MessageID: evt.Info.ID,
 		Timestamp: timestamp,
 		InGroup:   inGroup,
 		GroupName: groupName,
@@ -210,13 +239,44 @@ func (b *Bridge) processMessage(evt *events.Message) {
 			payload.Dados = base64.StdEncoding.EncodeToString(data)
 		}
 	} else if doc := evt.Message.GetDocumentMessage(); doc != nil {
-		payload.Tipo = "documento"
-		payload.Mime = doc.GetMimetype()
-		payload.Text = doc.GetFileName()
-		payload.Legenda = doc.GetCaption()
-		data, err := b.client.Download(context.Background(), doc)
-		if err == nil {
-			payload.Dados = base64.StdEncoding.EncodeToString(data)
+		// WhatsApp moderno envia imagem/áudio/vídeo como DocumentMessage.
+		// Reclassifica pelo MIME type para que o pipeline correto seja usado.
+		mime := doc.GetMimetype()
+		data, dlErr := b.client.Download(context.Background(), doc)
+		switch {
+		case strings.HasPrefix(mime, "image/"):
+			payload.Tipo = "imagem"
+			payload.Mime = mime
+			payload.Legenda = doc.GetCaption()
+			if dlErr == nil {
+				payload.Dados = base64.StdEncoding.EncodeToString(data)
+			}
+		case strings.HasPrefix(mime, "audio/"):
+			payload.Tipo = "audio"
+			payload.Mime = mime
+			if dlErr == nil {
+				payload.Dados = base64.StdEncoding.EncodeToString(data)
+			}
+		case strings.HasPrefix(mime, "video/"):
+			payload.Tipo = "video"
+			payload.Mime = mime
+			payload.Legenda = doc.GetCaption()
+			if dlErr == nil {
+				tmpFile, ferr := os.CreateTemp("", "amelie_video_*.mp4")
+				if ferr == nil {
+					_, _ = tmpFile.Write(data)
+					payload.Caminho = tmpFile.Name()
+					tmpFile.Close()
+				}
+			}
+		default:
+			payload.Tipo = "documento"
+			payload.Mime = mime
+			payload.Text = doc.GetFileName()
+			payload.Legenda = doc.GetCaption()
+			if dlErr == nil {
+				payload.Dados = base64.StdEncoding.EncodeToString(data)
+			}
 		}
 	} else if vid := evt.Message.GetVideoMessage(); vid != nil {
 		payload.Tipo = "video"
@@ -268,7 +328,7 @@ func (b *Bridge) postToGleam(payload IncomingWebhook) error {
 		return err
 	}
 
-	resp, err := http.Post(b.cfg.GleamURL, "application/json", bytes.NewReader(data))
+	resp, err := httpClient.Post(b.cfg.GleamURL, "application/json", bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
@@ -299,12 +359,71 @@ func (b *Bridge) handleSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = b.client.SendMessage(context.Background(), jid, &waProto.Message{
-		Conversation: proto.String(req.Text),
-	})
+	var msg *waProto.Message
+	if req.QuotedMessageID != "" && req.QuotedSender != "" {
+		msg = &waProto.Message{
+			ExtendedTextMessage: &waProto.ExtendedTextMessage{
+				Text: proto.String(req.Text),
+				ContextInfo: &waProto.ContextInfo{
+					StanzaID:    proto.String(req.QuotedMessageID),
+					Participant: proto.String(req.QuotedSender),
+					QuotedMessage: &waProto.Message{
+						Conversation: proto.String(""),
+					},
+				},
+			},
+		}
+	} else {
+		msg = &waProto.Message{
+			Conversation: proto.String(req.Text),
+		}
+	}
+
+	_, err = b.client.SendMessage(context.Background(), jid, msg)
 	if err != nil {
 		log.Printf("Erro ao enviar mensagem: %v\n", err)
 		http.Error(w, "send failed", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"ok":true}`))
+}
+
+func (b *Bridge) handleReact(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req ReactRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	chatJID, err := types.ParseJID(req.ChatID)
+	if err != nil {
+		http.Error(w, "invalid chat_id", http.StatusBadRequest)
+		return
+	}
+
+	msg := &waProto.Message{
+		ReactionMessage: &waProto.ReactionMessage{
+			Key: &waProto.MessageKey{
+				RemoteJID:   proto.String(req.ChatID),
+				FromMe:      proto.Bool(false),
+				ID:          proto.String(req.MessageID),
+				Participant: proto.String(req.Sender),
+			},
+			Text:              proto.String(req.Emoji),
+			SenderTimestampMS: proto.Int64(time.Now().UnixMilli()),
+		},
+	}
+
+	if _, err := b.client.SendMessage(context.Background(), chatJID, msg); err != nil {
+		log.Printf("Erro ao enviar reação: %v\n", err)
+		http.Error(w, "react failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -336,6 +455,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/send", bridge.handleSend)
+	mux.HandleFunc("/react", bridge.handleReact)
 	mux.HandleFunc("/health", handleHealth)
 
 	server := &http.Server{
