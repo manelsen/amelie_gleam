@@ -19,13 +19,10 @@ Nao entram no TODO de paridade:
 
 ### 1. Comandos do legado ainda ausentes no chat
 
-- [ ] Implementar comando `.prompt` com paridade funcional:
-  `set`, `get`, `list`, `use`, `clear`, `delete`
-- [ ] Implementar comando `.config` com `get` e `set` para configuracoes por
-  chat
-- [ ] Implementar comando `.users` para listar participantes do grupo atual
-- [ ] Implementar comando `.filas` para operacao administrativa das filas
-  (`status`, `limpar`, etc.)
+- [x] ~~`.prompt`~~ — vetado (abuso pelos usuários; futuro: CLI admin)
+- [x] ~~`.config`~~ — vetado (abuso pelos usuários; futuro: CLI admin)
+- [x] ~~`.users`~~ — vetado via chat; futuro: CLI admin
+- [x] ~~`.filas`~~ — vetado via chat; futuro: CLI admin
 
 Notas:
 
@@ -36,70 +33,61 @@ Notas:
 
 ### 2. Paridade incompleta de configuracao operacional
 
-- [ ] Expor selecao de `provedor` e `modelo` por comando, com persistencia por
-  chat
-- [ ] Corrigir bootstrap de providers:
-  `src/amelie_gleam.gleam` tenta ler `./config/providers.json`, mas o repo
-  versiona `config/providers.yaml`
-- [ ] Conectar `providers_config` de fato ao fluxo de configuracao, em vez de
-  cair silenciosamente no padrao
+- [x] Expor selecao de `provedor` e `modelo` por comando, com persistencia por
+  chat (`.modelo provedor/modelo`)
+- [x] Corrigir bootstrap de providers: path ja era `.yaml`; TODO era obsoleto
+- [x] Conectar `providers_config` ao fluxo: `AlterarModelo` valida via
+  `providers_config.validar_modelo` no shell
 
 ### 3. Resiliencia de entrega ainda abaixo do legado
 
-- [ ] Fechar o ciclo de auditoria transacional:
-  registrar -> enviar -> marcar entregue/falha
-- [ ] Passar a usar o `id` retornado por `transacao_sqlite.registrar/1` nas
-  respostas reais do WhatsApp
-- [ ] Acionar `fila_offline.ProcessarPendentes` periodicamente ou em eventos de
-  reconexao
-- [ ] Enfileirar falhas reais de envio para retry automatico
-- [ ] Preservar contexto da resposta pendente, como o legado faz com snapshot da
-  mensagem original
-
-Notas:
-
-- Hoje a fila offline eh iniciada, mas nao ha chamada para `ProcessarPendentes`
-- O handler registra transacoes, mas nao marca sucesso de entrega nem reusa o
-  `id` da transacao no fluxo normal
+- [x] Fechar o ciclo de auditoria transacional:
+  registrar -> enviar -> marcar entregue/falha (`shell/entrega_auditada.gleam`)
+- [x] Usar o `id` retornado por `transacao_sqlite.registrar/1` no fluxo real
+- [x] Acionar `fila_offline.ProcessarPendentes` periodicamente
+  (`fila_offline.agendar_processamento` chamado em `amelie_gleam.gleam`)
+- [x] Enfileirar falhas de envio para retry automatico
+- [ ] Preservar contexto da resposta pendente (snapshot da mensagem original)
 
 ### 4. Comportamentos de UX do legado ainda faltantes
 
-- [ ] Implementar resposta citando a mensagem original quando possivel
-- [ ] Implementar fallback textual de contexto quando a citacao nao for possivel
-- [ ] Implementar leitura implicita de URLs em mensagens de texto
-  (scraping/resumo do link no contexto enviado para a IA)
+- [x] Implementar resposta citando a mensagem original (`entregar` no handler,
+  `enviar_citando` em entrega_auditada, bridge Go com ContextInfo)
+- [x] Fallback para envio simples quando `message_id` ausente (sem citacao)
+- [x] Implementar leitura implicita de URLs em mensagens de texto
+  (`url_scraper`, `BuscarUrlEResponder`, `builder.montar_com_url`)
 
 ### 5. Resiliencia de IA ainda inferior ao Node
 
-- [ ] Adicionar camada equivalente ao `GerenciadorAI` do legado:
-  retry com backoff, timeout centralizado e tratamento consistente de falhas
-- [ ] Adicionar `circuit breaker` para provedores de IA
-- [ ] Adicionar cache de respostas/processamentos repetidos
-- [ ] Adicionar limitacao de taxa e concorrencia por provider
+- [x] Retry com backoff exponencial (max 3 tentativas, 1s/2s/4s) para erros
+  transientes (429, 503, ErroComunicacao) — `shell/ia_resiliente.gleam`
+- [x] Circuit breaker por provedor (5 falhas → Aberto 60s → SemiAberto) —
+  `shell/circuit_breaker.gleam`
+- [x] Cache de respostas (SHA256 de prompt+modelo, TTL 1h, max 500) —
+  `shell/cache_ia.gleam`; integrado em `ia_resiliente.envolver`
+- [ ] Rate limiting — BEAM lida bem com concorrencia nativa; baixa prioridade
 
 ### 6. Operacao e manutencao
 
-- [ ] Criar rotina periodica de limpeza de arquivos temporarios
-- [ ] Criar rotina de limpeza de transacoes/notificacoes antigas
-- [ ] Expor estado operacional das filas e metricas de forma utilizavel
-- [ ] Adicionar telemetria de memoria/recursos equivalente ao legado
+- [x] Rotina periodica de limpeza de transacoes antigas (entregue/descartada
+  com +7 dias) — `shell/manutencao.gleam`, roda a cada 6h
+- [ ] Limpeza de arquivos temporarios de video ja processados (Google File API)
+  — fila_midia ja chama deletar_arquivo; verificar se ha casos perdidos
+- [ ] Expor estado operacional (filas, CB status) via endpoint /status
+- [x] Telemetria de memoria/recursos BEAM — `metricas.formatar` agora inclui
+  memoria total, memoria de processos e contagem de processos via FFI
 
 ## Prioridade sugerida
 
 ### P0
 
-- [ ] `.prompt`
-- [ ] `.config`
-- [ ] Fechar auditoria transacional completa
-- [ ] Fazer a `fila_offline` realmente processar pendencias
+_Concluído — ver seção 3._
 
-### P1
+### P1 — Concluído
 
-- [ ] `.users`
-- [ ] `.filas`
-- [ ] Citacao de resposta + fallback de contexto
-- [ ] Leitura implicita de URLs
-- [ ] Corrigir `providers_config` externo
+- [x] Citacao de resposta + fallback de contexto
+- [x] Leitura implicita de URLs
+- [x] Corrigir `providers_config` externo + comando `.modelo`
 
 ### P2
 

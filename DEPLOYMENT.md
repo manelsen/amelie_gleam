@@ -1,153 +1,106 @@
-# Deployment - Amélie Gleam 🚀
+# Deployment - Amélie Gleam
 
-## Estrutura do Projeto
+## Estrutura
 
 ```
 amelie_gleam/
-├── src/                    # Código Gleam (core funcional)
-├── whatsmeow-bridge/       # Bridge Go para WhatsApp
-├── db/                     # SQLite databases (persistência)
-├── docker-compose.yml      # Orquestração dos serviços
-├── Dockerfile             # Build do app Gleam
-├── .env.example           # Template de configuração
-└── .env                   # Suas chaves (NÃO commitar!)
+├── src/                    # Código Gleam
+├── whatsmeow-bridge/       # Bridge Go (incluído no build)
+├── db/                     # Volume de dados (SQLite + sessão WhatsApp)
+├── Dockerfile              # Build unificado (bridge + app)
+├── entrypoint.sh           # Sobe bridge em background, Gleam em foreground
+├── docker-compose.yml      # Um único serviço
+├── .env.example            # Template de configuração
+└── .env                    # Suas chaves (NÃO commitar!)
 ```
 
-## Deploy com Docker Compose (Recomendado)
+## Deploy
 
 ### Pré-requisitos
-- Docker e Docker Compose instalados
-- Chave API do Google Gemini (obtenha em [Google AI Studio](https://aistudio.google.com))
+- Docker e Docker Compose
 
 ### Passo a Passo
 
-1. **Clone e prepare o ambiente:**
 ```bash
-cd amelie_gleam
 cp .env.example .env
-nano .env  # Edite GEMINI_API_KEY
-```
+# edite .env com suas chaves
 
-2. **Inicie os containers:**
-```bash
 docker-compose up -d --build
 ```
 
-3. **Verifique os logs:**
-```bash
-# Logs da bridge
-docker-compose logs -f whatsmeow-bridge
+### Conectar o WhatsApp
 
-# Logs do app Gleam
-docker-compose logs -f amelie-gleam
+O bridge exibe o QR Code ou usa Pairing Code nos logs:
+
+```bash
+docker-compose logs -f
 ```
 
-4. **Conecte o WhatsApp:**
-   - O bridge exibirá um QR Code nos logs
-   - Escaneie com seu WhatsApp em "Aparelhos Conectados"
+Escaneie com WhatsApp → Aparelhos Conectados, ou aguarde o Pairing Code
+se `MOBILE_NUMBER` estiver configurado.
 
 ### Comandos Úteis
 
 ```bash
-# Parar os containers
-docker-compose down
-
-# Reiniciar
-docker-compose restart
-
-# Verificar status
-docker-compose ps
-
-# Atualizar após mudanças no código
-docker-compose up -d --build
-
-# Entrar no container para debug
-docker-compose exec amelie-gleam sh
-docker-compose exec whatsmeow-bridge sh
+docker-compose logs -f          # logs em tempo real
+docker-compose restart          # reiniciar
+docker-compose down             # parar
+docker-compose up -d --build    # rebuild + reiniciar
+docker-compose exec amelie sh   # shell para debug
 ```
 
-## Estrutura de Serviços
+## Variáveis de Ambiente (.env)
 
-| Serviço | Porta | Função | Persistência |
-|---------|-------|--------|--------------|
-| **whatsmeow-bridge** | 8080 | Conexão WhatsApp | `./whatsmeow-bridge/db/` |
-| **amelie-gleam** | 4000 | Core bot (IA, lógica) | `./db/` |
+| Variável | Default | Descrição |
+|----------|---------|-----------|
+| `GEMINI_API_KEY` | — | Chave Google Gemini (**obrigatório**) |
+| `OPENROUTER_API_KEY` | — | Chave OpenRouter (opcional) |
+| `MOBILE_NUMBER` | — | Número do bot para Pairing Code (ex: `5531999990000`) |
+| `DB_PATH` | `/data/amelie.sqlite` | SQLite da aplicação |
+| `BRIDGE_DB_PATH` | `/data/bridge/whatsapp.db` | SQLite da sessão WhatsApp |
+| `PORT` | `4000` | Porta HTTP da aplicação |
+| `BRIDGE_PORT` | `8080` | Porta interna do bridge (não exposta) |
 
-## Variáveis de Ambiente
+`WHATSMEOW_URL` e `GLEAM_URL` são definidos automaticamente pelo `entrypoint.sh`
+e **não precisam** estar no `.env`.
 
-| Variável | Descrição | Obrigatório |
-|----------|-----------|-------------|
-| `GEMINI_API_KEY` | Chave API do Google Gemini | ✅ Sim |
-| `OPENROUTER_API_KEY` | Chave API do OpenRouter (opcional) | ❌ Não |
-| `DB_PATH` | Caminho do SQLite | ❌ (default: `/data/amelie.sqlite`) |
-| `PORT` | Porta HTTP | ❌ (default: `4000`) |
-| `WHATSMEOW_URL` | URL do bridge | ❌ (gerenciado pelo docker-compose) |
+## Dados e Backup
 
-## Debug de Problemas Comuns
+Todos os dados ficam em `./db/` (mapeado para `/data` no container):
 
-### Bridge não conecta ao WhatsApp
-- Verifique os logs: `docker-compose logs whatsmeow-bridge`
-- Escaneie o QR Code novamente se a sessão expirou
-- O bridge precisa ser conectado **antes** do app Gleam
+```
+db/
+├── amelie.sqlite          # histórico, config, prompts, transações
+└── bridge/
+    └── whatsapp.db        # sessão WhatsApp (não apagar sem re-autenticar)
+```
 
-### App Gleam não responde
-- Verifique se o bridge está rodando: `docker-compose ps`
-- Verifique logs: `docker-compose logs amelie-gleam`
-- Certifique-se de que `WHATSMEOW_URL` está correto
+### Backup
 
-### Erro de banco de dados
-- Garanta que o diretório `./db/` tem permissões de escrita
-- Se corrompido, pare os containers, remova `db/*.sqlite` e reinicie
-
-## Backup e Restore
-
-### Backup dos dados
 ```bash
-# Backup banco Gleam
-docker-compose exec amelie-gleam sh -c "cp /data/amelie.sqlite /data/backup_$(date +%Y%m%d).sqlite"
-
-# Backup sessão WhatsApp
-docker-compose exec whatsmeow-bridge sh -c "cp /app/db/*.db /app/db/backup_$(date +%Y%m%d).db"
-
-# Copiar para host
-docker cp amelie-gleam:/data/backup_YYYYMMDD.sqlite ./
+docker-compose exec amelie sh -c \
+  "cp /data/amelie.sqlite /data/amelie_backup_\$(date +%Y%m%d).sqlite"
 ```
 
 ### Restore
+
 ```bash
-# Parar containers
 docker-compose down
-
-# Restaurar bancos
-cp backup_YYYYMMDD.sqlite db/amelie.sqlite
-cp whatsmeow_bridge_backup_YYYYMMDD.db whatsmeow-bridge/db/whatsmeow.db
-
-# Reiniciar
+cp amelie_backup_YYYYMMDD.sqlite db/amelie.sqlite
 docker-compose up -d
 ```
 
 ## Upgrade
 
 ```bash
-# Pull das mudanças do código
 git pull
-
-# Rebuild e reiniciar
 docker-compose up -d --build
 ```
 
-## Atualização dos Achados (Pós-Migração)
+## Troubleshooting
 
-Após mover o whatsmeow-bridge para dentro de amelie_gleam:
+**QR Code expirou:** reinicie o container (`docker-compose restart`).
 
-✅ **Benefícios:**
-- **Simplificado:** Agora é **um repositório único** com tudo
-- **Docker Compose:** `docker-compose up` inicia tudo de uma vez
-- **Networking:** Services na mesma rede `amelie-net`
-- **Deploy simplificado:** Não precisa gerenciar dois repositórios separadamente
-- **Versão sincronizada:** Bridge e app Gleam sempre em versão compatível
+**Bridge não sobe:** verifique se `BRIDGE_DB_PATH` tem diretório pai com permissão de escrita.
 
-✅ **Pegada Total (com bridge interno):**
-- **Amélie Gleam (com bridge):** 77 MB (49 + 28)
-- **Amélie (Node.js):** 265 MB
-- **Ainda 3.4x menor!** 🎉
+**Banco corrompido:** pare, remova o arquivo `.sqlite` afetado, reinicie (histórico é perdido).

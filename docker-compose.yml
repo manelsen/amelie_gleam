@@ -1,56 +1,20 @@
-version: "3.9"
-
 services:
-  # WhatsApp Bridge (Go/whatsmeow)
-  whatsmeow-bridge:
-    build:
-      context: ./whatsmeow-bridge
-      dockerfile: Dockerfile
-    container_name: amelie-whatsmeow-bridge
-    restart: unless-stopped
-    environment:
-      - TZ=America/Sao_Paulo
-    volumes:
-      # Persistência da sessão do WhatsApp
-      - ./whatsmeow-bridge/db:/app/db
-    ports:
-      - "8081:8080"
-    networks:
-      - amelie-net
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  # Amélie Gleam App
-  amelie-gleam:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: amelie-gleam
+  amelie:
+    build: .
+    container_name: amelie
     restart: unless-stopped
     env_file:
       - .env
     environment:
-      - WHATSMEOW_URL=http://whatsmeow-bridge:8080
-      - DB_PATH=/data/amelie.sqlite
       - TZ=America/Sao_Paulo
+      - DB_PATH=/data/amelie.sqlite
+      - BRIDGE_DB_PATH=/data/bridge/whatsapp.db
     volumes:
-      # Persistência do banco SQLite
       - ./db:/data
     ports:
       - "4001:4000"
-    depends_on:
-      - whatsmeow-bridge
-    networks:
-      - amelie-net
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
-
-networks:
-  amelie-net:
-    driver: bridge
