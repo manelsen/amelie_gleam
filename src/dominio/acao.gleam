@@ -7,6 +7,8 @@ pub type Acao {
   // Passa `corpo` como prompt para a IA; shell envia a resposta gerada.
   // Usado para mensagens de texto do usuário.
   EnviarTexto(para: String, corpo: String)
+  // Busca conteúdo da URL e injeta no prompt antes de chamar a IA.
+  BuscarUrlEResponder(para: String, texto: String, url: String)
   // Envia `corpo` diretamente ao WhatsApp, sem chamar a IA.
   // Usado para respostas de comandos.
   EnviarResposta(para: String, corpo: String)
@@ -23,6 +25,8 @@ pub type Acao {
   ConsultarMetricas(chat_id: String)
   ListarUsuarios(chat_id: String)
   ListarGrupos(chat_id: String)
+  // Modelo/provedor
+  AlterarModelo(chat_id: String, provedor: String, modelo: String)
   // Manutenção
   SnapshotHistorico(chat_id: String)
   NaoResponder
