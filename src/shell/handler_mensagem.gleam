@@ -3,10 +3,12 @@
 
 import core/ia_dispatcher
 import core/processador
+import core/prompt/builder
 import dominio/acao.{
-  AtivarPrompt, ConsultarMetricas, EnfileirarMidia, EnviarReacao, EnviarResposta,
-  EnviarTexto, ExcluirPrompt, LimparHistorico, ListarGrupos, ListarPrompts,
-  ListarUsuarios, NaoResponder, SalvarConfig, SalvarPrompt, SnapshotHistorico,
+  AlterarModelo, AtivarPrompt, BuscarUrlEResponder, ConsultarMetricas,
+  EnfileirarMidia, EnviarReacao, EnviarResposta, EnviarTexto, ExcluirPrompt,
+  LimparHistorico, ListarGrupos, ListarPrompts, ListarUsuarios, NaoResponder,
+  SalvarConfig, SalvarPrompt, SnapshotHistorico,
 }
 import dominio/config
 import dominio/erro.{type Erro}
@@ -31,6 +33,7 @@ import portas/whatsapp_porta.{type WhatsappPorta}
 import shell/entrega_auditada
 import shell/fila_midia.{type FilasMidia}
 import shell/metricas.{type Metricas}
+import shell/url_scraper
 
 pub type Portas {
   Portas(
@@ -121,14 +124,36 @@ fn executar_acao(
         cfg.provedor,
         cfg.modelo,
       ))
-      use _ <- result.try(entrega_auditada.enviar(
+      use _ <- result.try(entregar(
         para,
         "amelie",
         "ia_texto",
         resposta,
-        portas.whatsapp,
-        portas.transacoes,
+        msg,
+        portas,
       ))
+      use _ <- result.try(portas.historico.adicionar(
+        msg.chat_id,
+        TurnoUsuario(extrair_texto_usuario(msg)),
+      ))
+      portas.historico.adicionar(msg.chat_id, TurnoAssistente(resposta))
+    }
+
+    BuscarUrlEResponder(para, texto, url) -> {
+      logging.log(logging.Info, "Buscando URL e respondendo para " <> para)
+      let prompt = case url_scraper.buscar(url) {
+        Ok(conteudo) ->
+          builder.montar_com_url(texto, url, conteudo, cfg, hist)
+        Error(_) -> builder.montar(texto, cfg, hist)
+      }
+      use resposta <- result.try(ia_dispatcher.gerar_texto(
+        portas.ia_dispatcher,
+        prompt,
+        hist,
+        cfg.provedor,
+        cfg.modelo,
+      ))
+      use _ <- result.try(entregar(para, "amelie", "ia_texto", resposta, msg, portas))
       use _ <- result.try(portas.historico.adicionar(
         msg.chat_id,
         TurnoUsuario(extrair_texto_usuario(msg)),
@@ -138,14 +163,7 @@ fn executar_acao(
 
     EnviarResposta(para, corpo) -> {
       logging.log(logging.Info, "Enviando resposta direta para " <> para)
-      entrega_auditada.enviar(
-        para,
-        "amelie",
-        "texto",
-        corpo,
-        portas.whatsapp,
-        portas.transacoes,
-      )
+      entregar(para, "amelie", "texto", corpo, msg, portas)
     }
 
     EnviarReacao(para, emoji) ->
@@ -248,8 +266,6 @@ fn executar_acao(
     }
 
     ListarUsuarios(chat_id) -> {
-      use _usuarios <- result.try(portas.usuarios.listar())
-      use _contagem <- result.try(portas.usuarios.contar())
       let msg_users = case portas.usuarios.listar() {
         Ok(usrs) -> "👥 Usuários ativos:\n" <> string.join(usrs, "\n")
         Error(_) -> "Vazio ou Erro"
@@ -338,7 +354,68 @@ fn executar_acao(
       }
     }
 
+    AlterarModelo(chat_id, provedor, modelo) -> {
+      case
+        providers_config.validar_modelo(portas.providers_config, provedor, modelo)
+      {
+        Ok(_) -> {
+          let nova = config.Config(..cfg, provedor: provedor, modelo: modelo)
+          use _ <- result.try(portas.config.salvar(nova))
+          entregar(
+            chat_id,
+            "amelie",
+            "texto",
+            "Modelo alterado: `" <> provedor <> "/" <> modelo <> "`",
+            msg,
+            portas,
+          )
+        }
+        Error(e) ->
+          entregar(
+            chat_id,
+            "amelie",
+            "texto",
+            "❌ " <> erro.descricao(e),
+            msg,
+            portas,
+          )
+      }
+    }
+
     NaoResponder -> Ok(Nil)
+  }
+}
+
+// Envia citando a mensagem original quando possível; cai em envio simples caso contrário.
+fn entregar(
+  para: String,
+  remetente: String,
+  tipo: String,
+  conteudo: String,
+  msg: Mensagem,
+  portas: Portas,
+) -> Result(Nil, Erro) {
+  case msg.message_id {
+    option.Some(mid) ->
+      entrega_auditada.enviar_citando(
+        para,
+        remetente,
+        tipo,
+        conteudo,
+        mid,
+        msg.remetente,
+        portas.whatsapp,
+        portas.transacoes,
+      )
+    option.None ->
+      entrega_auditada.enviar(
+        para,
+        remetente,
+        tipo,
+        conteudo,
+        portas.whatsapp,
+        portas.transacoes,
+      )
   }
 }
 

@@ -47,7 +47,7 @@ pub fn iniciar(
 fn handle_message(state: State, msg: Mensagem) -> actor.Next(State, Mensagem) {
   case msg {
     ProcessarPendentes -> {
-      logging.log(logging.Info, "FilaOffline: processando pendentes")
+      logging.log(logging.Debug, "FilaOffline: processando pendentes")
       processar_pendentes(state)
     }
 
@@ -61,7 +61,7 @@ fn handle_message(state: State, msg: Mensagem) -> actor.Next(State, Mensagem) {
 fn processar_pendentes(state: State) -> actor.Next(State, Mensagem) {
   case state.transacoes.obter_pendentes() {
     Ok([]) -> {
-      logging.log(logging.Info, "FilaOffline: nenhuma transação pendente")
+      logging.log(logging.Debug, "FilaOffline: nenhuma transação pendente")
       actor.continue(state)
     }
 
