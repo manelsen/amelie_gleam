@@ -1,7 +1,7 @@
 -module(amelie_gleam_ffi).
 -export([read_file/1, int_to_string/1, get_env/1, now_ms/0,
          sha256_hex/1, memoria_total_mb/0, memoria_processos_mb/0,
-         contagem_processos/0, spawn_fn/1, upload_file/3]).
+         contagem_processos/0, spawn_fn/1, upload_file/3, debug_log/1]).
 
 %% Lê arquivo do disco.
 %% Retorna {ok, Binary} | {error, Binary} — Result(BitArray, String) no Gleam.
@@ -87,3 +87,9 @@ get_env(Name) ->
         false -> {error, nil};
         Value -> {ok, list_to_binary(Value)}
     end.
+
+%% Debug: writes to stdout immediately (no buffering).
+%% Retorna ok — Result(Nil, String) no Gleam.
+debug_log(Msg) ->
+    io:format(<<"DEBUG: ~s~n">>, [Msg]),
+    ok.

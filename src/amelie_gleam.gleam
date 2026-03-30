@@ -42,9 +42,6 @@ import logging
 @external(erlang, "amelie_gleam_ffi", "get_env")
 fn get_env(name: String) -> Result(String, Nil)
 
-@external(erlang, "amelie_gleam_ffi", "spawn_fn")
-fn spawn_fn(f: fn() -> a) -> Nil
-
 pub fn main() {
   dot_env.new()
   |> dot_env.load
@@ -188,9 +185,8 @@ fn handle_webhook(
       case parse_webhook(req_with_body.body) {
         Error(_) -> json_response(400, "{\"error\":\"invalid payload\"}")
         Ok(msg) -> {
-          // Processa em processo isolado — webhook retorna imediatamente.
-          // Evita bloquear o Mist durante chamadas à IA (2-10s).
-          spawn_fn(fn() { handler_mensagem.handle(msg, portas) })
+          // Temporário: síncrono para diagnóstico.
+          let _ = handler_mensagem.handle(msg, portas)
           json_response(202, "{\"ok\":true}")
         }
       }
