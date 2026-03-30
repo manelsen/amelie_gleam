@@ -139,6 +139,7 @@ fn executar_acao(
   case acao {
     // O core montou o prompt no corpo de EnviarTexto — o shell chama a IA.
     EnviarTexto(para, prompt) -> {
+      logging.log(logging.Info, "Enviando texto gerado pela IA para " <> para)
       use resposta <- result.try(ia_dispatcher.gerar_texto(
         portas.ia_dispatcher,
         prompt,

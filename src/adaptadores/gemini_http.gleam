@@ -273,7 +273,9 @@ fn post_gemini(
 
   use resp <- result.try(
     httpc.send(req)
-    |> result.map_error(fn(_) { erro.ErroIA("falha ao chamar Gemini") }),
+    |> result.map_error(fn(e) {
+      erro.ErroComunicacao("falha ao chamar Gemini: " <> string.inspect(e))
+    }),
   )
 
   case resp.status {
