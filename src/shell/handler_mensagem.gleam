@@ -60,6 +60,30 @@ pub fn handle(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
       <> msg.remetente
       <> ")",
   )
+
+  // Deduplicação: history sync pode reenviar mensagens já processadas.
+  // Mensagens sem message_id (raro) são sempre processadas.
+  case msg.message_id {
+    option.Some(msg_id) -> {
+      case portas.transacoes.foi_recebida(msg_id) {
+        Ok(True) -> {
+          logging.log(logging.Info, "Mensagem ja processada, ignorando: " <> msg_id)
+          Ok(Nil)
+        }
+        Ok(False) -> {
+          let _ = portas.transacoes.marcar_recebida(msg_id)
+          processar_mensagem(msg, portas)
+        }
+        Error(_) -> processar_mensagem(msg, portas)
+      }
+    }
+    option.None -> processar_mensagem(msg, portas)
+  }
+}
+
+fn processar_mensagem(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
+  logging.log(logging.Info, "Processando mensagem: " <> msg.chat_id)
+
   let _ = portas.usuarios.registrar(msg.chat_id)
 
   case msg.em_grupo {
@@ -99,7 +123,6 @@ fn handle_interno(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
   use cfg <- result.try(portas.config.obter(msg.chat_id))
   use hist <- result.try(portas.historico.obter(msg.chat_id))
   use acoes <- result.try(processador.processar(msg, cfg, hist))
-
   acoes
   |> list.map(executar_acao(_, msg, cfg, hist, portas))
   |> result.all
@@ -116,7 +139,6 @@ fn executar_acao(
   case acao {
     // O core montou o prompt no corpo de EnviarTexto — o shell chama a IA.
     EnviarTexto(para, prompt) -> {
-      logging.log(logging.Info, "Enviando texto gerado pela IA para " <> para)
       use resposta <- result.try(ia_dispatcher.gerar_texto(
         portas.ia_dispatcher,
         prompt,
@@ -140,7 +162,6 @@ fn executar_acao(
     }
 
     BuscarUrlEResponder(para, texto, url) -> {
-      logging.log(logging.Info, "Buscando URL e respondendo para " <> para)
       let prompt = case url_scraper.buscar(url) {
         Ok(conteudo) ->
           builder.montar_com_url(texto, url, conteudo, cfg, hist)
@@ -162,7 +183,6 @@ fn executar_acao(
     }
 
     EnviarResposta(para, corpo) -> {
-      logging.log(logging.Info, "Enviando resposta direta para " <> para)
       entregar(para, "amelie", "texto", corpo, msg, portas)
     }
 

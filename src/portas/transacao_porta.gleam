@@ -10,5 +10,8 @@ pub type TransacaoPorta {
     obter_por_chat: fn(String) -> Result(List(Transacao), Erro),
     marcar_entregue: fn(Int) -> Result(Nil, Erro),
     limpar_antigas: fn() -> Result(Nil, Erro),
+    // Rastreia mensagens recebidas para deduplicar (history sync).
+    foi_recebida: fn(String) -> Result(Bool, Erro),
+    marcar_recebida: fn(String) -> Result(Nil, Erro),
   )
 }

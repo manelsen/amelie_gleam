@@ -1,6 +1,7 @@
 import dominio/erro.{type Erro}
 import dominio/transacao as t
 import gleam/dynamic/decode
+import gleam/list
 import gleam/option.{Some}
 import gleam/result
 import portas/transacao_porta
@@ -25,10 +26,16 @@ const schema_idx = "CREATE INDEX IF NOT EXISTS idx_transacoes_chat_status
 const schema_idx_pendentes = "CREATE INDEX IF NOT EXISTS idx_transacoes_pendentes
   ON transacoes (status, tentativas) WHERE status != 'entregue' AND status != 'descartada'"
 
+const schema_msg_recebidas = "CREATE TABLE IF NOT EXISTS mensagens_recebidas (
+  message_id TEXT PRIMARY KEY,
+  recebido_em INTEGER NOT NULL DEFAULT (unixepoch())
+)"
+
 pub fn criar(conn: sqlight.Connection) -> transacao_porta.TransacaoPorta {
   let _ = sqlight.exec(schema, conn)
   let _ = sqlight.exec(schema_idx, conn)
   let _ = sqlight.exec(schema_idx_pendentes, conn)
+  let _ = sqlight.exec(schema_msg_recebidas, conn)
   transacao_porta.TransacaoPorta(
     registrar: fn(tx) { registrar(conn, tx) },
     atualizar_status: fn(id, status) { atualizar_status(conn, id, status) },
@@ -39,6 +46,8 @@ pub fn criar(conn: sqlight.Connection) -> transacao_porta.TransacaoPorta {
     obter_por_chat: fn(chat_id) { obter_por_chat(conn, chat_id) },
     marcar_entregue: fn(id) { marcar_entregue(conn, id) },
     limpar_antigas: fn() { limpar_antigas(conn) },
+    foi_recebida: fn(msg_id) { foi_recebida(conn, msg_id) },
+    marcar_recebida: fn(msg_id) { marcar_recebida(conn, msg_id) },
   )
 }
 
@@ -186,7 +195,6 @@ fn marcar_entregue(conn: sqlight.Connection, id: Int) -> Result(Nil, Erro) {
 
 // Remove transações entregues ou descartadas com mais de 7 dias.
 // Retorna o número de linhas deletadas.
-// Remove transações entregues ou descartadas com mais de 7 dias.
 fn limpar_antigas(conn: sqlight.Connection) -> Result(Nil, Erro) {
   let sql =
     "DELETE FROM transacoes
@@ -221,4 +229,28 @@ fn transacao_decoder() -> decode.Decoder(t.Transacao) {
     tentativas: tentativas,
     erro: erro,
   ))
+}
+
+// Verifica se uma mensagem já foi processada (deduplicação para history sync).
+fn foi_recebida(conn: sqlight.Connection, message_id: String) -> Result(Bool, Erro) {
+  sqlight.query(
+    "SELECT 1 FROM mensagens_recebidas WHERE message_id = ? LIMIT 1",
+    on: conn,
+    with: [sqlight.text(message_id)],
+    expecting: decode.at([0], decode.int),
+  )
+  |> result.map(fn(rows) { !list.is_empty(rows) })
+  |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
+}
+
+// Marca uma mensagem como recebida (INSERT OR IGNORE — idempotente).
+fn marcar_recebida(conn: sqlight.Connection, message_id: String) -> Result(Nil, Erro) {
+  sqlight.query(
+    "INSERT OR IGNORE INTO mensagens_recebidas (message_id) VALUES (?)",
+    on: conn,
+    with: [sqlight.text(message_id)],
+    expecting: decode.dynamic,
+  )
+  |> result.map(fn(_) { Nil })
+  |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
 }
