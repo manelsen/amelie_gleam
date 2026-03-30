@@ -74,33 +74,30 @@ pub fn main() {
     |> result.unwrap(or: 4000)
   let offline_retry_interval_ms =
     int.parse(offline_retry_interval_str)
-    |> result.unwrap(or: 30000)
+    |> result.unwrap(or: 30_000)
 
-  let providers_config = case
+  let providers_config =
     providers_config.ler_arquivo("./config/providers.yaml")
-  {
-    Ok(cfg) -> cfg
-    Error(_) -> providers_config.padrao()
-  }
+    |> result.unwrap(providers_config.padrao())
 
   use conn <- sqlight.with_connection(db_path)
 
-  let cb_gemini = case circuit_breaker.iniciar() {
-    Ok(cb) -> cb
-    Error(_) -> panic as "falha ao iniciar circuit breaker gemini"
-  }
-  let cb_openrouter = case circuit_breaker.iniciar() {
-    Ok(cb) -> cb
-    Error(_) -> panic as "falha ao iniciar circuit breaker openrouter"
-  }
-  let cache_gemini = case cache_ia.iniciar() {
-    Ok(c) -> c
-    Error(_) -> panic as "falha ao iniciar cache gemini"
-  }
-  let cache_openrouter = case cache_ia.iniciar() {
-    Ok(c) -> c
-    Error(_) -> panic as "falha ao iniciar cache openrouter"
-  }
+  let cb_gemini =
+    circuit_breaker.iniciar()
+    |> result.lazy_unwrap(fn() {
+      panic as "falha ao iniciar circuit breaker gemini"
+    })
+  let cb_openrouter =
+    circuit_breaker.iniciar()
+    |> result.lazy_unwrap(fn() {
+      panic as "falha ao iniciar circuit breaker openrouter"
+    })
+  let cache_gemini =
+    cache_ia.iniciar()
+    |> result.lazy_unwrap(fn() { panic as "falha ao iniciar cache gemini" })
+  let cache_openrouter =
+    cache_ia.iniciar()
+    |> result.lazy_unwrap(fn() { panic as "falha ao iniciar cache openrouter" })
 
   let gemini_ia =
     gemini_http.criar(gemini_api_key)
@@ -118,20 +115,17 @@ pub fn main() {
   let grupos_p = grupo_sqlite.criar(conn)
   let transacoes_p = transacao_sqlite.criar(conn)
 
-  let fila = case fila_midia.iniciar_todas() {
-    Ok(f) -> f
-    Error(_) -> panic as "falha ao iniciar filas de mídia"
-  }
+  let fila =
+    fila_midia.iniciar_todas()
+    |> result.lazy_unwrap(fn() { panic as "falha ao iniciar filas de mídia" })
 
-  let metricas_actor = case metricas.iniciar() {
-    Ok(m) -> m
-    Error(_) -> panic as "falha ao iniciar métricas"
-  }
+  let metricas_actor =
+    metricas.iniciar()
+    |> result.lazy_unwrap(fn() { panic as "falha ao iniciar métricas" })
 
-  let fila_offline_actor = case fila_offline.iniciar(transacoes_p, whatsapp, 3) {
-    Ok(f) -> f
-    Error(_) -> panic as "falha ao iniciar fila offline"
-  }
+  let fila_offline_actor =
+    fila_offline.iniciar(transacoes_p, whatsapp, 3)
+    |> result.lazy_unwrap(fn() { panic as "falha ao iniciar fila offline" })
   let _ =
     fila_offline.agendar_processamento(
       fila_offline_actor,

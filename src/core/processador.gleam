@@ -13,6 +13,7 @@ import dominio/erro.{type Erro}
 import dominio/mensagem.{
   type Mensagem, type Turno, Audio, Comando, Documento, Imagem, Texto, Video,
 }
+import gleam/bool
 import gleam/list
 import gleam/option
 import gleam/result
@@ -26,10 +27,9 @@ pub fn processar(
   use msg_val <- result.try(validacao.validar_mensagem(msg))
 
   // Ignora mensagens do próprio bot (previne loops)
-  case validacao.e_mensagem_propria(msg_val) {
-    True -> Ok([NaoResponder])
-    False -> processar_filtrado(msg_val, config, historico)
-  }
+  use <- bool.guard(validacao.e_mensagem_propria(msg_val), Ok([NaoResponder]))
+
+  processar_filtrado(msg_val, config, historico)
 }
 
 fn processar_filtrado(
@@ -38,17 +38,18 @@ fn processar_filtrado(
   historico: List(Turno),
 ) -> Result(List(Acao), Erro) {
   // Em grupos, ignora mensagens que não mencionam o bot (exceto comandos)
-  case msg.em_grupo && !msg.menciona_bot && !mensagem.e_comando(msg) {
-    True -> Ok([NaoResponder])
-    False ->
-      case msg.corpo {
-        Texto(body) -> processar_texto(body, config, historico)
-        Comando(nome, args) -> processar_comando(nome, args, config)
-        Imagem(..) -> processar_midia(msg, config, MidiaImagem)
-        Audio(..) -> processar_midia(msg, config, MidiaAudio)
-        Video(..) -> processar_midia(msg, config, MidiaVideo)
-        Documento(..) -> processar_midia(msg, config, MidiaDocumento)
-      }
+  use <- bool.guard(
+    msg.em_grupo && !msg.menciona_bot && !mensagem.e_comando(msg),
+    Ok([NaoResponder]),
+  )
+
+  case msg.corpo {
+    Texto(body) -> processar_texto(body, config, historico)
+    Comando(nome, args) -> processar_comando(nome, args, config)
+    Imagem(..) -> processar_midia(msg, config, MidiaImagem)
+    Audio(..) -> processar_midia(msg, config, MidiaAudio)
+    Video(..) -> processar_midia(msg, config, MidiaVideo)
+    Documento(..) -> processar_midia(msg, config, MidiaDocumento)
   }
 }
 
@@ -110,8 +111,6 @@ fn processar_midia(
     MidiaDocumento -> config.doc_ativo
   }
 
-  case ativa {
-    False -> Ok([NaoResponder])
-    True -> Ok([EnfileirarMidia(chat_id: msg.chat_id, tipo: tipo)])
-  }
+  use <- bool.guard(!ativa, Ok([NaoResponder]))
+  Ok([EnfileirarMidia(chat_id: msg.chat_id, tipo: tipo)])
 }
