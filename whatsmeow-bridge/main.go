@@ -36,7 +36,7 @@ import (
 )
 
 func init() {
-	// Registra modernc.org/sqlite (pure Go, sem CGO) como driver "sqlite3"
+	// Registra modernc.org/sqlite (pure Go) como driver "sqlite3"
 	// para compatibilidade com o sqlstore do whatsmeow.
 	sql.Register("sqlite3", &moderncsqlite.Driver{})
 }
@@ -123,7 +123,7 @@ type Bridge struct {
 
 func NewBridge(cfg Config) (*Bridge, error) {
 	dbLog := waLog.Stdout("Database", "WARN", true)
-	container, err := sqlstore.New(context.Background(), "sqlite3", "file:"+cfg.DBPath+"?_pragma=foreign_keys(1)", dbLog)
+	container, err := sqlstore.New(context.Background(), "sqlite3", "file:"+cfg.DBPath+"?_pragma=foreign_keys(1)&_pragma=busy_timeout(60000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", dbLog)
 	if err != nil {
 		return nil, fmt.Errorf("abrindo banco de dados: %w", err)
 	}
@@ -194,6 +194,39 @@ func (b *Bridge) handleEvent(rawEvt interface{}) {
 	switch evt := rawEvt.(type) {
 	case *events.Message:
 		b.processMessage(evt)
+	case *events.HistorySync:
+		b.processHistorySync(evt)
+	}
+}
+
+func (b *Bridge) processHistorySync(evt *events.HistorySync) {
+	data := evt.Data
+	syncType := data.GetSyncType()
+	convs := data.GetConversations()
+	log.Printf("[HistorySync] tipo=%d, conversas=%d", syncType, len(convs))
+
+	for _, conv := range convs {
+		chatID := conv.GetID()
+		chatJID, err := types.ParseJID(chatID)
+		if err != nil {
+			log.Printf("[HistorySync] JID inválido %s: %v", chatID, err)
+			continue
+		}
+
+		msgs := conv.GetMessages()
+		for _, syncMsg := range msgs {
+			webMsg := syncMsg.GetMessage()
+			if webMsg == nil {
+				continue
+			}
+			msgID := webMsg.GetKey().GetID()
+			parsed, err := b.client.ParseWebMessage(chatJID, webMsg)
+			if err != nil {
+				log.Printf("[HistorySync] Erro ao parsear mensagem %s: %v", msgID, err)
+				continue
+			}
+			b.processMessage(parsed)
+		}
 	}
 }
 
@@ -379,7 +412,7 @@ func (b *Bridge) handleSend(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	_, err = b.client.SendMessage(context.Background(), jid, msg)
+	_, err = b.sendMessageWithRetry(jid, msg)
 	if err != nil {
 		log.Printf("Erro ao enviar mensagem: %v\n", err)
 		http.Error(w, "send failed", http.StatusInternalServerError)
@@ -388,6 +421,27 @@ func (b *Bridge) handleSend(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"ok":true}`))
+}
+
+func (b *Bridge) sendMessageWithRetry(jid types.JID, msg *waProto.Message) (any, error) {
+	var lastErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt*100) * time.Millisecond)
+		}
+		result, err := b.client.SendMessage(context.Background(), jid, msg)
+		if err == nil {
+			return result, nil
+		}
+		// Retry only on SQLITE_BUSY (code 5)
+		if !strings.Contains(err.Error(), "database is locked") &&
+			!strings.Contains(err.Error(), "SQLITE_BUSY") {
+			return nil, err
+		}
+		lastErr = err
+		log.Printf("[SendRetry] attempt %d: %v", attempt+1, err)
+	}
+	return nil, lastErr
 }
 
 func (b *Bridge) handleReact(w http.ResponseWriter, r *http.Request) {
@@ -421,7 +475,8 @@ func (b *Bridge) handleReact(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	if _, err := b.client.SendMessage(context.Background(), chatJID, msg); err != nil {
+	_, err = b.sendMessageWithRetry(chatJID, msg)
+	if err != nil {
 		log.Printf("Erro ao enviar reação: %v\n", err)
 		http.Error(w, "react failed", http.StatusInternalServerError)
 		return

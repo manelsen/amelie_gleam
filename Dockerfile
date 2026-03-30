@@ -1,6 +1,8 @@
 # Stage 1: Build do bridge Go (pure Go, sem CGO)
 FROM golang:alpine AS go-builder
 
+RUN apk add --no-cache gcc musl-dev
+
 WORKDIR /bridge
 COPY whatsmeow-bridge/go.mod whatsmeow-bridge/go.sum ./
 RUN go mod download
@@ -10,7 +12,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o bridge .
 
 # ---------------------------------------------------------------------------
 # Stage 2: Build da aplicação Gleam
-FROM ghcr.io/gleam-lang/gleam:v1.14.0-erlang-alpine AS gleam-builder
+FROM ghcr.io/gleam-lang/gleam:v1.15.0-erlang-alpine AS gleam-builder
 
 WORKDIR /app
 COPY gleam.toml ./
@@ -24,7 +26,7 @@ RUN apk add --no-cache build-base sqlite-dev sqlite && \
 
 # ---------------------------------------------------------------------------
 # Stage 3: Imagem final — mesma base Erlang do builder (evita mismatch de OTP)
-FROM ghcr.io/gleam-lang/gleam:v1.14.0-erlang-alpine
+FROM ghcr.io/gleam-lang/gleam:v1.15.0-erlang-alpine
 
 RUN apk add --no-cache sqlite-libs ca-certificates
 

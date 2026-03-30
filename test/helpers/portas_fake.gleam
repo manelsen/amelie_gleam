@@ -237,6 +237,8 @@ pub fn transacao_noop() -> TransacaoPorta {
     obter_por_chat: fn(_) { Ok([]) },
     marcar_entregue: fn(_) { Ok(Nil) },
     limpar_antigas: fn() { Ok(Nil) },
+    foi_recebida: fn(_) { Ok(False) },
+    marcar_recebida: fn(_) { Ok(Nil) },
   )
 }
 
@@ -279,6 +281,8 @@ pub fn transacao_capturar(
       Ok(Nil)
     },
     limpar_antigas: fn() { Ok(Nil) },
+    foi_recebida: fn(_) { Ok(False) },
+    marcar_recebida: fn(_) { Ok(Nil) },
   )
 }
 

@@ -55,6 +55,8 @@ fn transacao_capturar_id(
       Ok(Nil)
     },
     limpar_antigas: fn() { Ok(Nil) },
+    foi_recebida: fn(_) { Ok(False) },
+    marcar_recebida: fn(_) { Ok(Nil) },
   )
 }
 
@@ -73,6 +75,8 @@ fn transacao_capturar_erro(
     obter_por_chat: fn(_) { Ok([]) },
     marcar_entregue: fn(_) { Ok(Nil) },
     limpar_antigas: fn() { Ok(Nil) },
+    foi_recebida: fn(_) { Ok(False) },
+    marcar_recebida: fn(_) { Ok(Nil) },
   )
 }
 
@@ -85,6 +89,8 @@ fn transacao_sem_id() -> TransacaoPorta {
     obter_por_chat: fn(_) { Ok([]) },
     marcar_entregue: fn(_) { Ok(Nil) },
     limpar_antigas: fn() { Ok(Nil) },
+    foi_recebida: fn(_) { Ok(False) },
+    marcar_recebida: fn(_) { Ok(Nil) },
   )
 }
 
@@ -160,6 +166,8 @@ pub fn falha_no_registro_nao_envia_test() {
       obter_por_chat: fn(_) { Ok([]) },
       marcar_entregue: fn(_) { Ok(Nil) },
       limpar_antigas: fn() { Ok(Nil) },
+      foi_recebida: fn(_) { Ok(False) },
+      marcar_recebida: fn(_) { Ok(Nil) },
     )
 
   entrega_auditada.enviar(

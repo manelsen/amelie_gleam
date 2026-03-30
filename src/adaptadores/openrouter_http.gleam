@@ -12,6 +12,7 @@ import gleam/int
 import gleam/json
 import gleam/list
 import gleam/result
+import gleam/string
 import portas/ia_porta.{type IAPorta, IAPorta}
 
 const base_url = "https://openrouter.ai/api/v1/chat/completions"
@@ -201,7 +202,9 @@ fn post_openrouter(api_key: String, body: String) -> Result(String, Erro) {
 
   use resp <- result.try(
     httpc.send(req)
-    |> result.map_error(fn(_) { erro.ErroIA("falha ao chamar OpenRouter") }),
+    |> result.map_error(fn(e) {
+      erro.ErroComunicacao("falha ao chamar OpenRouter: " <> string.inspect(e))
+    }),
   )
 
   case resp.status {

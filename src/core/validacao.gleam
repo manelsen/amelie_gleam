@@ -39,5 +39,5 @@ pub fn parsear_comando(body: String) -> Result(#(String, String), Erro) {
 }
 
 pub fn e_mensagem_propria(msg: Mensagem) -> Bool {
-  string.ends_with(msg.remetente, ":bot") || msg.remetente == msg.chat_id
+  string.ends_with(msg.remetente, ":bot")
 }

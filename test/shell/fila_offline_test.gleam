@@ -42,6 +42,8 @@ pub fn retry_sucesso_marca_entregue_test() {
         Ok(Nil)
       },
       limpar_antigas: fn() { Ok(Nil) },
+      foi_recebida: fn(_) { Ok(False) },
+      marcar_recebida: fn(_) { Ok(Nil) },
     )
   let whatsapp =
     WhatsappPorta(
@@ -76,6 +78,8 @@ pub fn retry_falha_atualiza_tentativas_test() {
       obter_por_chat: fn(_) { Ok([]) },
       marcar_entregue: fn(_) { Ok(Nil) },
       limpar_antigas: fn() { Ok(Nil) },
+      foi_recebida: fn(_) { Ok(False) },
+      marcar_recebida: fn(_) { Ok(Nil) },
     )
   let whatsapp =
     WhatsappPorta(
@@ -111,6 +115,8 @@ pub fn retry_descarta_apos_max_tentativas_test() {
       obter_por_chat: fn(_) { Ok([]) },
       marcar_entregue: fn(_) { Ok(Nil) },
       limpar_antigas: fn() { Ok(Nil) },
+      foi_recebida: fn(_) { Ok(False) },
+      marcar_recebida: fn(_) { Ok(Nil) },
     )
   let whatsapp =
     WhatsappPorta(
@@ -143,6 +149,8 @@ pub fn sem_pendentes_nao_envia_test() {
       obter_por_chat: fn(_) { Ok([]) },
       marcar_entregue: fn(_) { Ok(Nil) },
       limpar_antigas: fn() { Ok(Nil) },
+      foi_recebida: fn(_) { Ok(False) },
+      marcar_recebida: fn(_) { Ok(Nil) },
     )
   let whatsapp =
     WhatsappPorta(
@@ -189,6 +197,8 @@ pub fn tx_sem_id_e_ignorada_test() {
       obter_por_chat: fn(_) { Ok([]) },
       marcar_entregue: fn(_) { Ok(Nil) },
       limpar_antigas: fn() { Ok(Nil) },
+      foi_recebida: fn(_) { Ok(False) },
+      marcar_recebida: fn(_) { Ok(Nil) },
     )
   let whatsapp =
     WhatsappPorta(
