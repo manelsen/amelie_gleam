@@ -13,27 +13,27 @@ import portas/ia_porta.{type IAPorta, IAPorta}
 import portas/prompt_porta.{type PromptPorta, PromptPorta}
 import portas/transacao_porta.{type TransacaoPorta, TransacaoPorta}
 import portas/usuario_porta.{type UsuarioPorta, UsuarioPorta}
-import portas/whatsapp_porta.{type WhatsappPorta, WhatsappPorta}
+import portas/mensageiro_porta.{type MensageiroPorta, MensageiroPorta}
 import shell/fila_midia
 import shell/handler_mensagem.{type Portas, Portas}
 import shell/metricas
 
 // ---------------------------------------------------------------------------
-// WhatsApp fake
+// Mensageiro fake
 // ---------------------------------------------------------------------------
 
-pub fn whatsapp_ok() -> WhatsappPorta {
-  WhatsappPorta(
+pub fn mensageiro_ok() -> MensageiroPorta {
+  MensageiroPorta(
     enviar: fn(_, _) { Ok(Nil) },
     enviar_citando: fn(_, _, _, _) { Ok(Nil) },
     reagir: fn(_, _, _, _) { Ok(Nil) },
   )
 }
 
-pub fn whatsapp_capturar(
+pub fn mensageiro_capturar(
   ref: process.Subject(#(String, String)),
-) -> WhatsappPorta {
-  WhatsappPorta(
+) -> MensageiroPorta {
+  MensageiroPorta(
     enviar: fn(chat_id, texto) {
       process.send(ref, #(chat_id, texto))
       Ok(Nil)
@@ -46,8 +46,8 @@ pub fn whatsapp_capturar(
   )
 }
 
-pub fn whatsapp_erro(e: Erro) -> WhatsappPorta {
-  WhatsappPorta(
+pub fn mensageiro_erro(e: Erro) -> MensageiroPorta {
+  MensageiroPorta(
     enviar: fn(_, _) { Error(e) },
     enviar_citando: fn(_, _, _, _) { Error(e) },
     reagir: fn(_, _, _, _) { Error(e) },
@@ -300,7 +300,7 @@ pub fn portas_ok(cfg, resposta_ia: String) -> Portas {
     Error(_) -> panic as "falha ao iniciar métricas nos testes"
   }
   Portas(
-    whatsapp: whatsapp_ok(),
+    mensageiro: mensageiro_ok(),
     ia_dispatcher: ia_dispatcher_ok(resposta_ia),
     config: config_ok(cfg),
     historico: historico_vazio(),

@@ -24,7 +24,7 @@ pub fn audio_off_persiste_config_test() {
   let ref = process.new_subject()
   let portas =
     Portas(
-      whatsapp: portas_fake.whatsapp_ok(),
+      mensageiro: portas_fake.mensageiro_ok(),
       ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
       config: portas_fake.config_capturar(ref),
       historico: portas_fake.historico_vazio(),
@@ -47,7 +47,7 @@ pub fn audio_on_persiste_config_test() {
   let ref = process.new_subject()
   let portas =
     Portas(
-      whatsapp: portas_fake.whatsapp_ok(),
+      mensageiro: portas_fake.mensageiro_ok(),
       ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
       config: portas_fake.config_capturar(ref),
       historico: portas_fake.historico_vazio(),
@@ -70,7 +70,7 @@ pub fn reset_limpa_historico_test() {
   let ref = process.new_subject()
   let portas =
     Portas(
-      whatsapp: portas_fake.whatsapp_ok(),
+      mensageiro: portas_fake.mensageiro_ok(),
       ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
       config: portas_fake.config_ok(fixtures.config_padrao()),
       historico: portas_fake.historico_capturar_limpezas(ref),
@@ -93,7 +93,7 @@ pub fn cego_persiste_config_test() {
   let ref = process.new_subject()
   let portas =
     Portas(
-      whatsapp: portas_fake.whatsapp_ok(),
+      mensageiro: portas_fake.mensageiro_ok(),
       ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
       config: portas_fake.config_capturar(ref),
       historico: portas_fake.historico_vazio(),
@@ -119,7 +119,7 @@ pub fn longo_persiste_config_test() {
   let ref = process.new_subject()
   let portas =
     Portas(
-      whatsapp: portas_fake.whatsapp_ok(),
+      mensageiro: portas_fake.mensageiro_ok(),
       ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
       config: portas_fake.config_capturar(ref),
       historico: portas_fake.historico_vazio(),
@@ -142,7 +142,7 @@ pub fn curto_persiste_config_test() {
   let ref = process.new_subject()
   let portas =
     Portas(
-      whatsapp: portas_fake.whatsapp_ok(),
+      mensageiro: portas_fake.mensageiro_ok(),
       ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
       config: portas_fake.config_capturar(ref),
       historico: portas_fake.historico_vazio(),
@@ -165,7 +165,7 @@ pub fn legenda_on_persiste_config_test() {
   let ref = process.new_subject()
   let portas =
     Portas(
-      whatsapp: portas_fake.whatsapp_ok(),
+      mensageiro: portas_fake.mensageiro_ok(),
       ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
       config: portas_fake.config_capturar(ref),
       historico: portas_fake.historico_vazio(),

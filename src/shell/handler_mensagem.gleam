@@ -29,7 +29,7 @@ import portas/historico_porta.{type HistoricoPorta}
 import portas/prompt_porta.{type PromptPorta}
 import portas/transacao_porta.{type TransacaoPorta}
 import portas/usuario_porta.{type UsuarioPorta}
-import portas/whatsapp_porta.{type WhatsappPorta}
+import portas/mensageiro_porta.{type MensageiroPorta}
 import shell/entrega_auditada
 import shell/fila_midia.{type FilasMidia}
 import shell/metricas.{type Metricas}
@@ -37,7 +37,7 @@ import shell/url_scraper
 
 pub type Portas {
   Portas(
-    whatsapp: WhatsappPorta,
+    mensageiro: MensageiroPorta,
     ia_dispatcher: ia_dispatcher.IADispatcher,
     config: ConfigPorta,
     historico: HistoricoPorta,
@@ -110,7 +110,7 @@ fn processar_mensagem(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
       )
       // Tenta enviar mensagem amigável ao usuário
       let _ =
-        portas.whatsapp.enviar(
+        portas.mensageiro.enviar(
           msg.chat_id,
           "⚠️ Desculpe, ocorreu um erro ao processar sua mensagem. Tente novamente.",
         )
@@ -193,7 +193,7 @@ fn executar_acao(
         "amelie",
         "reacao",
         emoji,
-        portas.whatsapp,
+        portas.mensageiro,
         portas.transacoes,
       )
 
@@ -219,7 +219,7 @@ fn executar_acao(
         tipo,
         cfg,
         ia_porta,
-        portas.whatsapp,
+        portas.mensageiro,
         portas.transacoes,
       )
     }
@@ -240,7 +240,7 @@ fn executar_acao(
             "amelie",
             "texto",
             "Prompt `" <> nome <> "` ativado.",
-            portas.whatsapp,
+            portas.mensageiro,
             portas.transacoes,
           )
         }
@@ -250,7 +250,7 @@ fn executar_acao(
             "amelie",
             "texto",
             "Prompt `" <> nome <> "` não encontrado.",
-            portas.whatsapp,
+            portas.mensageiro,
             portas.transacoes,
           )
       }
@@ -269,7 +269,7 @@ fn executar_acao(
         "amelie",
         "texto",
         texto,
-        portas.whatsapp,
+        portas.mensageiro,
         portas.transacoes,
       )
     }
@@ -281,7 +281,7 @@ fn executar_acao(
         "amelie",
         "texto",
         metricas.formatar(estado),
-        portas.whatsapp,
+        portas.mensageiro,
         portas.transacoes,
       )
     }
@@ -296,7 +296,7 @@ fn executar_acao(
         "amelie",
         "texto",
         msg_users,
-        portas.whatsapp,
+        portas.mensageiro,
         portas.transacoes,
       )
     }
@@ -311,7 +311,7 @@ fn executar_acao(
         "amelie",
         "texto",
         msg_grupos,
-        portas.whatsapp,
+        portas.mensageiro,
         portas.transacoes,
       )
     }
@@ -356,7 +356,7 @@ fn executar_acao(
             "amelie",
             "texto",
             "🗃️ Histórico compactado com sucesso!",
-            portas.whatsapp,
+            portas.mensageiro,
             portas.transacoes,
           )
         }
@@ -368,7 +368,7 @@ fn executar_acao(
             "📊 Histórico não precisa de compactação ("
               <> int.to_string(list.length(hist))
               <> " mensagens).",
-            portas.whatsapp,
+            portas.mensageiro,
             portas.transacoes,
           )
         }
@@ -425,7 +425,7 @@ fn entregar(
         conteudo,
         mid,
         msg.remetente,
-        portas.whatsapp,
+        portas.mensageiro,
         portas.transacoes,
       )
     option.None ->
@@ -434,7 +434,7 @@ fn entregar(
         remetente,
         tipo,
         conteudo,
-        portas.whatsapp,
+        portas.mensageiro,
         portas.transacoes,
       )
   }

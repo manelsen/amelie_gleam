@@ -6,7 +6,7 @@ import gleam/erlang/process
 import gleam/option.{None, Some}
 import gleeunit/should
 import portas/transacao_porta.{TransacaoPorta}
-import portas/whatsapp_porta.{WhatsappPorta}
+import portas/mensageiro_porta.{MensageiroPorta}
 import shell/fila_offline
 
 fn tx_pendente(id: Int, tentativas: Int) -> t.Transacao {
@@ -45,14 +45,14 @@ pub fn retry_sucesso_marca_entregue_test() {
       foi_recebida: fn(_) { Ok(False) },
       marcar_recebida: fn(_) { Ok(Nil) },
     )
-  let whatsapp =
-    WhatsappPorta(
+  let mensageiro =
+    MensageiroPorta(
       enviar: fn(_, _) { Ok(Nil) },
       enviar_citando: fn(_, _, _, _) { Ok(Nil) },
       reagir: fn(_, _, _, _) { Ok(Nil) },
     )
 
-  let assert Ok(fila) = fila_offline.iniciar(transacoes, whatsapp, 3)
+  let assert Ok(fila) = fila_offline.iniciar(transacoes, mensageiro, 3)
   process.send(fila, fila_offline.ProcessarPendentes)
   process.sleep(50)
 
@@ -81,14 +81,14 @@ pub fn retry_falha_atualiza_tentativas_test() {
       foi_recebida: fn(_) { Ok(False) },
       marcar_recebida: fn(_) { Ok(Nil) },
     )
-  let whatsapp =
-    WhatsappPorta(
+  let mensageiro =
+    MensageiroPorta(
       enviar: fn(_, _) { Error(erro.ErroComunicacao("offline")) },
       enviar_citando: fn(_, _, _, _) { Error(erro.ErroComunicacao("offline")) },
       reagir: fn(_, _, _, _) { Ok(Nil) },
     )
 
-  let assert Ok(fila) = fila_offline.iniciar(transacoes, whatsapp, 3)
+  let assert Ok(fila) = fila_offline.iniciar(transacoes, mensageiro, 3)
   process.send(fila, fila_offline.ProcessarPendentes)
   process.sleep(50)
 
@@ -118,14 +118,14 @@ pub fn retry_descarta_apos_max_tentativas_test() {
       foi_recebida: fn(_) { Ok(False) },
       marcar_recebida: fn(_) { Ok(Nil) },
     )
-  let whatsapp =
-    WhatsappPorta(
+  let mensageiro =
+    MensageiroPorta(
       enviar: fn(_, _) { Error(erro.ErroComunicacao("offline")) },
       enviar_citando: fn(_, _, _, _) { Error(erro.ErroComunicacao("offline")) },
       reagir: fn(_, _, _, _) { Ok(Nil) },
     )
 
-  let assert Ok(fila) = fila_offline.iniciar(transacoes, whatsapp, 3)
+  let assert Ok(fila) = fila_offline.iniciar(transacoes, mensageiro, 3)
   process.send(fila, fila_offline.ProcessarPendentes)
   process.sleep(50)
 
@@ -152,8 +152,8 @@ pub fn sem_pendentes_nao_envia_test() {
       foi_recebida: fn(_) { Ok(False) },
       marcar_recebida: fn(_) { Ok(Nil) },
     )
-  let whatsapp =
-    WhatsappPorta(
+  let mensageiro =
+    MensageiroPorta(
       enviar: fn(_, _) {
         process.send(ref_enviou, True)
         Ok(Nil)
@@ -162,7 +162,7 @@ pub fn sem_pendentes_nao_envia_test() {
       reagir: fn(_, _, _, _) { Ok(Nil) },
     )
 
-  let assert Ok(fila) = fila_offline.iniciar(transacoes, whatsapp, 3)
+  let assert Ok(fila) = fila_offline.iniciar(transacoes, mensageiro, 3)
   process.send(fila, fila_offline.ProcessarPendentes)
   process.sleep(50)
 
@@ -200,8 +200,8 @@ pub fn tx_sem_id_e_ignorada_test() {
       foi_recebida: fn(_) { Ok(False) },
       marcar_recebida: fn(_) { Ok(Nil) },
     )
-  let whatsapp =
-    WhatsappPorta(
+  let mensageiro =
+    MensageiroPorta(
       enviar: fn(_, _) {
         process.send(ref_enviou, True)
         Ok(Nil)
@@ -210,7 +210,7 @@ pub fn tx_sem_id_e_ignorada_test() {
       reagir: fn(_, _, _, _) { Ok(Nil) },
     )
 
-  let assert Ok(fila) = fila_offline.iniciar(transacoes, whatsapp, 3)
+  let assert Ok(fila) = fila_offline.iniciar(transacoes, mensageiro, 3)
   process.send(fila, fila_offline.ProcessarPendentes)
   process.sleep(50)
 

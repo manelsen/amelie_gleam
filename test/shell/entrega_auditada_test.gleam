@@ -7,27 +7,27 @@ import gleam/erlang/process
 import gleam/option.{None, Some}
 import gleeunit/should
 import portas/transacao_porta.{type TransacaoPorta, TransacaoPorta}
-import portas/whatsapp_porta.{type WhatsappPorta, WhatsappPorta}
+import portas/mensageiro_porta.{type MensageiroPorta, MensageiroPorta}
 import shell/entrega_auditada
 
-fn whatsapp_ok() -> WhatsappPorta {
-  WhatsappPorta(
+fn mensageiro_ok() -> MensageiroPorta {
+  MensageiroPorta(
     enviar: fn(_, _) { Ok(Nil) },
     enviar_citando: fn(_, _, _, _) { Ok(Nil) },
     reagir: fn(_, _, _, _) { Ok(Nil) },
   )
 }
 
-fn whatsapp_erro() -> WhatsappPorta {
-  WhatsappPorta(
+fn mensageiro_erro() -> MensageiroPorta {
+  MensageiroPorta(
     enviar: fn(_, _) { Error(erro.ErroComunicacao("fake")) },
     enviar_citando: fn(_, _, _, _) { Error(erro.ErroComunicacao("fake")) },
     reagir: fn(_, _, _, _) { Ok(Nil) },
   )
 }
 
-fn whatsapp_capturar_envio(ref: process.Subject(Bool)) -> WhatsappPorta {
-  WhatsappPorta(
+fn mensageiro_capturar_envio(ref: process.Subject(Bool)) -> MensageiroPorta {
+  MensageiroPorta(
     enviar: fn(_, _) {
       process.send(ref, True)
       Ok(Nil)
@@ -107,7 +107,7 @@ pub fn envio_sucesso_marca_entregue_test() {
     "amelie",
     "texto",
     "oi",
-    whatsapp_ok(),
+    mensageiro_ok(),
     transacoes,
   )
   |> should.be_ok
@@ -130,7 +130,7 @@ pub fn envio_falha_registra_erro_com_tentativa_test() {
       "amelie",
       "texto",
       "oi",
-      whatsapp_erro(),
+      mensageiro_erro(),
       transacoes,
     )
 
@@ -145,7 +145,7 @@ pub fn envio_falha_propaga_erro_test() {
     "amelie",
     "texto",
     "oi",
-    whatsapp_erro(),
+    mensageiro_erro(),
     transacao_sem_id(),
   )
   |> should.be_error
@@ -175,7 +175,7 @@ pub fn falha_no_registro_nao_envia_test() {
     "amelie",
     "texto",
     "oi",
-    whatsapp_capturar_envio(enviou),
+    mensageiro_capturar_envio(enviou),
     transacoes,
   )
   |> should.be_error
@@ -199,7 +199,7 @@ pub fn envio_citando_sucesso_marca_entregue_test() {
     "resposta",
     "MSG001",
     "user@c.us",
-    whatsapp_ok(),
+    mensageiro_ok(),
     transacoes,
   )
   |> should.be_ok
@@ -220,7 +220,7 @@ pub fn envio_citando_falha_registra_erro_test() {
       "resposta",
       "MSG001",
       "user@c.us",
-      whatsapp_erro(),
+      mensageiro_erro(),
       transacoes,
     )
 

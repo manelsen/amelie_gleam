@@ -135,7 +135,7 @@ pub fn main() {
 
   let portas =
     Portas(
-      whatsapp: whatsapp,
+      mensageiro: whatsapp,
       ia_dispatcher: ia_dispatcher,
       config: config_p,
       historico: historico_p,

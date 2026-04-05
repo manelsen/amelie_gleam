@@ -3,20 +3,20 @@ import dominio/transacao
 import gleam/option
 import gleam/result
 import portas/transacao_porta.{type TransacaoPorta}
-import portas/whatsapp_porta.{type WhatsappPorta}
+import portas/mensageiro_porta.{type MensageiroPorta}
 
 pub fn enviar(
   chat_id: String,
   remetente: String,
   tipo: String,
   conteudo: String,
-  whatsapp: WhatsappPorta,
+  mensageiro: MensageiroPorta,
   transacoes: TransacaoPorta,
 ) -> Result(Nil, Erro) {
   let tx = transacao.novo(chat_id, remetente, tipo, conteudo)
   use registrada <- result.try(transacoes.registrar(tx))
 
-  case whatsapp.enviar(chat_id, conteudo) {
+  case mensageiro.enviar(chat_id, conteudo) {
     Ok(_) -> {
       let _ = marcar_entregue(transacoes, registrada.id)
       Ok(Nil)
@@ -35,13 +35,13 @@ pub fn enviar_citando(
   conteudo: String,
   quoted_id: String,
   quoted_sender: String,
-  whatsapp: WhatsappPorta,
+  mensageiro: MensageiroPorta,
   transacoes: TransacaoPorta,
 ) -> Result(Nil, Erro) {
   let tx = transacao.novo(chat_id, remetente, tipo, conteudo)
   use registrada <- result.try(transacoes.registrar(tx))
 
-  case whatsapp.enviar_citando(chat_id, quoted_id, quoted_sender, conteudo) {
+  case mensageiro.enviar_citando(chat_id, quoted_id, quoted_sender, conteudo) {
     Ok(_) -> {
       let _ = marcar_entregue(transacoes, registrada.id)
       Ok(Nil)

@@ -1,5 +1,5 @@
 // Adaptador HTTP para o bridge Whatsmeow (Go).
-// Implementa WhatsappPorta chamando o microserviço local.
+// Implementa MensageiroPorta chamando o microserviço local.
 
 import dominio/erro.{type Erro}
 import gleam/http
@@ -8,10 +8,10 @@ import gleam/httpc
 import gleam/int
 import gleam/json
 import gleam/result
-import portas/whatsapp_porta.{type WhatsappPorta, WhatsappPorta}
+import portas/mensageiro_porta.{type MensageiroPorta, MensageiroPorta}
 
-pub fn criar(base_url: String) -> WhatsappPorta {
-  WhatsappPorta(
+pub fn criar(base_url: String) -> MensageiroPorta {
+  MensageiroPorta(
     enviar: fn(chat_id, texto) { enviar_mensagem(base_url, chat_id, texto) },
     enviar_citando: fn(chat_id, quoted_id, quoted_sender, texto) {
       enviar_citando(base_url, chat_id, quoted_id, quoted_sender, texto)

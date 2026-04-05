@@ -30,7 +30,7 @@ pub fn handle_texto_envia_para_whatsapp_test() {
   }
   let portas =
     handler_mensagem.Portas(
-      whatsapp: portas_fake.whatsapp_capturar(ref),
+      mensageiro: portas_fake.mensageiro_capturar(ref),
       ia_dispatcher: portas_fake.ia_dispatcher_ok("resposta esperada"),
       config: portas_fake.config_ok(cfg),
       historico: portas_fake.historico_vazio(),
@@ -60,7 +60,7 @@ pub fn handle_texto_marca_transacao_entregue_test() {
   }
   let portas =
     handler_mensagem.Portas(
-      whatsapp: portas_fake.whatsapp_ok(),
+      mensageiro: portas_fake.mensageiro_ok(),
       ia_dispatcher: portas_fake.ia_dispatcher_ok("resposta esperada"),
       config: portas_fake.config_ok(fixtures.config_padrao()),
       historico: portas_fake.historico_vazio(),
@@ -87,7 +87,7 @@ pub fn handle_texto_falha_atualiza_transacao_test() {
   }
   let portas =
     handler_mensagem.Portas(
-      whatsapp: portas_fake.whatsapp_erro(erro.ErroComunicacao("offline")),
+      mensageiro: portas_fake.mensageiro_erro(erro.ErroComunicacao("offline")),
       ia_dispatcher: portas_fake.ia_dispatcher_ok("resposta esperada"),
       config: portas_fake.config_ok(fixtures.config_padrao()),
       historico: portas_fake.historico_vazio(),
@@ -114,7 +114,7 @@ pub fn handle_erro_config_retorna_erro_test() {
   }
   let portas =
     handler_mensagem.Portas(
-      whatsapp: portas_fake.whatsapp_ok(),
+      mensageiro: portas_fake.mensageiro_ok(),
       ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
       config: portas_fake.config_erro(erro.ErroBancoDados("DB offline")),
       historico: portas_fake.historico_vazio(),
@@ -138,7 +138,7 @@ pub fn handle_erro_ia_retorna_erro_test() {
   }
   let portas =
     handler_mensagem.Portas(
-      whatsapp: portas_fake.whatsapp_ok(),
+      mensageiro: portas_fake.mensageiro_ok(),
       ia_dispatcher: portas_fake.ia_dispatcher_erro(erro.ErroIA("timeout")),
       config: portas_fake.config_ok(fixtures.config_padrao()),
       historico: portas_fake.historico_vazio(),

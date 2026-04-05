@@ -8,7 +8,7 @@ import gleam/otp/actor
 import gleam/result
 import logging
 import portas/transacao_porta.{type TransacaoPorta}
-import portas/whatsapp_porta.{type WhatsappPorta}
+import portas/mensageiro_porta.{type MensageiroPorta}
 
 pub type FilaOffline =
   process.Subject(Mensagem)
@@ -21,20 +21,20 @@ pub type Mensagem {
 pub type State {
   State(
     transacoes: TransacaoPorta,
-    whatsapp: WhatsappPorta,
+    mensageiro: MensageiroPorta,
     tentativas_max: Int,
   )
 }
 
 pub fn iniciar(
   transacoes: TransacaoPorta,
-  whatsapp: WhatsappPorta,
+  mensageiro: MensageiroPorta,
   tentativas_max: Int,
 ) -> Result(FilaOffline, actor.StartError) {
   let state =
     State(
       transacoes: transacoes,
-      whatsapp: whatsapp,
+      mensageiro: mensageiro,
       tentativas_max: tentativas_max,
     )
 
@@ -101,7 +101,7 @@ fn retry_transacao(state: State, tx: t.Transacao) -> Nil {
               <> ")",
           )
 
-          case state.whatsapp.enviar(tx.chat_id, tx.conteudo) {
+          case state.mensageiro.enviar(tx.chat_id, tx.conteudo) {
             Ok(_) -> {
               let _ = state.transacoes.marcar_entregue(id)
               logging.log(
