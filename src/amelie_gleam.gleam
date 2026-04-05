@@ -176,7 +176,7 @@ fn handle_webhook(
   req: Request(Connection),
   portas: Portas,
 ) -> response.Response(ResponseData) {
-  case mist.read_body(req, 1024 * 1024) {
+  case mist.read_body(req, 20 * 1024 * 1024) {
     Error(_) -> json_response(400, "{\"error\":\"failed to read body\"}")
     Ok(req_with_body) ->
       case parse_webhook(req_with_body.body) {
