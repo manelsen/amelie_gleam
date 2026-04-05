@@ -99,6 +99,11 @@ Text messages starting with `.` are parsed as bot commands (e.g. `.ajuda`, `.res
 
 `src/amelie_gleam_ffi.erl` provides Erlang FFI for `get_env/1` (reads OS env vars) and `read_file/1` (reads binary files for video upload).
 
+## Regras de trabalho
+
+- Quando o usuário reportar que algo não funciona, rastrear o caminho completo do dado em runtime (quem chama → quem passa o argumento → quem envia ao serviço externo) antes de sugerir causa externa (deploy, cache, restart). Código que existe mas não é alcançado é código morto.
+- `mist.read_body` em `amelie_gleam.gleam` deve ser no mínimo `20 * 1024 * 1024`. Já regrediu para 1MB no passado e quebrou o recebimento de áudios.
+
 ## Gleam-specific notes
 
 - Uses `gleam_otp` 1.x builder pattern for actors: `actor.new(state) |> actor.on_message(...) |> actor.start()`
