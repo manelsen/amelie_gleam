@@ -15,13 +15,17 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o bridge .
 FROM ghcr.io/gleam-lang/gleam:v1.15.0-erlang-alpine AS gleam-builder
 
 WORKDIR /app
-COPY gleam.toml ./
+
+RUN apk add --no-cache build-base sqlite-dev sqlite ccache
+
+COPY gleam.toml manifest.toml ./
 RUN gleam deps download
 
 COPY src ./src
 COPY config ./config
-RUN apk add --no-cache build-base sqlite-dev sqlite && \
-    gleam build --target erlang && \
+# ccache evita recompilar o NIF do esqlite3 (~48s) quando o fonte C não muda.
+ENV CC="ccache gcc"
+RUN --mount=type=cache,target=/root/.cache/ccache \
     gleam export erlang-shipment
 
 # ---------------------------------------------------------------------------
