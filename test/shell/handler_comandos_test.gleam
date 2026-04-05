@@ -110,7 +110,7 @@ pub fn cego_persiste_config_test() {
 
   let assert Ok(nova_cfg): Result(config.Config, _) = process.receive(ref, 1000)
   nova_cfg.imagem_ativo |> should.be_true
-  nova_cfg.audio_ativo |> should.be_false
+  nova_cfg.audio_ativo |> should.be_true
 }
 
 // Testes para novos comandos

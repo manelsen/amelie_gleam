@@ -3,7 +3,7 @@
 import dominio/acao.{type Acao, AlterarModelo, EnviarResposta, LimparHistorico, SalvarConfig}
 import dominio/config.{type Config, Config, Curto, Longo}
 import dominio/erro.{type Erro}
-import gleam/option.{Some}
+
 import gleam/string
 
 pub fn executar(
@@ -111,11 +111,16 @@ fn toggle(
       ])
     }
     "" -> {
-      let status = case estado_recurso(recurso, cfg) {
+      let atual = estado_recurso(recurso, cfg)
+      let nova = aplicar_toggle(recurso, !atual, cfg)
+      let status = case !atual {
         True -> "ativado"
         False -> "desativado"
       }
-      Ok([EnviarResposta(cfg.chat_id, recurso <> " está " <> status <> ".")])
+      Ok([
+        SalvarConfig(nova),
+        EnviarResposta(cfg.chat_id, recurso <> " " <> status <> "."),
+      ])
     }
     outro ->
       Error(erro.ErroValidacao(
@@ -144,29 +149,33 @@ fn legenda_cmd(cfg: Config) -> List(Acao) {
 }
 
 fn cego_cmd(cfg: Config) -> List(Acao) {
-  let prompt_cego =
-    "Você é Amélie, assistente de acessibilidade para usuários com deficiência visual. "
-    <> "Descreva imagens com riqueza de detalhes: cores, posições espaciais, textos visíveis, "
-    <> "expressões faciais, ações e contexto geral. Seja preciso e use linguagem clara."
-  let nova =
-    Config(
-      ..cfg,
-      imagem_ativo: True,
-      audio_ativo: False,
-      prompt_sistema: Some(prompt_cego),
-      modo_descricao: Longo,
-    )
-  [
-    SalvarConfig(nova),
-    EnviarResposta(
-      cfg.chat_id,
-      "Configurações para deficiência visual aplicadas:\n"
-        <> "- Análise de imagens: ativada\n"
-        <> "- Transcrição de áudio: desativada\n"
-        <> "- Modo de descrição: longo\n"
-        <> "- Prompt de descrição detalhada: ativo",
-    ),
-  ]
+  case cfg.modo_descricao {
+    Longo -> {
+      let nova =
+        Config(..cfg, modo_descricao: Curto)
+      [
+        SalvarConfig(nova),
+        EnviarResposta(cfg.chat_id, "Modo acessibilidade desativado."),
+      ]
+    }
+    _ -> {
+      let nova =
+        Config(
+          ..cfg,
+          imagem_ativo: True,
+          modo_descricao: Longo,
+        )
+      [
+        SalvarConfig(nova),
+        EnviarResposta(
+          cfg.chat_id,
+          "Modo acessibilidade ativado:\n"
+            <> "- Análise de imagens: ativada\n"
+            <> "- Modo de descrição: longo",
+        ),
+      ]
+    }
+  }
 }
 
 fn aplicar_toggle(recurso: String, valor: Bool, cfg: Config) -> Config {
