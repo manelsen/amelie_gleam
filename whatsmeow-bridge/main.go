@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	qrcode "github.com/skip2/go-qrcode"
 	"io"
@@ -20,19 +21,22 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"database/sql"
-	moderncsqlite "modernc.org/sqlite"
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
+	waMmsRetry "go.mau.fi/whatsmeow/proto/waMmsRetry"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
+	moderncsqlite "modernc.org/sqlite"
 )
 
 func init() {
@@ -46,10 +50,10 @@ func init() {
 // ---------------------------------------------------------------------------
 
 type Config struct {
-	Port        string // Porta HTTP deste bridge (default: 8080)
-	GleamURL    string // URL do webhook Gleam (default: http://localhost:4000/webhook)
-	DBPath      string // SQLite para sessão WhatsApp (default: ./db/whatsmeow.db)
-	BotPhone    string // Número para Pairing Code (opcional, ativa Pairing Code se definido)
+	Port     string // Porta HTTP deste bridge (default: 8080)
+	GleamURL string // URL do webhook Gleam (default: http://localhost:4000/webhook)
+	DBPath   string // SQLite para sessão WhatsApp (default: ./db/whatsmeow.db)
+	BotPhone string // Número para Pairing Code (opcional, ativa Pairing Code se definido)
 }
 
 func configFromEnv() Config {
@@ -117,8 +121,19 @@ var httpClient = &http.Client{
 }
 
 type Bridge struct {
-	cfg    Config
-	client *whatsmeow.Client
+	cfg                 Config
+	client              *whatsmeow.Client
+	retryMu             sync.Mutex
+	pendingMediaRetries map[string]mediaRetryPending
+	mediaRetryAttempts  map[string]int
+	queueDB             *sql.DB
+}
+
+type mediaRetryPending struct {
+	event           *events.Message
+	kind            string
+	mediaKey        []byte
+	applyDirectPath func(string)
 }
 
 func NewBridge(cfg Config) (*Bridge, error) {
@@ -136,11 +151,23 @@ func NewBridge(cfg Config) (*Bridge, error) {
 	clientLog := waLog.Stdout("Client", "WARN", true)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 
-	return &Bridge{cfg: cfg, client: client}, nil
+	b := &Bridge{
+		cfg:                 cfg,
+		client:              client,
+		pendingMediaRetries: make(map[string]mediaRetryPending),
+		mediaRetryAttempts:  make(map[string]int),
+	}
+
+	if err := b.initQueueDB(); err != nil {
+		return nil, fmt.Errorf("inicializando fila de webhook: %w", err)
+	}
+
+	return b, nil
 }
 
 func (b *Bridge) Start() error {
 	b.client.AddEventHandler(b.handleEvent)
+	b.startQueueWorker()
 
 	if b.client.Store.ID == nil {
 		// Não autenticado — QR ou Pairing Code
@@ -174,7 +201,7 @@ func (b *Bridge) loginPairingCode() error {
 	if err := b.client.Connect(); err != nil {
 		return err
 	}
-	code, err := b.client.PairPhone(context.Background(),b.cfg.BotPhone, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
+	code, err := b.client.PairPhone(context.Background(), b.cfg.BotPhone, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
 	if err != nil {
 		return fmt.Errorf("pairing code: %w", err)
 	}
@@ -184,6 +211,9 @@ func (b *Bridge) loginPairingCode() error {
 
 func (b *Bridge) Stop() {
 	b.client.Disconnect()
+	if b.queueDB != nil {
+		b.queueDB.Close()
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -196,15 +226,14 @@ func (b *Bridge) handleEvent(rawEvt interface{}) {
 		b.processMessage(evt)
 	case *events.HistorySync:
 		b.processHistorySync(evt)
+	case *events.MediaRetry:
+		b.handleMediaRetry(evt)
 	}
 }
 
 func (b *Bridge) processHistorySync(evt *events.HistorySync) {
 	data := evt.Data
-	syncType := data.GetSyncType()
 	convs := data.GetConversations()
-	log.Printf("[HistorySync] tipo=%d, conversas=%d", syncType, len(convs))
-
 	for _, conv := range convs {
 		chatID := conv.GetID()
 		chatJID, err := types.ParseJID(chatID)
@@ -260,70 +289,106 @@ func (b *Bridge) processMessage(evt *events.Message) {
 		payload.Tipo = "imagem"
 		payload.Mime = img.GetMimetype()
 		payload.Legenda = img.GetCaption()
-		data, err := b.client.Download(context.Background(), img)
-		if err == nil {
-			payload.Dados = base64.StdEncoding.EncodeToString(data)
+		data, ok := b.downloadMediaBytes(evt, "imagem", payload.Mime, "", img, func(path string) {
+			img.URL = nil
+			img.DirectPath = proto.String(path)
+		})
+		if !ok {
+			return
 		}
+		payload.Dados = base64.StdEncoding.EncodeToString(data)
 	} else if aud := evt.Message.GetAudioMessage(); aud != nil {
 		payload.Tipo = "audio"
 		payload.Mime = aud.GetMimetype()
-		data, err := b.client.Download(context.Background(), aud)
-		if err == nil {
-			payload.Dados = base64.StdEncoding.EncodeToString(data)
+		data, ok := b.downloadMediaBytes(evt, "audio", payload.Mime, "", aud, func(path string) {
+			aud.URL = nil
+			aud.DirectPath = proto.String(path)
+		})
+		if !ok {
+			return
 		}
+		payload.Dados = base64.StdEncoding.EncodeToString(data)
 	} else if doc := evt.Message.GetDocumentMessage(); doc != nil {
 		// WhatsApp moderno envia imagem/áudio/vídeo como DocumentMessage.
-		// Reclassifica pelo MIME type para que o pipeline correto seja usado.
-		mime := doc.GetMimetype()
-		data, dlErr := b.client.Download(context.Background(), doc)
-		switch {
-		case strings.HasPrefix(mime, "image/"):
+		// Reclassifica pelo MIME type e, quando ele vier genérico, pelo nome do arquivo.
+		fileName := doc.GetFileName()
+		mediaType, mime := classifyDocumentMedia(doc.GetMimetype(), fileName)
+		switch mediaType {
+		case "imagem":
 			payload.Tipo = "imagem"
 			payload.Mime = mime
 			payload.Legenda = doc.GetCaption()
-			if dlErr == nil {
-				payload.Dados = base64.StdEncoding.EncodeToString(data)
+			data, ok := b.downloadMediaBytes(evt, "imagem", mime, fileName, doc, func(path string) {
+				doc.URL = nil
+				doc.DirectPath = proto.String(path)
+			})
+			if !ok {
+				return
 			}
-		case strings.HasPrefix(mime, "audio/"):
+			payload.Dados = base64.StdEncoding.EncodeToString(data)
+		case "audio":
 			payload.Tipo = "audio"
 			payload.Mime = mime
-			if dlErr == nil {
-				payload.Dados = base64.StdEncoding.EncodeToString(data)
+			data, ok := b.downloadMediaBytes(evt, "audio", mime, fileName, doc, func(path string) {
+				doc.URL = nil
+				doc.DirectPath = proto.String(path)
+			})
+			if !ok {
+				return
 			}
-		case strings.HasPrefix(mime, "video/"):
+			payload.Dados = base64.StdEncoding.EncodeToString(data)
+		case "video":
 			payload.Tipo = "video"
 			payload.Mime = mime
 			payload.Legenda = doc.GetCaption()
-			if dlErr == nil {
-				tmpFile, ferr := os.CreateTemp("", "amelie_video_*.mp4")
-				if ferr == nil {
-					_, _ = tmpFile.Write(data)
-					payload.Caminho = tmpFile.Name()
-					tmpFile.Close()
-				}
+			data, ok := b.downloadMediaBytes(evt, "video", mime, fileName, doc, func(path string) {
+				doc.URL = nil
+				doc.DirectPath = proto.String(path)
+			})
+			if !ok {
+				return
 			}
+			tmpFile, ferr := os.CreateTemp("", "amelie_video_*.mp4")
+			if ferr != nil {
+				log.Printf("Falha ao criar arquivo temporario de video: chat=%s mime=%s arquivo=%q erro=%v", chatID, mime, fileName, ferr)
+				return
+			}
+			_, _ = tmpFile.Write(data)
+			payload.Caminho = tmpFile.Name()
+			tmpFile.Close()
 		default:
 			payload.Tipo = "documento"
 			payload.Mime = mime
-			payload.Text = doc.GetFileName()
+			payload.Text = fileName
 			payload.Legenda = doc.GetCaption()
-			if dlErr == nil {
-				payload.Dados = base64.StdEncoding.EncodeToString(data)
+			data, ok := b.downloadMediaBytes(evt, "documento", mime, fileName, doc, func(path string) {
+				doc.URL = nil
+				doc.DirectPath = proto.String(path)
+			})
+			if !ok {
+				return
 			}
+			payload.Dados = base64.StdEncoding.EncodeToString(data)
 		}
 	} else if vid := evt.Message.GetVideoMessage(); vid != nil {
 		payload.Tipo = "video"
 		payload.Mime = vid.GetMimetype()
 		payload.Legenda = vid.GetCaption()
-		data, err := b.client.Download(context.Background(), vid)
-		if err == nil {
-			tmpFile, err := os.CreateTemp("", "amelie_video_*.mp4")
-			if err == nil {
-				tmpFile.Write(data)
-				payload.Caminho = tmpFile.Name()
-				tmpFile.Close()
-			}
+		data, ok := b.downloadMediaBytes(evt, "video", payload.Mime, "", vid, func(path string) {
+			vid.URL = nil
+			vid.DirectPath = proto.String(path)
+		})
+		if !ok {
+			return
 		}
+		tmpFile, err := os.CreateTemp("", "amelie_video_*.mp4")
+		if err != nil {
+			log.Printf("Falha ao criar arquivo temporario de video: chat=%s mime=%s erro=%v", chatID, payload.Mime, err)
+			return
+		}
+		tmpFile.Write(data)
+		payload.Caminho = tmpFile.Name()
+		tmpFile.Close()
 	} else if evt.Message.GetStickerMessage() != nil {
 		return // ignorar adesivos
 	} else {
@@ -335,10 +400,223 @@ func (b *Bridge) processMessage(evt *events.Message) {
 		return // ignora null/empty texto
 	}
 
-	log.Printf("Recebida mensagem do tipo: %s, chat: %s", payload.Tipo, chatID)
+	if err := b.enqueueAndDeliver(payload); err != nil {
+		log.Printf("Erro ao enfileirar mensagem: %v\n", err)
+		b.clearMediaRetryState(evt.Info.Chat, evt.Info.ID)
+		return
+	}
+	b.clearMediaRetryState(evt.Info.Chat, evt.Info.ID)
+}
 
-	if err := b.postToGleam(payload); err != nil {
-		log.Printf("Erro ao repassar mensagem ao Gleam: %v\n", err)
+func (b *Bridge) downloadMediaBytes(
+	evt *events.Message,
+	kind string,
+	mime string,
+	fileName string,
+	msg whatsmeow.DownloadableMessage,
+	applyDirectPath func(string),
+) ([]byte, bool) {
+	data, err := b.client.Download(context.Background(), msg)
+	if err == nil {
+		if len(data) == 0 {
+			log.Printf("%s vazio recebido do WhatsApp: chat=%s mime=%s arquivo=%q", kind, evt.Info.Chat.String(), mime, fileName)
+			return nil, false
+		}
+		return data, true
+	}
+
+	if shouldRequestMediaRetry(err) {
+		if retryErr := b.requestMediaRetry(evt, kind, msg.GetMediaKey(), applyDirectPath); retryErr != nil {
+			log.Printf("Falha ao solicitar media retry para %s: chat=%s mime=%s arquivo=%q erro_download=%v erro_retry=%v", kind, evt.Info.Chat.String(), mime, fileName, err, retryErr)
+			b.clearMediaRetryState(evt.Info.Chat, evt.Info.ID)
+		}
+		return nil, false
+	}
+
+	log.Printf("Falha ao baixar %s do WhatsApp: chat=%s mime=%s arquivo=%q erro=%v", kind, evt.Info.Chat.String(), mime, fileName, err)
+	return nil, false
+}
+
+func (b *Bridge) requestMediaRetry(
+	evt *events.Message,
+	kind string,
+	mediaKey []byte,
+	applyDirectPath func(string),
+) error {
+	if len(mediaKey) == 0 {
+		return fmt.Errorf("media key ausente")
+	}
+
+	key := mediaRetryKey(evt.Info.Chat, evt.Info.ID)
+
+	b.retryMu.Lock()
+	if b.mediaRetryAttempts[key] >= 1 {
+		b.retryMu.Unlock()
+		return fmt.Errorf("media retry ja tentado para a mensagem %s", evt.Info.ID)
+	}
+	b.mediaRetryAttempts[key] = 1
+	b.pendingMediaRetries[key] = mediaRetryPending{
+		event:           evt,
+		kind:            kind,
+		mediaKey:        mediaKey,
+		applyDirectPath: applyDirectPath,
+	}
+	b.retryMu.Unlock()
+
+	if err := b.client.SendMediaRetryReceipt(context.Background(), &evt.Info, mediaKey); err != nil {
+		b.clearMediaRetryState(evt.Info.Chat, evt.Info.ID)
+		return err
+	}
+
+	return nil
+}
+
+func (b *Bridge) handleMediaRetry(evt *events.MediaRetry) {
+	key := mediaRetryKey(evt.ChatID, evt.MessageID)
+
+	b.retryMu.Lock()
+	pending, ok := b.pendingMediaRetries[key]
+	if ok {
+		delete(b.pendingMediaRetries, key)
+	}
+	b.retryMu.Unlock()
+
+	if !ok {
+		log.Printf("Media retry recebido sem contexto local: chat=%s mensagem=%s", evt.ChatID.String(), evt.MessageID)
+		return
+	}
+
+	retryData, err := whatsmeow.DecryptMediaRetryNotification(evt, pending.mediaKey)
+	if err != nil {
+		log.Printf("Falha ao descriptografar media retry de %s: chat=%s mensagem=%s erro=%v", pending.kind, evt.ChatID.String(), evt.MessageID, err)
+		b.clearMediaRetryState(evt.ChatID, evt.MessageID)
+		return
+	}
+
+	if retryData.GetResult() != waMmsRetry.MediaRetryNotification_SUCCESS {
+		log.Printf("Media retry sem sucesso para %s: chat=%s mensagem=%s resultado=%v", pending.kind, evt.ChatID.String(), evt.MessageID, retryData.GetResult())
+		b.clearMediaRetryState(evt.ChatID, evt.MessageID)
+		return
+	}
+
+	directPath := retryData.GetDirectPath()
+	if directPath == "" {
+		log.Printf("Media retry sem directPath para %s: chat=%s mensagem=%s", pending.kind, evt.ChatID.String(), evt.MessageID)
+		b.clearMediaRetryState(evt.ChatID, evt.MessageID)
+		return
+	}
+
+	pending.applyDirectPath(directPath)
+	b.processMessage(pending.event)
+}
+
+func mediaRetryKey(chat types.JID, messageID types.MessageID) string {
+	return chat.String() + "|" + string(messageID)
+}
+
+func (b *Bridge) clearMediaRetryState(chat types.JID, messageID types.MessageID) {
+	key := mediaRetryKey(chat, messageID)
+	b.retryMu.Lock()
+	delete(b.pendingMediaRetries, key)
+	delete(b.mediaRetryAttempts, key)
+	b.retryMu.Unlock()
+}
+
+func shouldRequestMediaRetry(err error) bool {
+	return errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith403) ||
+		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith404) ||
+		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith410)
+}
+
+func classifyDocumentMedia(rawMime, fileName string) (string, string) {
+	mime := normalizeMime(rawMime)
+	inferredMime := inferMimeFromFileName(fileName)
+
+	if shouldInferMime(mime) && inferredMime != "" {
+		mime = inferredMime
+	}
+
+	switch mediaTypeFromMime(mime) {
+	case "imagem":
+		return "imagem", mime
+	case "audio":
+		return "audio", mime
+	case "video":
+		return "video", mime
+	default:
+		return "documento", mime
+	}
+}
+
+func normalizeMime(rawMime string) string {
+	base, _, _ := strings.Cut(rawMime, ";")
+	return strings.TrimSpace(strings.ToLower(base))
+}
+
+func shouldInferMime(mime string) bool {
+	switch mime {
+	case "", "application/octet-stream", "application/ogg", "application/x-ogg":
+		return true
+	default:
+		return false
+	}
+}
+
+func mediaTypeFromMime(mime string) string {
+	switch {
+	case strings.HasPrefix(mime, "image/"):
+		return "imagem"
+	case strings.HasPrefix(mime, "audio/"):
+		return "audio"
+	case strings.HasPrefix(mime, "video/"):
+		return "video"
+	default:
+		return ""
+	}
+}
+
+func inferMimeFromFileName(fileName string) string {
+	switch strings.ToLower(filepath.Ext(fileName)) {
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	case ".bmp":
+		return "image/bmp"
+	case ".heic":
+		return "image/heic"
+	case ".heif":
+		return "image/heif"
+	case ".mp3":
+		return "audio/mpeg"
+	case ".m4a":
+		return "audio/mp4"
+	case ".aac":
+		return "audio/aac"
+	case ".wav":
+		return "audio/wav"
+	case ".ogg", ".oga", ".opus":
+		return "audio/ogg"
+	case ".flac":
+		return "audio/flac"
+	case ".amr":
+		return "audio/amr"
+	case ".mp4", ".m4v":
+		return "video/mp4"
+	case ".mov":
+		return "video/quicktime"
+	case ".webm":
+		return "video/webm"
+	case ".mkv":
+		return "video/x-matroska"
+	case ".avi":
+		return "video/x-msvideo"
+	default:
+		return ""
 	}
 }
 
@@ -355,6 +633,138 @@ func extractText(msg *waProto.Message) string {
 	return ""
 }
 
+// ---------------------------------------------------------------------------
+// Fila persistente de webhook
+// ---------------------------------------------------------------------------
+
+func (b *Bridge) initQueueDB() error {
+	dir := filepath.Dir(b.cfg.DBPath)
+	dbPath := filepath.Join(dir, "webhook_queue.db")
+	db, err := sql.Open("sqlite3", "file:"+dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)")
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS webhook_queue (
+		id          INTEGER PRIMARY KEY AUTOINCREMENT,
+		message_id  TEXT    NOT NULL DEFAULT '',
+		payload     TEXT    NOT NULL,
+		created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+		attempts    INTEGER NOT NULL DEFAULT 0,
+		delivered_at INTEGER
+	)`)
+	if err != nil {
+		db.Close()
+		return err
+	}
+
+	// Limpar entregas antigas na inicialização
+	db.Exec(`DELETE FROM webhook_queue WHERE delivered_at IS NOT NULL AND created_at < unixepoch() - 3600`)
+	db.Exec(`DELETE FROM webhook_queue WHERE attempts >= 100 AND created_at < unixepoch() - 86400`)
+
+	b.queueDB = db
+	return nil
+}
+
+func (b *Bridge) enqueueAndDeliver(payload IncomingWebhook) error {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	// Deduplicar: se já existe na fila (entregue ou não), ignorar.
+	if payload.MessageID != "" {
+		var count int
+		b.queueDB.QueryRow("SELECT COUNT(*) FROM webhook_queue WHERE message_id = ?", payload.MessageID).Scan(&count)
+		if count > 0 {
+			return nil
+		}
+	}
+
+	result, err := b.queueDB.Exec(
+		"INSERT INTO webhook_queue (message_id, payload) VALUES (?, ?)",
+		payload.MessageID, string(data),
+	)
+	if err != nil {
+		return fmt.Errorf("fila: erro ao enfileirar: %w", err)
+	}
+
+	id, _ := result.LastInsertId()
+
+	if err := b.postToGleam(payload); err != nil {
+		log.Printf("[Fila] Mensagem %d enfileirada para retry (erro: %v)", id, err)
+		return nil // Enfileirada com sucesso, será retentada
+	}
+
+	b.queueDB.Exec("UPDATE webhook_queue SET delivered_at = unixepoch(), attempts = 1 WHERE id = ?", id)
+	return nil
+}
+
+func (b *Bridge) startQueueWorker() {
+	go func() {
+		// Tentar entregar pendentes imediatamente ao iniciar
+		b.processQueue()
+
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		cleanTicker := time.NewTicker(1 * time.Hour)
+		defer cleanTicker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				b.processQueue()
+			case <-cleanTicker.C:
+				b.cleanupQueue()
+			}
+		}
+	}()
+}
+
+func (b *Bridge) processQueue() {
+	rows, err := b.queueDB.Query(
+		`SELECT id, payload FROM webhook_queue
+		 WHERE delivered_at IS NULL AND attempts < 100
+		 AND created_at > unixepoch() - 86400
+		 ORDER BY id ASC LIMIT 50`,
+	)
+	if err != nil {
+		log.Printf("[Fila] Erro ao consultar pendentes: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id int64
+		var payloadJSON string
+		if err := rows.Scan(&id, &payloadJSON); err != nil {
+			continue
+		}
+
+		var payload IncomingWebhook
+		if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
+			log.Printf("[Fila] Payload corrompido id=%d, descartando: %v", id, err)
+			b.queueDB.Exec("UPDATE webhook_queue SET delivered_at = -1 WHERE id = ?", id)
+			continue
+		}
+
+		b.queueDB.Exec("UPDATE webhook_queue SET attempts = attempts + 1 WHERE id = ?", id)
+
+		if err := b.postToGleam(payload); err != nil {
+			log.Printf("[Fila] Retry falhou id=%d: %v", id, err)
+			return // Gleam indisponível, parar e tentar tudo de novo no próximo tick
+		}
+
+		b.queueDB.Exec("UPDATE webhook_queue SET delivered_at = unixepoch() WHERE id = ?", id)
+		log.Printf("[Fila] Mensagem %d entregue com sucesso (msg_id=%s)", id, payload.MessageID)
+	}
+}
+
+func (b *Bridge) cleanupQueue() {
+	b.queueDB.Exec(`DELETE FROM webhook_queue WHERE delivered_at IS NOT NULL AND created_at < unixepoch() - 3600`)
+	b.queueDB.Exec(`DELETE FROM webhook_queue WHERE attempts >= 100 AND created_at < unixepoch() - 86400`)
+}
+
 func (b *Bridge) postToGleam(payload IncomingWebhook) error {
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -366,7 +776,10 @@ func (b *Bridge) postToGleam(payload IncomingWebhook) error {
 		return err
 	}
 	defer resp.Body.Close()
-	io.ReadAll(resp.Body) // drena body
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("gleam retornou status %d: %s", resp.StatusCode, string(body))
+	}
 	return nil
 }
 
