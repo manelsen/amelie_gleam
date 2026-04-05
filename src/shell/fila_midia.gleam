@@ -10,6 +10,7 @@ import gleam/erlang/process.{type Subject}
 import gleam/option
 import gleam/otp/actor
 import gleam/result
+import gleam/string
 import logging
 import portas/ia_porta.{type IAPorta}
 import portas/transacao_porta.{type TransacaoPorta}
@@ -146,7 +147,9 @@ fn processar_audio(
     Audio(mime: mime, dados: dados) -> {
       logging.log(logging.Info, "[Áudio] Iniciando processamento para " <> chat_id)
       reagir(msg, "⌛", mensageiro)
-      use resposta <- result.try(ia.processar_audio(dados, mime, cfg.modelo))
+      let prompt = builder.montar_para_audio(cfg)
+      use resposta <- result.try(ia.processar_audio(dados, mime, prompt, cfg.modelo))
+      let resposta = limpar_timestamps(resposta)
       logging.log(logging.Info, "[Áudio] Concluído para " <> chat_id)
       reagir(msg, "🆗", mensageiro)
       entregar(chat_id, "audio", resposta, msg, mensageiro, transacoes)
@@ -255,6 +258,24 @@ fn entregar(
       entrega_auditada.enviar(chat_id, "amelie", tipo, resposta, mensageiro, transacoes)
   }
 }
+
+// Remove timestamps (MM:SS ou HH:MM:SS) que o Gemini insiste em gerar,
+// e colapsa linhas vazias resultantes.
+fn limpar_timestamps(texto: String) -> String {
+  let limpo = strip_timestamps_ffi(texto)
+  // Colapsa múltiplas quebras de linha em no máximo duas (separador de parágrafo)
+  colapsar_linhas_vazias(limpo)
+}
+
+fn colapsar_linhas_vazias(texto: String) -> String {
+  case string.contains(texto, "\n\n\n") {
+    True -> colapsar_linhas_vazias(string.replace(texto, "\n\n\n", "\n\n"))
+    False -> string.trim(texto)
+  }
+}
+
+@external(erlang, "amelie_gleam_ffi", "strip_timestamps")
+fn strip_timestamps_ffi(texto: String) -> String
 
 @external(erlang, "file", "delete")
 fn simplifile_delete(path: String) -> Result(Nil, ErlFileError)

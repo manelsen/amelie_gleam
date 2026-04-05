@@ -25,14 +25,8 @@ pub fn criar(api_key: String) -> IAPorta {
     processar_imagem: fn(dados, mime, prompt, modelo) {
       processar_inline(api_key, dados, mime, prompt, modelo)
     },
-    processar_audio: fn(dados, mime, modelo) {
-      processar_inline(
-        api_key,
-        dados,
-        mime,
-        "Transcreva e resuma este áudio.",
-        modelo,
-      )
+    processar_audio: fn(dados, mime, prompt, modelo) {
+      processar_inline(api_key, dados, mime, prompt, modelo)
     },
     processar_video: fn(uri, prompt, modelo) {
       processar_video(api_key, uri, prompt, modelo)

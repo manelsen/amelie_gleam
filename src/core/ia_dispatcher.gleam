@@ -34,11 +34,12 @@ pub fn como_porta(disp_porta: IADispatcherPorta) -> IAPorta {
         disp_porta.modelo,
       )
     },
-    processar_audio: fn(dados, mime, _modelo) {
+    processar_audio: fn(dados, mime, prompt, _modelo) {
       processar_audio(
         disp_porta.dispatcher,
         dados,
         mime,
+        prompt,
         disp_porta.provedor,
         disp_porta.modelo,
       )
@@ -106,11 +107,12 @@ pub fn processar_audio(
   disp: IADispatcher,
   dados: BitArray,
   mime: String,
+  prompt: String,
   provedor: String,
   modelo: String,
 ) -> Result(String, Erro) {
   let porta = escolher_porta(disp, provedor)
-  porta.processar_audio(dados, mime, modelo)
+  porta.processar_audio(dados, mime, prompt, modelo)
 }
 
 pub fn processar_video(

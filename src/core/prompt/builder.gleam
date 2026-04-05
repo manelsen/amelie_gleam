@@ -88,48 +88,89 @@ fn sufixo_legenda(legenda: Option(String)) -> String {
   }
 }
 
+fn sem_introducao() -> String {
+  "\nNão use introduções conversacionais como \"Olá! Sou Amélie\" ou \"Estou aqui para ajudar\". Vá direto ao conteúdo."
+}
+
 pub fn montar_para_imagem(config: Config, legenda: Option(String)) -> String {
-  let base = case config.prompt_sistema {
-    Some(p) -> p <> "\n\nDescreva esta imagem de forma útil e acessível."
-    None ->
-      "Você é Amélie. Descreva esta imagem de forma útil e acessível, em "
-      <> config.idioma
-      <> "."
+  let contexto = case config.prompt_sistema {
+    Some(p) -> p <> "\n\n"
+    None -> ""
   }
-  base <> sufixo_modo(config) <> sufixo_legenda(legenda)
+  contexto
+  <> "Faça a audiodescrição desta imagem em "
+  <> config.idioma
+  <> ". REGRAS:"
+  <> "\n- Comece identificando o tipo de imagem (fotografia, ilustração, gráfico, mapa, captura de tela, etc.)."
+  <> "\n- Descreva do geral ao específico: contexto geral primeiro, depois detalhes."
+  <> "\n- Inclua: cores, posições espaciais, textos visíveis (transcreva-os na íntegra), expressões faciais, ações e cenário."
+  <> "\n- Identifique pessoas por nome (se reconhecíveis) ou por atributo físico visível."
+  <> "\n- Seja objetiva: descreva apenas o que é visível, sem interpretar intenções ou estados mentais. Não censure conteúdo."
+  <> "\n- Use tempo presente, voz ativa e terceira pessoa."
+  <> "\n- Linguagem clara e precisa."
+  <> sufixo_modo(config)
+  <> sufixo_legenda(legenda)
+  <> sem_introducao()
+  <> "\nInicie sua resposta exatamente com \"Audiodescrição da imagem\" e finalize com \"Fim da audiodescrição\"."
 }
 
 pub fn montar_para_audio(config: Config) -> String {
-  case config.prompt_sistema {
-    Some(p) -> p <> "\n\nTranscreva e resuma este áudio."
-    None ->
-      "Você é Amélie. Transcreva e resuma este áudio em "
-      <> config.idioma
-      <> "."
+  let contexto = case config.prompt_sistema {
+    Some(p) -> p <> "\n\n"
+    None -> ""
   }
+  contexto
+  <> "Transcreva este áudio em "
+  <> config.idioma
+  <> ". REGRAS OBRIGATÓRIAS:"
+  <> "\n1. Produza SOMENTE a transcrição literal do que foi dito."
+  <> "\n2. Use pontuação correta (vírgulas, pontos, interrogações, exclamações) para refletir a fala."
+  <> "\n3. Separe em parágrafos por mudança de assunto ou pausa longa."
+  <> "\n4. NÃO inclua resumo, análise, comentários, descrições do áudio ou formatação markdown."
+  <> "\n5. NÃO inclua timestamps."
+  <> "\n6. NÃO cumprimente ou se apresente."
+  <> "\n7. Inicie a resposta exatamente com \"Transcrição do áudio\" seguido de quebra de linha."
+  <> "\n8. Finalize exatamente com \"Fim da transcrição\"."
 }
 
 pub fn montar_para_video(config: Config, legenda: Option(String)) -> String {
-  let base = case config.prompt_sistema {
-    Some(p) -> p <> "\n\nAnalise e resuma este vídeo."
-    None ->
-      "Você é Amélie. Analise e resuma este vídeo em "
-      <> config.idioma
-      <> "."
+  let contexto = case config.prompt_sistema {
+    Some(p) -> p <> "\n\n"
+    None -> ""
   }
-  base <> sufixo_modo(config) <> sufixo_legenda(legenda)
+  contexto
+  <> "Faça a audiodescrição deste vídeo em "
+  <> config.idioma
+  <> ". REGRAS:"
+  <> "\n- Descreva ações, personagens, cenários e mudanças de cena em sequência cronológica."
+  <> "\n- Inclua: cores, posições espaciais, expressões faciais, gestos, vestuário e ambiente."
+  <> "\n- Incorpore o que é dito ou narrado no áudio, integrando fala e descrição visual."
+  <> "\n- Transcreva na íntegra qualquer texto visível na tela (títulos, legendas, créditos, placas)."
+  <> "\n- Identifique a origem de sons não óbvios quando relevante."
+  <> "\n- Identifique pessoas por nome (se reconhecíveis) ou por atributo físico visível."
+  <> "\n- Seja objetiva: descreva apenas o observável, sem interpretar intenções ou estados mentais. Não censure conteúdo."
+  <> "\n- Use tempo presente, voz ativa e terceira pessoa."
+  <> "\n- Linguagem clara e precisa. Não inclua timestamps."
+  <> sufixo_modo(config)
+  <> sufixo_legenda(legenda)
+  <> sem_introducao()
+  <> "\nInicie sua resposta exatamente com \"Audiodescrição do vídeo\" e finalize com \"Fim da audiodescrição\"."
 }
 
 pub fn montar_para_legenda(config: Config) -> String {
-  case config.prompt_sistema {
-    Some(p) ->
-      p
-      <> "\n\nTranscreva a trilha de áudio deste vídeo, gerando legendas acessíveis."
-    None ->
-      "Você é Amélie. Transcreva a trilha de áudio deste vídeo em "
-      <> config.idioma
-      <> ", gerando legendas acessíveis para pessoas surdas ou com deficiência auditiva."
+  let contexto = case config.prompt_sistema {
+    Some(p) -> p <> "\n\n"
+    None -> ""
   }
+  contexto
+  <> "Transcreva a trilha de áudio deste vídeo em "
+  <> config.idioma
+  <> ", gerando legendas acessíveis para pessoas surdas ou com deficiência auditiva."
+  <> "\n- Identifique os falantes quando houver mais de um."
+  <> "\n- Descreva sons relevantes entre colchetes (ex: [aplausos], [música de fundo])."
+  <> "\n- Transcreva textos visíveis na tela que complementem o áudio."
+  <> sem_introducao()
+  <> "\nInicie sua resposta exatamente com \"Transcrição do vídeo\" e finalize com \"Fim da transcrição\"."
 }
 
 pub fn montar_para_documento(
@@ -139,10 +180,14 @@ pub fn montar_para_documento(
   let base = case config.prompt_sistema {
     Some(p) -> p <> "\n\nAnalise e resuma este documento."
     None ->
-      "Você é Amélie. Analise e resuma este documento em "
+      "Analise e resuma este documento em "
       <> config.idioma
       <> "."
   }
-  base <> sufixo_modo(config) <> sufixo_legenda(legenda)
+  base
+  <> sufixo_modo(config)
+  <> sufixo_legenda(legenda)
+  <> sem_introducao()
+  <> "\nInicie sua resposta exatamente com \"Descrição do documento\" e finalize com \"Fim da descrição\"."
 }
 

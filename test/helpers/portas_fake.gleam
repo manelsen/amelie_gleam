@@ -62,7 +62,7 @@ pub fn ia_ok(resposta: String) -> IAPorta {
   IAPorta(
     gerar_texto: fn(_, _, _) { Ok(resposta) },
     processar_imagem: fn(_, _, _, _) { Ok(resposta) },
-    processar_audio: fn(_, _, _) { Ok(resposta) },
+    processar_audio: fn(_, _, _, _) { Ok(resposta) },
     processar_video: fn(_, _, _) { Ok(resposta) },
     processar_documento: fn(_, _, _, _) { Ok(resposta) },
     fazer_upload_video: fn(_, _) { Ok("https://files.google.com/fake-uri") },
@@ -75,7 +75,7 @@ pub fn ia_erro(e: Erro) -> IAPorta {
   IAPorta(
     gerar_texto: fn(_, _, _) { Error(e) },
     processar_imagem: fn(_, _, _, _) { Error(e) },
-    processar_audio: fn(_, _, _) { Error(e) },
+    processar_audio: fn(_, _, _, _) { Error(e) },
     processar_video: fn(_, _, _) { Error(e) },
     processar_documento: fn(_, _, _, _) { Error(e) },
     fazer_upload_video: fn(_, _) { Error(e) },
@@ -94,7 +94,7 @@ pub fn ia_capturar_prompt(ref: process.Subject(String)) -> IAPorta {
       process.send(ref, prompt)
       Ok("descrição fake")
     },
-    processar_audio: fn(_, _, _) { Ok("transcrição fake") },
+    processar_audio: fn(_, _, _, _) { Ok("transcrição fake") },
     processar_video: fn(_, prompt, _) {
       process.send(ref, prompt)
       Ok("análise fake")

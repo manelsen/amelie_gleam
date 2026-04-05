@@ -5,7 +5,7 @@ pub type IAPorta {
   IAPorta(
     gerar_texto: fn(String, List(Turno), String) -> Result(String, Erro),
     processar_imagem: fn(BitArray, String, String, String) -> Result(String, Erro),
-    processar_audio: fn(BitArray, String, String) -> Result(String, Erro),
+    processar_audio: fn(BitArray, String, String, String) -> Result(String, Erro),
     processar_video: fn(String, String, String) -> Result(String, Erro),
     processar_documento: fn(BitArray, String, String, String) -> Result(String, Erro),
     // caminho_temp, mime -> uri google

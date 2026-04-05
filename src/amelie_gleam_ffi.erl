@@ -1,7 +1,8 @@
 -module(amelie_gleam_ffi).
 -export([read_file/1, int_to_string/1, get_env/1, now_ms/0,
          sha256_hex/1, memoria_total_mb/0, memoria_processos_mb/0,
-         contagem_processos/0, spawn_fn/1, upload_file/3, debug_log/1]).
+         contagem_processos/0, spawn_fn/1, upload_file/3, debug_log/1,
+         strip_timestamps/1]).
 
 %% Lê arquivo do disco.
 %% Retorna {ok, Binary} | {error, Binary} — Result(BitArray, String) no Gleam.
@@ -87,6 +88,11 @@ get_env(Name) ->
         false -> {error, nil};
         Value -> {ok, list_to_binary(Value)}
     end.
+
+%% Remove timestamps MM:SS ou HH:MM:SS (com espaço opcional ao redor).
+strip_timestamps(Text) ->
+    {ok, Re} = re:compile(<<"\\s*\\d{1,2}:\\d{2}(?::\\d{2})?\\s*">>),
+    re:replace(Text, Re, <<" ">>, [global, {return, binary}]).
 
 %% Debug: writes to stdout immediately (no buffering).
 %% Retorna ok — Result(Nil, String) no Gleam.
