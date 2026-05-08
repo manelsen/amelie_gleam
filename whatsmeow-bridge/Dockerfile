@@ -12,7 +12,7 @@ RUN CGO_ENABLED=1 GOOS=linux go build -o bridge .
 # ---------------------------------------------------------------------------
 FROM alpine:3.19
 
-RUN apk add --no-cache sqlite-libs ca-certificates
+RUN apk add --no-cache sqlite-libs ca-certificates ffmpeg
 
 WORKDIR /app
 COPY --from=builder /app/bridge .

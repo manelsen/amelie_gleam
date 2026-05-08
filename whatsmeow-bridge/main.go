@@ -20,6 +20,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	osExec "os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -416,7 +417,18 @@ func (b *Bridge) processMessage(evt *events.Message) {
 			}
 			log.Printf("Usando thumbnail PNG da figurinha como fallback: chat=%s mensagem=%s", chatID, evt.Info.ID)
 		}
-		payload.Dados = base64.StdEncoding.EncodeToString(data)
+		if sticker.GetIsAnimated() && ok {
+			videoPath, convOK := convertAnimatedStickerToMP4(data)
+			if convOK {
+				payload.Tipo = "video"
+				payload.Mime = "video/mp4"
+				payload.Caminho = videoPath
+			} else {
+				payload.Dados = base64.StdEncoding.EncodeToString(data)
+			}
+		} else {
+			payload.Dados = base64.StdEncoding.EncodeToString(data)
+		}
 	} else {
 		payload.Tipo = "texto"
 		payload.Text = text
@@ -671,6 +683,59 @@ func stickerThumbnailFallback(sticker *waProto.StickerMessage) ([]byte, string, 
 		return nil, "", false
 	}
 	return thumbnail, "image/png", true
+}
+
+func convertAnimatedStickerToMP4(data []byte) (string, bool) {
+	input, err := os.CreateTemp("", "amelie_sticker_*.webp")
+	if err != nil {
+		log.Printf("Falha ao criar arquivo temporario de figurinha animada: %v", err)
+		return "", false
+	}
+	inputPath := input.Name()
+	defer os.Remove(inputPath)
+
+	if _, err := input.Write(data); err != nil {
+		input.Close()
+		log.Printf("Falha ao escrever figurinha animada temporaria: %v", err)
+		return "", false
+	}
+	if err := input.Close(); err != nil {
+		log.Printf("Falha ao fechar figurinha animada temporaria: %v", err)
+		return "", false
+	}
+
+	output, err := os.CreateTemp("", "amelie_sticker_*.mp4")
+	if err != nil {
+		log.Printf("Falha ao criar video temporario de figurinha animada: %v", err)
+		return "", false
+	}
+	outputPath := output.Name()
+	output.Close()
+
+	cmd := osExec.Command(
+		"ffmpeg",
+		"-y",
+		"-i", inputPath,
+		"-movflags", "+faststart",
+		"-pix_fmt", "yuv420p",
+		"-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+		outputPath,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		os.Remove(outputPath)
+		log.Printf("Falha ao converter figurinha animada para MP4: erro=%v saida=%s", err, strings.TrimSpace(string(out)))
+		return "", false
+	}
+
+	info, err := os.Stat(outputPath)
+	if err != nil || info.Size() == 0 {
+		os.Remove(outputPath)
+		log.Printf("Conversao de figurinha animada gerou arquivo invalido: erro=%v", err)
+		return "", false
+	}
+
+	return outputPath, true
 }
 
 func extractText(msg *waProto.Message) string {
