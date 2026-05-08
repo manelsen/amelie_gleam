@@ -192,6 +192,9 @@ func (b *Bridge) loginQR() error {
 			fmt.Println(q.ToSmallString(false))
 		} else {
 			log.Printf("Auth event: %s\n", evt.Event)
+			if evt.Event == "timeout" {
+				return fmt.Errorf("QR code expirou sem ser escaneado — reiniciando para gerar novo")
+			}
 		}
 	}
 	return nil
@@ -232,6 +235,11 @@ func (b *Bridge) handleEvent(rawEvt interface{}) {
 }
 
 func (b *Bridge) processHistorySync(evt *events.HistorySync) {
+	// Só encaminhar mensagens das últimas 48h — o history sync do WhatsApp
+	// reenvia o histórico completo ao reconectar, o que faria o bot responder
+	// mensagens já respondidas antes de um reinício ou recriação do banco.
+	cutoff := time.Now().Add(-48 * time.Hour)
+
 	data := evt.Data
 	convs := data.GetConversations()
 	for _, conv := range convs {
@@ -252,6 +260,9 @@ func (b *Bridge) processHistorySync(evt *events.HistorySync) {
 			parsed, err := b.client.ParseWebMessage(chatJID, webMsg)
 			if err != nil {
 				log.Printf("[HistorySync] Erro ao parsear mensagem %s: %v", msgID, err)
+				continue
+			}
+			if parsed.Info.Timestamp.Before(cutoff) {
 				continue
 			}
 			b.processMessage(parsed)
