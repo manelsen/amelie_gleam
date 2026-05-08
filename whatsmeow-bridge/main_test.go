@@ -1,6 +1,12 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	waProto "go.mau.fi/whatsmeow/binary/proto"
+	"google.golang.org/protobuf/proto"
+)
 
 func TestClassifyDocumentMedia(t *testing.T) {
 	tests := []struct {
@@ -71,5 +77,40 @@ func TestClassifyDocumentMedia(t *testing.T) {
 				t.Fatalf("mime type = %q, want %q", gotMimeType, tt.wantMimeType)
 			}
 		})
+	}
+}
+
+func TestNormalizeStickerMime(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "defaults empty mime to webp", raw: "", want: "image/webp"},
+		{name: "normalizes mime parameters", raw: "image/webp; codecs=vp8", want: "image/webp"},
+		{name: "keeps explicit lottie mime", raw: "application/x-tgsticker", want: "application/x-tgsticker"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeStickerMime(tt.raw)
+			if got != tt.want {
+				t.Fatalf("mime = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStickerPromptContext(t *testing.T) {
+	sticker := &waProto.StickerMessage{
+		IsAnimated:         proto.Bool(true),
+		AccessibilityLabel: proto.String("personagem sorrindo"),
+	}
+
+	got := stickerPromptContext(sticker)
+	for _, want := range []string{"figurinha/sticker", "animada", "personagem sorrindo"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("context %q does not contain %q", got, want)
+		}
 	}
 }

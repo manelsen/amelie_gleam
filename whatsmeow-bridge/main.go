@@ -400,8 +400,18 @@ func (b *Bridge) processMessage(evt *events.Message) {
 		tmpFile.Write(data)
 		payload.Caminho = tmpFile.Name()
 		tmpFile.Close()
-	} else if evt.Message.GetStickerMessage() != nil {
-		return // ignorar adesivos
+	} else if sticker := evt.Message.GetStickerMessage(); sticker != nil {
+		payload.Tipo = "imagem"
+		payload.Mime = normalizeStickerMime(sticker.GetMimetype())
+		payload.Legenda = stickerPromptContext(sticker)
+		data, ok := b.downloadMediaBytes(evt, "figurinha", payload.Mime, "", sticker, func(path string) {
+			sticker.URL = nil
+			sticker.DirectPath = proto.String(path)
+		})
+		if !ok {
+			return
+		}
+		payload.Dados = base64.StdEncoding.EncodeToString(data)
 	} else {
 		payload.Tipo = "texto"
 		payload.Text = text
@@ -629,6 +639,25 @@ func inferMimeFromFileName(fileName string) string {
 	default:
 		return ""
 	}
+}
+
+func normalizeStickerMime(rawMime string) string {
+	mime := normalizeMime(rawMime)
+	if mime == "" {
+		return "image/webp"
+	}
+	return mime
+}
+
+func stickerPromptContext(sticker *waProto.StickerMessage) string {
+	context := "Esta imagem é uma figurinha/sticker do WhatsApp. Descreva o conteúdo visual e interprete o texto, a expressão, a referência cultural ou o sentido provável da figurinha no contexto de conversa."
+	if sticker.GetIsAnimated() {
+		context += " A figurinha é animada; se a mídia recebida mostrar apenas um quadro, descreva o que estiver visível nesse quadro."
+	}
+	if label := strings.TrimSpace(sticker.GetAccessibilityLabel()); label != "" {
+		context += " Rótulo de acessibilidade informado pelo WhatsApp: " + label
+	}
+	return context
 }
 
 func extractText(msg *waProto.Message) string {
