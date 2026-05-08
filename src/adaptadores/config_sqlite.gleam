@@ -28,6 +28,7 @@ pub fn criar(conn: sqlight.Connection) -> ConfigPorta {
   let _ = sqlight.exec(schema, conn)
   // Migração: reverter prompts customizados e reativar áudio desligado pelo antigo .cego
   let _ = sqlight.exec("UPDATE configs SET prompt_sistema = '', audio_ativo = 1 WHERE prompt_sistema != ''", conn)
+  let _ = sqlight.exec("UPDATE configs SET video_ativo = 1 WHERE video_ativo = 0", conn)
   ConfigPorta(
     obter: fn(chat_id) { obter(conn, chat_id) },
     salvar: fn(cfg) { salvar(conn, cfg) },
