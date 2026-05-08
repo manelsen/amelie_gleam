@@ -6,6 +6,13 @@ import dominio/mensagem.{
 }
 import gleam/option.{None, Some}
 
+@external(erlang, "amelie_gleam_ffi", "now_ms")
+fn now_ms() -> Int
+
+fn agora_s() -> Int {
+  now_ms() / 1000
+}
+
 pub fn chat_id() -> String {
   "5531999990000@c.us"
 }
@@ -54,7 +61,7 @@ pub fn mensagem_texto(body: String) -> Mensagem {
     remetente: remetente(),
     message_id: Some("MSG001"),
     corpo: mensagem.Texto(body),
-    timestamp: 1_700_000_000,
+    timestamp: agora_s(),
     em_grupo: False,
     nome_grupo: None,
     menciona_bot: False,
@@ -68,7 +75,7 @@ pub fn mensagem_comando(nome: String, args: String) -> Mensagem {
     remetente: remetente(),
     message_id: Some("MSG001"),
     corpo: mensagem.Comando(nome, args),
-    timestamp: 1_700_000_000,
+    timestamp: agora_s(),
     em_grupo: False,
     nome_grupo: None,
     menciona_bot: False,
@@ -82,7 +89,7 @@ pub fn mensagem_imagem() -> Mensagem {
     remetente: remetente(),
     message_id: Some("MSG001"),
     corpo: mensagem.Imagem(mime: "image/jpeg", dados: <<255, 216, 255>>),
-    timestamp: 1_700_000_000,
+    timestamp: agora_s(),
     em_grupo: False,
     nome_grupo: None,
     menciona_bot: False,
@@ -100,7 +107,7 @@ pub fn mensagem_audio() -> Mensagem {
       103,
       103,
     >>),
-    timestamp: 1_700_000_000,
+    timestamp: agora_s(),
     em_grupo: False,
     nome_grupo: None,
     menciona_bot: False,
@@ -114,7 +121,7 @@ pub fn mensagem_video() -> Mensagem {
     remetente: remetente(),
     message_id: Some("MSG001"),
     corpo: mensagem.Video(caminho_temp: "/tmp/video.mp4", mime: "video/mp4"),
-    timestamp: 1_700_000_000,
+    timestamp: agora_s(),
     em_grupo: False,
     nome_grupo: None,
     menciona_bot: False,

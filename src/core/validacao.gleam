@@ -20,8 +20,6 @@ pub fn validar_texto(body: String) -> Result(String, Erro) {
   let trimmed = string.trim(body)
   case string.length(trimmed) {
     0 -> Error(erro.ErroValidacao("body", "texto vazio"))
-    l if l > 4096 ->
-      Error(erro.ErroValidacao("body", "texto excede 4096 caracteres"))
     _ -> Ok(trimmed)
   }
 }

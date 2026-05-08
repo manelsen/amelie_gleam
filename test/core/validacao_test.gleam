@@ -1,4 +1,5 @@
 import core/validacao
+import gleam/string
 import gleeunit/should
 
 pub fn normalizar_remove_acentos_test() {
@@ -131,4 +132,12 @@ pub fn sem_ponto_texto_normal_nao_e_comando_test() {
 pub fn sem_ponto_texto_com_palavra_comando_no_meio_test() {
   validacao.parsear_comando("o audio ficou bom")
   |> should.be_error
+}
+
+pub fn validar_texto_longo_retorna_ok_test() {
+  let texto_longo = string.repeat("a", 4097)
+
+  validacao.validar_texto(texto_longo)
+  |> should.be_ok
+  |> should.equal(texto_longo)
 }

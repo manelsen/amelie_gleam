@@ -5,10 +5,10 @@ import core/ia_dispatcher
 import core/processador
 import core/prompt/builder
 import dominio/acao.{
-  AlterarModelo, AtivarPrompt, BuscarUrlEResponder, ConsultarMetricas,
-  EnfileirarMidia, EnviarReacao, EnviarResposta, EnviarTexto, ExcluirPrompt,
-  LimparHistorico, ListarGrupos, ListarPrompts, ListarUsuarios, NaoResponder,
-  SalvarConfig, SalvarPrompt, SnapshotHistorico,
+  AlterarModelo, AtivarPrompt, BaixarVideoUrlEDescrever, BuscarUrlEResponder,
+  ConsultarMetricas, EnfileirarMidia, EnviarReacao, EnviarResposta, EnviarTexto,
+  ExcluirPrompt, LimparHistorico, ListarGrupos, ListarPrompts, ListarUsuarios,
+  MidiaVideo, NaoResponder, SalvarConfig, SalvarPrompt, SnapshotHistorico,
 }
 import dominio/config
 import dominio/erro.{type Erro}
@@ -26,14 +26,21 @@ import logging
 import portas/config_porta.{type ConfigPorta}
 import portas/grupo_porta.{type GrupoPorta}
 import portas/historico_porta.{type HistoricoPorta}
+import portas/mensageiro_porta.{type MensageiroPorta}
 import portas/prompt_porta.{type PromptPorta}
 import portas/transacao_porta.{type TransacaoPorta}
 import portas/usuario_porta.{type UsuarioPorta}
-import portas/mensageiro_porta.{type MensageiroPorta}
 import shell/entrega_auditada
 import shell/fila_midia.{type FilasMidia}
 import shell/metricas.{type Metricas}
 import shell/url_scraper
+import shell/ytdlp
+
+@external(erlang, "amelie_gleam_ffi", "now_ms")
+fn now_ms() -> Int
+
+@external(erlang, "amelie_gleam_ffi", "spawn_fn")
+fn spawn_fn(f: fn() -> a) -> Nil
 
 pub type Portas {
   Portas(
@@ -61,23 +68,44 @@ pub fn handle(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
       <> ")",
   )
 
-  // Deduplicação: history sync pode reenviar mensagens já processadas.
-  // Mensagens sem message_id (raro) são sempre processadas.
-  case msg.message_id {
-    option.Some(msg_id) -> {
-      case portas.transacoes.foi_recebida(msg_id) {
-        Ok(True) -> {
-          logging.log(logging.Info, "Mensagem ja processada, ignorando: " <> msg_id)
-          Ok(Nil)
-        }
-        Ok(False) -> {
-          let _ = portas.transacoes.marcar_recebida(msg_id)
-          processar_mensagem(msg, portas)
-        }
-        Error(_) -> processar_mensagem(msg, portas)
-      }
+  // Filtro de idade: rejeita mensagens com mais de 48h.
+  // O history sync do WhatsApp reenvia o histórico completo ao reconectar —
+  // sem este filtro, mensagens já respondidas seriam reprocessadas após
+  // um reinício ou recriação do banco de dados.
+  let agora_s = now_ms() / 1000
+  case msg.timestamp > 0 && agora_s - msg.timestamp > 48 * 60 * 60 {
+    True -> {
+      logging.log(
+        logging.Info,
+        "Mensagem ignorada por ser muito antiga (ts="
+          <> int.to_string(msg.timestamp)
+          <> "): "
+          <> msg.chat_id,
+      )
+      Ok(Nil)
     }
-    option.None -> processar_mensagem(msg, portas)
+    False ->
+      // Deduplicação: history sync pode reenviar mensagens já processadas.
+      // Mensagens sem message_id (raro) são sempre processadas.
+      case msg.message_id {
+        option.Some(msg_id) -> {
+          case portas.transacoes.foi_recebida(msg_id) {
+            Ok(True) -> {
+              logging.log(
+                logging.Info,
+                "Mensagem ja processada, ignorando: " <> msg_id,
+              )
+              Ok(Nil)
+            }
+            Ok(False) -> {
+              let _ = portas.transacoes.marcar_recebida(msg_id)
+              processar_mensagem(msg, portas)
+            }
+            Error(_) -> processar_mensagem(msg, portas)
+          }
+        }
+        option.None -> processar_mensagem(msg, portas)
+      }
   }
 }
 
@@ -164,8 +192,7 @@ fn executar_acao(
 
     BuscarUrlEResponder(para, texto, url) -> {
       let prompt = case url_scraper.buscar(url) {
-        Ok(conteudo) ->
-          builder.montar_com_url(texto, url, conteudo, cfg, hist)
+        Ok(conteudo) -> builder.montar_com_url(texto, url, conteudo, cfg, hist)
         Error(_) -> builder.montar(texto, cfg, hist)
       }
       use resposta <- result.try(ia_dispatcher.gerar_texto(
@@ -175,7 +202,14 @@ fn executar_acao(
         cfg.provedor,
         cfg.modelo,
       ))
-      use _ <- result.try(entregar(para, "amelie", "ia_texto", resposta, msg, portas))
+      use _ <- result.try(entregar(
+        para,
+        "amelie",
+        "ia_texto",
+        resposta,
+        msg,
+        portas,
+      ))
       use _ <- result.try(portas.historico.adicionar(
         msg.chat_id,
         TurnoUsuario(extrair_texto_usuario(msg)),
@@ -377,7 +411,11 @@ fn executar_acao(
 
     AlterarModelo(chat_id, provedor, modelo) -> {
       case
-        providers_config.validar_modelo(portas.providers_config, provedor, modelo)
+        providers_config.validar_modelo(
+          portas.providers_config,
+          provedor,
+          modelo,
+        )
       {
         Ok(_) -> {
           let nova = config.Config(..cfg, provedor: provedor, modelo: modelo)
@@ -401,6 +439,59 @@ fn executar_acao(
             portas,
           )
       }
+    }
+
+    BaixarVideoUrlEDescrever(chat_id, url) -> {
+      case msg.message_id {
+        option.Some(mid) -> {
+          let _ = portas.mensageiro.reagir(chat_id, mid, msg.remetente, "⌛")
+          Nil
+        }
+        option.None -> Nil
+      }
+      let ia_porta =
+        ia_dispatcher.como_porta(ia_dispatcher.IADispatcherPorta(
+          dispatcher: portas.ia_dispatcher,
+          provedor: cfg.provedor,
+          modelo: cfg.modelo,
+        ))
+      let _ =
+        spawn_fn(fn() {
+          case ytdlp.baixar(url) {
+            Error(e) -> {
+              logging.log(
+                logging.Warning,
+                "[YtDlp] Falha em " <> url <> ": " <> erro.descricao(e),
+              )
+              let _ =
+                portas.mensageiro.enviar(
+                  chat_id,
+                  "❌ Não foi possível baixar o vídeo.",
+                )
+              Nil
+            }
+            Ok(caminho) -> {
+              let msg_video =
+                mensagem.Mensagem(
+                  ..msg,
+                  corpo: mensagem.Video(caminho_temp: caminho, mime: "video/mp4"),
+                )
+              let _ =
+                fila_midia.enfileirar(
+                  portas.fila,
+                  chat_id,
+                  msg_video,
+                  MidiaVideo,
+                  cfg,
+                  ia_porta,
+                  portas.mensageiro,
+                  portas.transacoes,
+                )
+              Nil
+            }
+          }
+        })
+      Ok(Nil)
     }
 
     NaoResponder -> Ok(Nil)

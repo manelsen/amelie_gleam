@@ -32,7 +32,8 @@ RUN --mount=type=cache,target=/root/.cache/ccache \
 # Stage 3: Imagem final — mesma base Erlang do builder (evita mismatch de OTP)
 FROM ghcr.io/gleam-lang/gleam:v1.15.0-erlang-alpine
 
-RUN apk add --no-cache sqlite-libs ca-certificates
+RUN apk add --no-cache sqlite-libs ca-certificates python3 py3-pip ffmpeg && \
+    pip3 install --break-system-packages yt-dlp
 
 WORKDIR /app
 

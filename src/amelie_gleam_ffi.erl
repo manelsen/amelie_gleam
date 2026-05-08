@@ -2,7 +2,7 @@
 -export([read_file/1, int_to_string/1, get_env/1, now_ms/0,
          sha256_hex/1, memoria_total_mb/0, memoria_processos_mb/0,
          contagem_processos/0, spawn_fn/1, upload_file/3, debug_log/1,
-         strip_timestamps/1]).
+         strip_timestamps/1, ytdlp_download/1]).
 
 %% Lê arquivo do disco.
 %% Retorna {ok, Binary} | {error, Binary} — Result(BitArray, String) no Gleam.
@@ -93,6 +93,51 @@ get_env(Name) ->
 strip_timestamps(Text) ->
     {ok, Re} = re:compile(<<"\\s*\\d{1,2}:\\d{2}(?::\\d{2})?\\s*">>),
     re:replace(Text, Re, <<" ">>, [global, {return, binary}]).
+
+%% Baixa vídeo de URL usando yt-dlp para arquivo temporário.
+%% Retorna {ok, CaminhoArquivo} | {error, MensagemErro}.
+ytdlp_download(Url) ->
+    Ts = integer_to_list(erlang:system_time(millisecond)),
+    Dir = "/tmp/amelie_yt_" ++ Ts,
+    file:make_dir(Dir),
+    OutTemplate = Dir ++ "/video.%(ext)s",
+    UrlStr = binary_to_list(Url),
+    case os:find_executable("yt-dlp") of
+        false ->
+            {error, <<"yt-dlp não encontrado no PATH">>};
+        YtdlpPath ->
+            Port = open_port({spawn_executable, YtdlpPath}, [
+                {args, [
+                    "--no-playlist",
+                    "--max-filesize", "50m",
+                    "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best[height<=720]/best",
+                    "--merge-output-format", "mp4",
+                    "-o", OutTemplate,
+                    UrlStr
+                ]},
+                exit_status,
+                {line, 4096},
+                stderr_to_stdout
+            ]),
+            ytdlp_wait(Port, Dir, [])
+    end.
+
+ytdlp_wait(Port, Dir, Acc) ->
+    receive
+        {Port, {data, {_, Line}}} ->
+            ytdlp_wait(Port, Dir, [Line | Acc]);
+        {Port, {exit_status, 0}} ->
+            case filelib:wildcard(Dir ++ "/*") of
+                [FilePath | _] -> {ok, list_to_binary(FilePath)};
+                [] -> {error, <<"yt-dlp concluiu mas nenhum arquivo encontrado">>}
+            end;
+        {Port, {exit_status, _}} ->
+            Output = iolist_to_binary(lists:join("\n", lists:reverse(Acc))),
+            {error, <<"yt-dlp falhou: ", Output/binary>>}
+    after 120000 ->
+        port_close(Port),
+        {error, <<"timeout ao baixar vídeo (120s)">>}
+    end.
 
 %% Debug: writes to stdout immediately (no buffering).
 %% Retorna ok — Result(Nil, String) no Gleam.

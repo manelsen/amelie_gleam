@@ -1,7 +1,7 @@
 import core/processador
 import dominio/acao.{
-  EnfileirarMidia, EnviarResposta, EnviarTexto, MidiaAudio, MidiaImagem,
-  MidiaVideo, NaoResponder,
+  BaixarVideoUrlEDescrever, BuscarUrlEResponder, EnfileirarMidia, EnviarResposta,
+  EnviarTexto, MidiaAudio, MidiaImagem, MidiaVideo, NaoResponder,
 }
 import dominio/erro
 import dominio/mensagem
@@ -33,6 +33,16 @@ pub fn processar_texto_vazio_retorna_erro_test() {
   let cfg = fixtures.config_padrao()
   let result = processador.processar(msg, cfg, [])
   result |> should.be_error
+}
+
+pub fn processar_texto_longo_test() {
+  let texto_longo = string.repeat("a", 4097)
+  let msg = fixtures.mensagem_texto(texto_longo)
+  let cfg = fixtures.config_padrao()
+  let result = processador.processar(msg, cfg, [])
+  result |> should.be_ok
+  let assert Ok([EnviarTexto(para: _, corpo: prompt)]) = result
+  string.contains(prompt, texto_longo) |> should.be_true
 }
 
 pub fn processar_comando_ponto_no_texto_test() {
@@ -133,6 +143,45 @@ pub fn processar_grupo_com_mencao_processa_test() {
   let result = processador.processar(msg, cfg, [])
   result |> should.be_ok
   let assert Ok([EnviarTexto(_, _)]) = result
+}
+
+// ---------------------------------------------------------------------------
+// URLs de vídeo
+// ---------------------------------------------------------------------------
+
+pub fn processar_url_tiktok_video_ativo_test() {
+  let msg =
+    fixtures.mensagem_texto("https://www.tiktok.com/@user/video/123456789")
+  let cfg = fixtures.config_padrao()
+  let result = processador.processar(msg, cfg, [])
+  result |> should.be_ok
+  let assert Ok([BaixarVideoUrlEDescrever(_, _)]) = result
+}
+
+pub fn processar_url_youtube_shorts_video_ativo_test() {
+  let msg =
+    fixtures.mensagem_texto("https://youtube.com/shorts/abcdefgh")
+  let cfg = fixtures.config_padrao()
+  let result = processador.processar(msg, cfg, [])
+  result |> should.be_ok
+  let assert Ok([BaixarVideoUrlEDescrever(_, _)]) = result
+}
+
+pub fn processar_url_video_inativo_cai_em_buscar_url_test() {
+  let msg =
+    fixtures.mensagem_texto("https://www.tiktok.com/@user/video/123456789")
+  let cfg = fixtures.config_midia_off()
+  let result = processador.processar(msg, cfg, [])
+  result |> should.be_ok
+  let assert Ok([BuscarUrlEResponder(_, _, _)]) = result
+}
+
+pub fn processar_url_comum_nao_e_video_test() {
+  let msg = fixtures.mensagem_texto("https://example.com/artigo")
+  let cfg = fixtures.config_padrao()
+  let result = processador.processar(msg, cfg, [])
+  result |> should.be_ok
+  let assert Ok([BuscarUrlEResponder(_, _, _)]) = result
 }
 
 pub fn processar_grupo_comando_sem_mencao_passa_test() {

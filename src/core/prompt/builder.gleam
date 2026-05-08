@@ -50,7 +50,8 @@ fn prompt_padrao(config: Config) -> String {
   <> "Responda em "
   <> config.idioma
   <> ". "
-  <> "Seja direta e útil."
+  <> "Seja direta e útil. "
+  <> "Você consegue processar e descrever imagens, áudios, vídeos e documentos enviados diretamente na conversa."
 }
 
 fn montar_historico(turnos: List(Turno), max: Int) -> String {

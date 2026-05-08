@@ -5,8 +5,8 @@ import core/comando/dispatcher
 import core/prompt/builder
 import core/validacao
 import dominio/acao.{
-  type Acao, BuscarUrlEResponder, EnfileirarMidia, EnviarTexto, MidiaAudio,
-  MidiaDocumento, MidiaImagem, MidiaVideo, NaoResponder,
+  type Acao, BaixarVideoUrlEDescrever, BuscarUrlEResponder, EnfileirarMidia,
+  EnviarTexto, MidiaAudio, MidiaDocumento, MidiaImagem, MidiaVideo, NaoResponder,
 }
 import dominio/config.{type Config}
 import dominio/erro.{type Erro}
@@ -65,13 +65,11 @@ fn processar_texto(
       use texto_val <- result.try(validacao.validar_texto(body))
       case extrair_url(texto_val) {
         option.Some(url) ->
-          Ok([
-            BuscarUrlEResponder(
-              para: config.chat_id,
-              texto: texto_val,
-              url: url,
-            ),
-          ])
+          case e_url_video(url) && config.video_ativo {
+            True -> Ok([BaixarVideoUrlEDescrever(chat_id: config.chat_id, url: url)])
+            False ->
+              Ok([BuscarUrlEResponder(para: config.chat_id, texto: texto_val, url: url)])
+          }
         option.None -> {
           let prompt = builder.montar(texto_val, config, historico)
           Ok([EnviarTexto(para: config.chat_id, corpo: prompt)])
@@ -79,6 +77,16 @@ fn processar_texto(
       }
     }
   }
+}
+
+fn e_url_video(url: String) -> Bool {
+  string.contains(url, "tiktok.com/")
+  || string.contains(url, "vm.tiktok.com/")
+  || string.contains(url, "instagram.com/reel")
+  || string.contains(url, "instagram.com/p/")
+  || string.contains(url, "youtube.com/shorts/")
+  || string.contains(url, "youtu.be/")
+  || string.contains(url, "youtube.com/watch")
 }
 
 fn extrair_url(texto: String) -> option.Option(String) {
