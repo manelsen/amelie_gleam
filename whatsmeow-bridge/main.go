@@ -409,7 +409,12 @@ func (b *Bridge) processMessage(evt *events.Message) {
 			sticker.DirectPath = proto.String(path)
 		})
 		if !ok {
-			return
+			var fallbackOK bool
+			data, payload.Mime, fallbackOK = stickerThumbnailFallback(sticker)
+			if !fallbackOK {
+				return
+			}
+			log.Printf("Usando thumbnail PNG da figurinha como fallback: chat=%s mensagem=%s", chatID, evt.Info.ID)
 		}
 		payload.Dados = base64.StdEncoding.EncodeToString(data)
 	} else {
@@ -658,6 +663,14 @@ func stickerPromptContext(sticker *waProto.StickerMessage) string {
 		context += " Rótulo de acessibilidade informado pelo WhatsApp: " + label
 	}
 	return context
+}
+
+func stickerThumbnailFallback(sticker *waProto.StickerMessage) ([]byte, string, bool) {
+	thumbnail := sticker.GetPngThumbnail()
+	if len(thumbnail) == 0 {
+		return nil, "", false
+	}
+	return thumbnail, "image/png", true
 }
 
 func extractText(msg *waProto.Message) string {

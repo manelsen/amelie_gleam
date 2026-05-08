@@ -114,3 +114,27 @@ func TestStickerPromptContext(t *testing.T) {
 		}
 	}
 }
+
+func TestStickerThumbnailFallback(t *testing.T) {
+	sticker := &waProto.StickerMessage{
+		PngThumbnail: []byte{0x89, 0x50, 0x4e, 0x47},
+	}
+
+	data, mime, ok := stickerThumbnailFallback(sticker)
+	if !ok {
+		t.Fatal("expected thumbnail fallback")
+	}
+	if mime != "image/png" {
+		t.Fatalf("mime = %q, want image/png", mime)
+	}
+	if string(data) != string(sticker.GetPngThumbnail()) {
+		t.Fatalf("data = %v, want %v", data, sticker.GetPngThumbnail())
+	}
+}
+
+func TestStickerThumbnailFallbackMissing(t *testing.T) {
+	_, _, ok := stickerThumbnailFallback(&waProto.StickerMessage{})
+	if ok {
+		t.Fatal("did not expect thumbnail fallback")
+	}
+}
