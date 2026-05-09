@@ -1,9 +1,12 @@
 package main
 
 import (
+	"fmt"
+	"net"
 	"strings"
 	"testing"
 
+	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"google.golang.org/protobuf/proto"
 )
@@ -96,6 +99,47 @@ func TestNormalizeStickerMime(t *testing.T) {
 			got := normalizeStickerMime(tt.raw)
 			if got != tt.want {
 				t.Fatalf("mime = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestShouldRequestMediaRetry(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "http 404",
+			err:  whatsmeow.ErrMediaDownloadFailedWith404,
+			want: true,
+		},
+		{
+			name: "wrapped dns not found",
+			err: fmt.Errorf(
+				"failed to download media from last host: %w",
+				&net.DNSError{Err: "no such host", Name: "a.whatsapp.net", IsNotFound: true},
+			),
+			want: true,
+		},
+		{
+			name: "string no such host fallback",
+			err:  fmt.Errorf("lookup a.whatsapp.net on 127.0.0.11:53: no such host"),
+			want: true,
+		},
+		{
+			name: "unrelated error",
+			err:  fmt.Errorf("connection reset by peer"),
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shouldRequestMediaRetry(tt.err)
+			if got != tt.want {
+				t.Fatalf("shouldRequestMediaRetry() = %v, want %v", got, tt.want)
 			}
 		})
 	}

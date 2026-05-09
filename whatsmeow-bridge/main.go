@@ -18,6 +18,7 @@ import (
 	qrcode "github.com/skip2/go-qrcode"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	osExec "os/exec"
@@ -563,7 +564,16 @@ func (b *Bridge) clearMediaRetryState(chat types.JID, messageID types.MessageID)
 func shouldRequestMediaRetry(err error) bool {
 	return errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith403) ||
 		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith404) ||
-		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith410)
+		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith410) ||
+		isDNSNotFound(err)
+}
+
+func isDNSNotFound(err error) bool {
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return dnsErr.IsNotFound || strings.Contains(strings.ToLower(dnsErr.Err), "no such host")
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "no such host")
 }
 
 func classifyDocumentMedia(rawMime, fileName string) (string, string) {
