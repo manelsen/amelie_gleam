@@ -11,6 +11,7 @@ services:
       - BRIDGE_DB_PATH=/data/bridge/whatsapp.db
     volumes:
       - ./db:/data
+      - ./cookies:/cookies:ro
     ports:
       - "4001:4000"
     logging:

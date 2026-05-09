@@ -107,19 +107,44 @@ ytdlp_download(Url) ->
             {error, <<"yt-dlp não encontrado no PATH">>};
         YtdlpPath ->
             Port = open_port({spawn_executable, YtdlpPath}, [
-                {args, [
-                    "--no-playlist",
-                    "--max-filesize", "50m",
-                    "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best[height<=720]/best",
-                    "--merge-output-format", "mp4",
-                    "-o", OutTemplate,
-                    UrlStr
-                ]},
+                {args, ytdlp_args(OutTemplate, UrlStr)},
                 exit_status,
                 {line, 4096},
                 stderr_to_stdout
             ]),
             ytdlp_wait(Port, Dir, [])
+    end.
+
+ytdlp_args(OutTemplate, UrlStr) ->
+    BaseArgs = [
+        "--no-playlist",
+        "--retries", "3",
+        "--fragment-retries", "3",
+        "--extractor-retries", "3",
+        "--socket-timeout", "20",
+        "--force-ipv4",
+        "--geo-bypass",
+        "--max-filesize", "50m",
+        "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best[height<=720]/best",
+        "--merge-output-format", "mp4",
+        "-o", OutTemplate
+    ],
+    BaseArgs
+    ++ ytdlp_js_runtime_args()
+    ++ ytdlp_cookies_args()
+    ++ [UrlStr].
+
+ytdlp_js_runtime_args() ->
+    case os:find_executable("node") of
+        false -> [];
+        _NodePath -> ["--js-runtimes", "node"]
+    end.
+
+ytdlp_cookies_args() ->
+    case os:getenv("YTDLP_COOKIES_PATH") of
+        false -> [];
+        "" -> [];
+        Path -> ["--cookies", Path]
     end.
 
 ytdlp_wait(Port, Dir, Acc) ->

@@ -66,9 +66,16 @@ fn processar_texto(
       case extrair_url(texto_val) {
         option.Some(url) ->
           case e_url_video(url) && config.video_ativo {
-            True -> Ok([BaixarVideoUrlEDescrever(chat_id: config.chat_id, url: url)])
+            True ->
+              Ok([BaixarVideoUrlEDescrever(chat_id: config.chat_id, url: url)])
             False ->
-              Ok([BuscarUrlEResponder(para: config.chat_id, texto: texto_val, url: url)])
+              Ok([
+                BuscarUrlEResponder(
+                  para: config.chat_id,
+                  texto: texto_val,
+                  url: url,
+                ),
+              ])
           }
         option.None -> {
           let prompt = builder.montar(texto_val, config, historico)
@@ -80,13 +87,21 @@ fn processar_texto(
 }
 
 fn e_url_video(url: String) -> Bool {
+  let url = string.lowercase(url)
   string.contains(url, "tiktok.com/")
   || string.contains(url, "vm.tiktok.com/")
   || string.contains(url, "instagram.com/reel")
+  || string.contains(url, "instagram.com/reels/")
   || string.contains(url, "instagram.com/p/")
+  || string.contains(url, "instagram.com/tv/")
+  || string.contains(url, "instagram.com/stories/")
   || string.contains(url, "youtube.com/shorts/")
-  || string.contains(url, "youtu.be/")
+  || string.contains(url, "youtube.com/live/")
+  || string.contains(url, "youtube.com/embed/")
   || string.contains(url, "youtube.com/watch")
+  || string.contains(url, "m.youtube.com/watch")
+  || string.contains(url, "music.youtube.com/watch")
+  || string.contains(url, "youtu.be/")
 }
 
 fn extrair_url(texto: String) -> option.Option(String) {
@@ -96,7 +111,35 @@ fn extrair_url(texto: String) -> option.Option(String) {
     string.starts_with(palavra, "https://")
     || string.starts_with(palavra, "http://")
   })
+  |> result.map(limpar_url)
   |> option.from_result
+}
+
+fn limpar_url(url: String) -> String {
+  url
+  |> remover_prefixo("<")
+  |> remover_prefixo("(")
+  |> remover_sufixos([">", ")", "]", "}", ".", ",", ";", "!", "?", "\"", "'"])
+}
+
+fn remover_prefixo(texto: String, prefixo: String) -> String {
+  case string.starts_with(texto, prefixo) {
+    True -> string.drop_start(texto, string.length(prefixo))
+    False -> texto
+  }
+}
+
+fn remover_sufixos(texto: String, sufixos: List(String)) -> String {
+  case sufixos {
+    [] -> texto
+    [sufixo, ..resto] -> {
+      let sem_sufixo = case string.ends_with(texto, sufixo) {
+        True -> string.drop_end(texto, string.length(sufixo))
+        False -> texto
+      }
+      remover_sufixos(sem_sufixo, resto)
+    }
+  }
 }
 
 fn processar_comando(

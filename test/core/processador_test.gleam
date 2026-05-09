@@ -95,8 +95,7 @@ pub fn processar_chat_id_vazio_retorna_erro_test() {
 }
 
 pub fn processar_remetente_vazio_retorna_erro_test() {
-  let msg =
-    mensagem.Mensagem(..fixtures.mensagem_texto("teste"), remetente: "")
+  let msg = mensagem.Mensagem(..fixtures.mensagem_texto("teste"), remetente: "")
   let cfg = fixtures.config_padrao()
   let result = processador.processar(msg, cfg, [])
   result |> should.be_error
@@ -159,8 +158,44 @@ pub fn processar_url_tiktok_video_ativo_test() {
 }
 
 pub fn processar_url_youtube_shorts_video_ativo_test() {
+  let msg = fixtures.mensagem_texto("https://youtube.com/shorts/abcdefgh")
+  let cfg = fixtures.config_padrao()
+  let result = processador.processar(msg, cfg, [])
+  result |> should.be_ok
+  let assert Ok([BaixarVideoUrlEDescrever(_, _)]) = result
+}
+
+pub fn processar_url_youtube_live_video_ativo_test() {
   let msg =
-    fixtures.mensagem_texto("https://youtube.com/shorts/abcdefgh")
+    fixtures.mensagem_texto(
+      "Olha isso: https://www.youtube.com/live/abcdefgh?si=123.",
+    )
+  let cfg = fixtures.config_padrao()
+  let result = processador.processar(msg, cfg, [])
+  result |> should.be_ok
+  let assert Ok([BaixarVideoUrlEDescrever(_, url)]) = result
+  url |> should.equal("https://www.youtube.com/live/abcdefgh?si=123")
+}
+
+pub fn processar_url_youtube_mobile_video_ativo_test() {
+  let msg = fixtures.mensagem_texto("https://m.youtube.com/watch?v=abcdefgh")
+  let cfg = fixtures.config_padrao()
+  let result = processador.processar(msg, cfg, [])
+  result |> should.be_ok
+  let assert Ok([BaixarVideoUrlEDescrever(_, _)]) = result
+}
+
+pub fn processar_url_instagram_reels_video_ativo_test() {
+  let msg = fixtures.mensagem_texto("https://www.instagram.com/reels/ABC123/")
+  let cfg = fixtures.config_padrao()
+  let result = processador.processar(msg, cfg, [])
+  result |> should.be_ok
+  let assert Ok([BaixarVideoUrlEDescrever(_, _)]) = result
+}
+
+pub fn processar_url_instagram_stories_video_ativo_test() {
+  let msg =
+    fixtures.mensagem_texto("https://www.instagram.com/stories/usuario/123456/")
   let cfg = fixtures.config_padrao()
   let result = processador.processar(msg, cfg, [])
   result |> should.be_ok
