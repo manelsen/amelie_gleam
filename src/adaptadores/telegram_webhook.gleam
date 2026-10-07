@@ -32,6 +32,8 @@ pub type TelegramMessage {
     audio: Option(#(String, String)),
     video: Option(#(String, String)),
     video_note: Option(#(String, String)),
+    animation: Option(#(String, String)),
+    document: Option(#(String, String, String)),
   )
 }
 
@@ -158,15 +160,51 @@ pub fn converter_update_em_evento(update: TelegramUpdate) -> EventoUpdate {
                                 mime,
                               )
                             None -> {
-                              case msg.text {
-                                Some(raw_text) -> {
-                                  let corpo = parsear_texto_ou_comando(raw_text)
-                                  EventoMensagemPronta(
+                              case msg.animation {
+                                Some(#(file_id, mime)) ->
+                                  EventoVideoParaBaixar(
                                     update.update_id,
-                                    Mensagem(..base, corpo: corpo),
+                                    base,
+                                    file_id,
+                                    mime,
                                   )
+                                None -> {
+                                  case msg.document {
+                                    Some(#(file_id, mime, file_name)) -> {
+                                      let fn_lower = string.lowercase(file_name)
+                                      let e_video =
+                                        string.starts_with(mime, "video/")
+                                        || string.ends_with(fn_lower, ".mp4")
+                                        || string.ends_with(fn_lower, ".mov")
+                                        || string.ends_with(fn_lower, ".mkv")
+                                        || string.ends_with(fn_lower, ".webm")
+                                      case e_video {
+                                        True ->
+                                          EventoVideoParaBaixar(
+                                            update.update_id,
+                                            base,
+                                            file_id,
+                                            mime,
+                                          )
+                                        False ->
+                                          EventoIgnorado(update.update_id)
+                                      }
+                                    }
+                                    None -> {
+                                      case msg.text {
+                                        Some(raw_text) -> {
+                                          let corpo =
+                                            parsear_texto_ou_comando(raw_text)
+                                          EventoMensagemPronta(
+                                            update.update_id,
+                                            Mensagem(..base, corpo: corpo),
+                                          )
+                                        }
+                                        None -> EventoIgnorado(update.update_id)
+                                      }
+                                    }
+                                  }
                                 }
-                                None -> EventoIgnorado(update.update_id)
                               }
                             }
                           }
@@ -222,27 +260,60 @@ fn photo_file_id_decoder() -> decode.Decoder(String) {
   }
 }
 
+fn safe_mime_decoder(padrao: String) -> decode.Decoder(String) {
+  decode.optional(decode.string)
+  |> decode.map(fn(opt) { option.unwrap(opt, padrao) })
+}
+
 fn voice_decoder() -> decode.Decoder(#(String, String)) {
   use file_id <- decode.then(decode.at(["file_id"], decode.string))
-  use mime <- decode.optional_field("mime_type", "audio/ogg", decode.string)
+  use mime <- decode.optional_field(
+    "mime_type",
+    "audio/ogg",
+    safe_mime_decoder("audio/ogg"),
+  )
   decode.success(#(file_id, mime))
 }
 
 fn audio_decoder() -> decode.Decoder(#(String, String)) {
   use file_id <- decode.then(decode.at(["file_id"], decode.string))
-  use mime <- decode.optional_field("mime_type", "audio/mpeg", decode.string)
+  use mime <- decode.optional_field(
+    "mime_type",
+    "audio/mpeg",
+    safe_mime_decoder("audio/mpeg"),
+  )
   decode.success(#(file_id, mime))
 }
 
 fn video_decoder() -> decode.Decoder(#(String, String)) {
   use file_id <- decode.then(decode.at(["file_id"], decode.string))
-  use mime <- decode.optional_field("mime_type", "video/mp4", decode.string)
+  use mime <- decode.optional_field(
+    "mime_type",
+    "video/mp4",
+    safe_mime_decoder("video/mp4"),
+  )
   decode.success(#(file_id, mime))
 }
 
 fn video_note_decoder() -> decode.Decoder(#(String, String)) {
   use file_id <- decode.then(decode.at(["file_id"], decode.string))
   decode.success(#(file_id, "video/mp4"))
+}
+
+fn animation_decoder() -> decode.Decoder(#(String, String)) {
+  use file_id <- decode.then(decode.at(["file_id"], decode.string))
+  decode.success(#(file_id, "video/mp4"))
+}
+
+fn document_decoder() -> decode.Decoder(#(String, String, String)) {
+  use file_id <- decode.then(decode.at(["file_id"], decode.string))
+  use file_name <- decode.optional_field("file_name", "", decode.string)
+  use mime <- decode.optional_field(
+    "mime_type",
+    "application/octet-stream",
+    safe_mime_decoder("application/octet-stream"),
+  )
+  decode.success(#(file_id, mime, file_name))
 }
 
 fn telegram_message_decoder() -> decode.Decoder(TelegramMessage) {
@@ -290,6 +361,16 @@ fn telegram_message_decoder() -> decode.Decoder(TelegramMessage) {
     None,
     video_note_decoder() |> decode.map(Some),
   )
+  use animation <- decode.optional_field(
+    "animation",
+    None,
+    animation_decoder() |> decode.map(Some),
+  )
+  use document <- decode.optional_field(
+    "document",
+    None,
+    document_decoder() |> decode.map(Some),
+  )
   decode.success(TelegramMessage(
     message_id: message_id,
     date: date,
@@ -303,6 +384,8 @@ fn telegram_message_decoder() -> decode.Decoder(TelegramMessage) {
     audio: audio,
     video: video,
     video_note: video_note,
+    animation: animation,
+    document: document,
   ))
 }
 

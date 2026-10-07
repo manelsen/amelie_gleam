@@ -4,6 +4,7 @@
 
 import adaptadores/telegram_http
 import adaptadores/telegram_webhook
+import dominio/erro
 import dominio/mensagem.{type Mensagem, Mensagem}
 import gleam/erlang/process
 import gleam/http
@@ -60,14 +61,27 @@ fn loop(bot_token: String, offset: Int, portas: Portas) -> Nil {
         Ok(resp) if resp.status == 200 -> {
           case telegram_webhook.extrair_updates(resp.body) {
             Ok(updates) -> {
+              case updates {
+                [] -> Nil
+                _ ->
+                  logging.log(
+                    logging.Info,
+                    "Telegram poller recebeu "
+                      <> int.to_string(list.length(updates))
+                      <> " updates",
+                  )
+              }
               let proximo_offset =
                 processar_updates(updates, offset, bot_token, portas)
               loop(bot_token, proximo_offset, portas)
             }
-            Error(_) -> {
+            Error(e) -> {
               logging.log(
                 logging.Warning,
-                "Telegram poller: falha ao extrair updates",
+                "Telegram poller: falha ao extrair updates: "
+                  <> erro.descricao(e)
+                  <> " raw="
+                  <> resp.body,
               )
               process.sleep(1000)
               loop(bot_token, offset, portas)

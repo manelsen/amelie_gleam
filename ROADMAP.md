@@ -86,7 +86,7 @@ de integração entre os processos Gleam e Go.
 
 ## Validação atual
 
-- 133 testes Gleam passando.
+- 135 testes Gleam passando.
 - Testes, race detector, `go vet` e build do bridge Go passando.
 - Testes de regressão para HistorySync, estado de sessão, respostas HTTP de erro,
   migração de modelo, URLs com newline/tab, filas e handlers.

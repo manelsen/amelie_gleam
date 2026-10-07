@@ -314,3 +314,37 @@ pub fn parsear_evento_video_em_grupo_rejeitado_test() {
     _ -> should.fail()
   }
 }
+
+pub fn parsear_evento_animation_test() {
+  let json =
+    "{\"update_id\":4005,\"message\":{\"message_id\":84,\"date\":1700000000,\"chat\":{\"id\":998877,\"type\":\"private\"},\"animation\":{\"file_id\":\"anim_gif123\",\"duration\":3}}}"
+    |> bit_array.from_string
+
+  let assert Ok(evento) = telegram_webhook.parsear_evento(json)
+  case evento {
+    telegram_webhook.EventoVideoParaBaixar(update_id, base, file_id, mime) -> {
+      update_id |> should.equal(4005)
+      file_id |> should.equal("anim_gif123")
+      mime |> should.equal("video/mp4")
+      base.chat_id |> should.equal("tg:998877")
+    }
+    _ -> should.fail()
+  }
+}
+
+pub fn parsear_evento_document_como_video_test() {
+  let json =
+    "{\"update_id\":4006,\"message\":{\"message_id\":85,\"date\":1700000000,\"chat\":{\"id\":998877,\"type\":\"private\"},\"document\":{\"file_id\":\"doc_vid_123\",\"file_name\":\"filme.mkv\",\"mime_type\":\"video/x-matroska\"}}}"
+    |> bit_array.from_string
+
+  let assert Ok(evento) = telegram_webhook.parsear_evento(json)
+  case evento {
+    telegram_webhook.EventoVideoParaBaixar(update_id, base, file_id, mime) -> {
+      update_id |> should.equal(4006)
+      file_id |> should.equal("doc_vid_123")
+      mime |> should.equal("video/x-matroska")
+      base.chat_id |> should.equal("tg:998877")
+    }
+    _ -> should.fail()
+  }
+}

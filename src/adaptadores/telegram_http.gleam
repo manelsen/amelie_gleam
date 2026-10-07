@@ -10,6 +10,7 @@ import gleam/int
 import gleam/json
 import gleam/result
 import gleam/string
+import logging
 import portas/mensageiro_porta.{type MensageiroPorta, MensageiroPorta}
 
 const base_url = "https://api.telegram.org"
@@ -138,9 +139,36 @@ fn reagir(
       ),
     ])
     |> json.to_string
-  // Fire-and-forget — ignora erros de reação (emoji não suportado, etc.)
-  let _ = post(bot_token, "/setMessageReaction", body)
-  Ok(Nil)
+  // Envia reação para a Bot API do Telegram
+  let res = post(bot_token, "/setMessageReaction", body)
+  case res {
+    Ok(_) -> {
+      logging.log(
+        logging.Info,
+        "Telegram reação enviada: chat="
+          <> target_id
+          <> " msg="
+          <> int.to_string(msg_id)
+          <> " emoji="
+          <> emoji_tg,
+      )
+      Ok(Nil)
+    }
+    Error(e) -> {
+      logging.log(
+        logging.Warning,
+        "Telegram reação falhou: chat="
+          <> target_id
+          <> " msg="
+          <> int.to_string(msg_id)
+          <> " emoji="
+          <> emoji_tg
+          <> " erro="
+          <> erro.descricao(e),
+      )
+      Error(e)
+    }
+  }
 }
 
 fn obter_file_path(bot_token: String, file_id: String) -> Result(String, Erro) {
@@ -159,7 +187,11 @@ fn obter_file_path(bot_token: String, file_id: String) -> Result(String, Erro) {
     |> request.set_body(body)
   use resp <- result.try(
     httpc.send(req)
-    |> result.map_error(fn(_) {
+    |> result.map_error(fn(e) {
+      logging.log(
+        logging.Warning,
+        "Telegram getFile httpc.send falhou: " <> string.inspect(e),
+      )
       erro.ErroComunicacao("falha ao contatar Telegram (getFile)")
     }),
   )
@@ -171,10 +203,18 @@ fn obter_file_path(bot_token: String, file_id: String) -> Result(String, Erro) {
         erro.ErroComunicacao("resposta getFile inválida")
       })
     }
-    status ->
+    status -> {
+      logging.log(
+        logging.Warning,
+        "Telegram getFile status="
+          <> int.to_string(status)
+          <> " resp="
+          <> resp.body,
+      )
       Error(erro.ErroComunicacao(
         "Telegram getFile retornou status " <> int.to_string(status),
       ))
+    }
   }
 }
 
@@ -191,7 +231,14 @@ fn post(bot_token: String, method: String, body: String) -> Result(Nil, Erro) {
     |> request.set_body(body)
   use resp <- result.try(
     httpc.send(req)
-    |> result.map_error(fn(_) {
+    |> result.map_error(fn(e) {
+      logging.log(
+        logging.Warning,
+        "Telegram post "
+          <> method
+          <> " httpc.send falhou: "
+          <> string.inspect(e),
+      )
       erro.ErroComunicacao("falha ao contatar Telegram")
     }),
   )
@@ -221,18 +268,51 @@ fn post(bot_token: String, method: String, body: String) -> Result(Nil, Erro) {
           )
           case resp2.status {
             s2 if s2 >= 200 && s2 < 300 -> Ok(Nil)
-            status2 ->
+            status2 -> {
+              logging.log(
+                logging.Warning,
+                "Telegram post "
+                  <> method
+                  <> " status="
+                  <> int.to_string(status2)
+                  <> " resp="
+                  <> resp2.body,
+              )
               Error(erro.ErroComunicacao(
                 "Telegram retornou status " <> int.to_string(status2),
               ))
+            }
           }
         }
-        False -> Error(erro.ErroComunicacao("Telegram retornou status 400"))
+        False -> {
+          logging.log(
+            logging.Warning,
+            "Telegram post "
+              <> method
+              <> " status=400 resp="
+              <> resp.body
+              <> " body="
+              <> body,
+          )
+          Error(erro.ErroComunicacao(
+            "Telegram retornou status 400: " <> resp.body,
+          ))
+        }
       }
     }
-    status ->
+    status -> {
+      logging.log(
+        logging.Warning,
+        "Telegram post "
+          <> method
+          <> " status="
+          <> int.to_string(status)
+          <> " resp="
+          <> resp.body,
+      )
       Error(erro.ErroComunicacao(
         "Telegram retornou status " <> int.to_string(status),
       ))
+    }
   }
 }
