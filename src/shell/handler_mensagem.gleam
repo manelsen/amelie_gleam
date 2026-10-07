@@ -6,9 +6,10 @@ import core/processador
 import core/prompt/builder
 import dominio/acao.{
   AlterarModelo, AtivarPrompt, BaixarVideoUrlEDescrever, BuscarUrlEResponder,
-  ConsultarMetricas, EnfileirarMidia, EnviarReacao, EnviarResposta, EnviarTexto,
-  ExcluirPrompt, LimparHistorico, ListarGrupos, ListarPrompts, ListarUsuarios,
-  MidiaVideo, NaoResponder, SalvarConfig, SalvarPrompt, SnapshotHistorico,
+  ConsultarMetricas, EnfileirarMidia, EnviarReacao, EnviarResposta,
+  ExcluirPrompt, GerarEEnviar, LimparHistorico, ListarGrupos, ListarPrompts,
+  ListarUsuarios, MidiaVideo, NaoResponder, SalvarConfig, SalvarPrompt,
+  SnapshotHistorico,
 }
 import dominio/config
 import dominio/erro.{type Erro}
@@ -165,8 +166,7 @@ fn executar_acao(
   portas: Portas,
 ) -> Result(Nil, Erro) {
   case acao {
-    // O core montou o prompt no corpo de EnviarTexto — o shell chama a IA.
-    EnviarTexto(para, prompt) -> {
+    GerarEEnviar(para, prompt) -> {
       logging.log(logging.Info, "Enviando texto gerado pela IA para " <> para)
       use resposta <- result.try(ia_dispatcher.gerar_texto(
         portas.ia_dispatcher,

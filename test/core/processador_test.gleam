@@ -1,7 +1,7 @@
 import core/processador
 import dominio/acao.{
   BaixarVideoUrlEDescrever, BuscarUrlEResponder, EnfileirarMidia, EnviarResposta,
-  EnviarTexto, MidiaAudio, MidiaImagem, MidiaVideo, NaoResponder,
+  GerarEEnviar, MidiaAudio, MidiaImagem, MidiaVideo, NaoResponder,
 }
 import dominio/erro
 import dominio/mensagem
@@ -14,7 +14,7 @@ pub fn processar_texto_simples_test() {
   let cfg = fixtures.config_padrao()
   let result = processador.processar(msg, cfg, [])
   result |> should.be_ok
-  let assert Ok([EnviarTexto(para: _, corpo: prompt)]) = result
+  let assert Ok([GerarEEnviar(para: _, prompt: prompt)]) = result
   string.contains(prompt, "Olá, tudo bem?") |> should.be_true
 }
 
@@ -24,7 +24,7 @@ pub fn processar_texto_com_historico_test() {
   let hist = fixtures.historico_com_turnos()
   let result = processador.processar(msg, cfg, hist)
   result |> should.be_ok
-  let assert Ok([EnviarTexto(para: _, corpo: prompt)]) = result
+  let assert Ok([GerarEEnviar(para: _, prompt: prompt)]) = result
   string.contains(prompt, "Olá") |> should.be_true
 }
 
@@ -41,7 +41,7 @@ pub fn processar_texto_longo_test() {
   let cfg = fixtures.config_padrao()
   let result = processador.processar(msg, cfg, [])
   result |> should.be_ok
-  let assert Ok([EnviarTexto(para: _, corpo: prompt)]) = result
+  let assert Ok([GerarEEnviar(para: _, prompt: prompt)]) = result
   string.contains(prompt, texto_longo) |> should.be_true
 }
 
@@ -141,7 +141,7 @@ pub fn processar_grupo_com_mencao_processa_test() {
   let cfg = fixtures.config_padrao()
   let result = processador.processar(msg, cfg, [])
   result |> should.be_ok
-  let assert Ok([EnviarTexto(_, _)]) = result
+  let assert Ok([GerarEEnviar(_, _)]) = result
 }
 
 // ---------------------------------------------------------------------------

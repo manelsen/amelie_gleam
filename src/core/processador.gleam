@@ -6,7 +6,7 @@ import core/prompt/builder
 import core/validacao
 import dominio/acao.{
   type Acao, BaixarVideoUrlEDescrever, BuscarUrlEResponder, EnfileirarMidia,
-  EnviarTexto, MidiaAudio, MidiaDocumento, MidiaImagem, MidiaVideo, NaoResponder,
+  GerarEEnviar, MidiaAudio, MidiaDocumento, MidiaImagem, MidiaVideo, NaoResponder,
 }
 import dominio/config.{type Config}
 import dominio/erro.{type Erro}
@@ -79,7 +79,7 @@ fn processar_texto(
           }
         option.None -> {
           let prompt = builder.montar(texto_val, config, historico)
-          Ok([EnviarTexto(para: config.chat_id, corpo: prompt)])
+          Ok([GerarEEnviar(para: config.chat_id, prompt: prompt)])
         }
       }
     }

@@ -4,15 +4,11 @@
 import dominio/config.{type Config}
 
 pub type Acao {
-  // Passa `corpo` como prompt para a IA; shell envia a resposta gerada.
-  // Usado para mensagens de texto do usuário.
-  EnviarTexto(para: String, corpo: String)
+  GerarEEnviar(para: String, prompt: String)
   // Busca conteúdo da URL e injeta no prompt antes de chamar a IA.
   BuscarUrlEResponder(para: String, texto: String, url: String)
   // Baixa o vídeo da URL com yt-dlp e processa via pipeline de vídeo.
   BaixarVideoUrlEDescrever(chat_id: String, url: String)
-  // Envia `corpo` diretamente ao WhatsApp, sem chamar a IA.
-  // Usado para respostas de comandos.
   EnviarResposta(para: String, corpo: String)
   EnviarReacao(para: String, emoji: String)
   EnfileirarMidia(chat_id: String, tipo: TipoMidia)
