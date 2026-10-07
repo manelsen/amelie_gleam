@@ -1,30 +1,74 @@
 # Amélie WhatsApp Bot (Gleam/BEAM)
 
-Amélie is a WhatsApp bot implemented in Gleam, targeting the Erlang/BEAM runtime. It uses a hexagonal architecture to maintain a pure functional core while interacting with external services like WhatsApp (via a Go bridge) and various AI providers (Google Gemini, OpenRouter).
+Amélie is an intelligent WhatsApp assistant written in Gleam, targeting the Erlang/BEAM runtime. It utilizes a strict hexagonal architecture (Ports & Adapters) with a pure functional core, interacting with WhatsApp via a Go `whatsmeow` bridge and AI providers (Google Gemini primary, OpenRouter fallback/alternative).
 
 ## Project Overview
 
-- **Purpose:** Provide an intelligent WhatsApp assistant capable of processing text, images, audio, video, and documents.
+- **Purpose:** Multimodal WhatsApp assistant capable of processing text, images, audio, video, documents, and stickers.
 - **Architecture:** Ports & Adapters (Hexagonal Architecture).
-- **Main Technologies:**
+- **Core Technologies:**
   - **Language:** [Gleam](https://gleam.run/) (Erlang target)
   - **Runtime:** Erlang/OTP (BEAM)
   - **HTTP Server:** [Mist](https://github.com/lpil/mist)
   - **Database:** SQLite (via [sqlight](https://github.com/lpil/sqlight))
   - **AI Providers:** Google Gemini (primary), OpenRouter (fallback/alternative)
   - **WhatsApp Bridge:** [whatsmeow](https://github.com/tulir/whatsmeow) (Go)
+  - **Media Processing:** `ffmpeg`, Python PIL, `libwebp-tools` (`webpmux`, `dwebp`), and `yt-dlp`
 
 ## Directory Structure
 
 ```text
 src/
 ├── adaptadores/      # Concrete implementations of ports (HTTP clients, SQLite)
+│   ├── config_sqlite.gleam
+│   ├── gemini_http.gleam
+│   ├── grupo_sqlite.gleam
+│   ├── historico_sqlite.gleam
+│   ├── openrouter_http.gleam
+│   ├── prompt_sqlite.gleam
+│   ├── telegram_http.gleam
+│   ├── transacao_sqlite.gleam
+│   ├── usuario_sqlite.gleam
+│   └── whatsmeow_http.gleam
 ├── core/             # Pure business logic (Processor, Command Dispatcher, Validations)
-├── dominio/          # Pure domain types (Acao, Config, Mensagem, Erro)
+│   ├── comando/
+│   │   └── dispatcher.gleam
+│   ├── prompt/
+│   │   └── builder.gleam
+│   ├── ia_dispatcher.gleam
+│   ├── processador.gleam
+│   └── validacao.gleam
+├── dominio/          # Pure domain types
+│   ├── acao.gleam
+│   ├── config.gleam
+│   ├── erro.gleam
+│   ├── mensagem.gleam
+│   ├── providers_config.gleam
+│   └── transacao.gleam
 ├── portas/           # Port interfaces (Abstract types as records of functions)
-├── shell/            # Effectful orchestration layer (Executes Acao values, Actors)
-└── amelie_gleam.gleam # Entry point: Wires everything and starts the HTTP server
-whatsmeow-bridge/     # Go bridge for connecting to WhatsApp
+│   ├── config_porta.gleam
+│   ├── grupo_porta.gleam
+│   ├── historico_porta.gleam
+│   ├── ia_porta.gleam
+│   ├── mensageiro_porta.gleam
+│   ├── prompt_porta.gleam
+│   ├── transacao_porta.gleam
+│   └── usuario_porta.gleam
+├── shell/            # Effectful orchestration layer (Executes Acao values, OTP Actors)
+│   ├── cache_ia.gleam
+│   ├── circuit_breaker.gleam
+│   ├── entrega_auditada.gleam
+│   ├── fila_midia.gleam
+│   ├── fila_offline.gleam
+│   ├── handler_mensagem.gleam
+│   ├── ia_resiliente.gleam
+│   ├── manutencao.gleam
+│   ├── metricas.gleam
+│   ├── url_scraper.gleam
+│   └── ytdlp.gleam
+├── amelie_gleam_ffi.erl # Erlang FFI (OS env, file IO, BEAM metrics)
+└── amelie_gleam.gleam   # Entry point: Wires everything and starts Mist HTTP server
+whatsmeow-bridge/     # Go bridge for connecting to WhatsApp via whatsmeow
 config/               # Configuration files (providers.yaml)
 db/                   # SQLite database files
 test/                 # Test suite (mirrors src/ structure)
@@ -35,45 +79,57 @@ test/                 # Test suite (mirrors src/ structure)
 ### Commands
 
 - **Build:** `gleam build`
-- **Test:** `gleam test`
-- **Run (Local):** 
+- **Test:** `gleam test` (107 tests passing)
+- **Bridge Tests:** `cd whatsmeow-bridge && go test -count=1 ./...`
+- **Run (Local):**
   ```bash
   GEMINI_API_KEY=your_key WHATSMEOW_URL=http://localhost:8080 DB_PATH=./db/amelie.sqlite PORT=4000 gleam run
   ```
-- **Deployment (Docker):** `docker-compose up -d --build` (starts both the Gleam app and the Go bridge)
+- **Deployment (Docker):** `docker compose up -d --build` (starts both the Gleam app and the Go bridge in unified container)
 
 ### Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `GEMINI_API_KEY` | `""` | Google Gemini API key |
-| `OPENROUTER_API_KEY` | `""` | OpenRouter API key |
+| `GEMINI_API_KEY` | `""` | Google Gemini API key (primary) |
+| `OPENROUTER_API_KEY` | `""` | OpenRouter API key (alternative/fallback) |
+| `MOBILE_NUMBER` | `""` | Bot phone number for pairing code (optional) |
 | `WHATSMEOW_URL` | `http://localhost:8080` | URL of the whatsmeow-bridge |
-| `DB_PATH` | `./db/amelie.sqlite` | Path to the SQLite database |
+| `DB_PATH` | `/data/amelie.sqlite` | Path to the SQLite database |
+| `BRIDGE_DB_PATH` | `/data/bridge/whatsapp.db` | Path to the WhatsApp session database |
 | `PORT` | `4000` | HTTP server port |
-| `OFFLINE_RETRY_INTERVAL_MS`| `30000` | Interval for retrying offline messages |
+| `BRIDGE_PORT` | `8080` | Internal bridge port |
+| `OFFLINE_RETRY_INTERVAL_MS`| `30000` | Interval for retrying offline messages (ms) |
+| `YTDLP_COOKIES_PATH` | `""` | Path to Netscape cookies file for Instagram (optional) |
 
 ## Development Conventions
 
 ### Hexagonal Architecture Principles
-- **Pure Core:** Logic in `core/` and `dominio/` must be pure. No IO, no side effects.
-- **Port-Based Dependency:** The shell and core interact with external systems only through the interfaces defined in `portas/`.
-- **Acao Pattern:** The core never performs actions; it returns `List(Acao)` which describes what the shell should do.
+- **Pure Core:** Logic in `core/` and `dominio/` must remain pure. No side effects, no external network or file IO.
+- **Port-Based Dependency:** The shell and core interact with external systems exclusively through interfaces defined in `portas/`.
+- **Acao Pattern:** The core never performs actions; it returns `List(Acao)` which prescribes what the shell should execute:
+  - `GerarEEnviar(para, prompt)`: triggers AI generation and sends the response.
+  - `EnviarResposta(para, corpo)`: sends canned or command output directly.
+  - `EnfileirarMidia(chat_id, tipo)`: routes to concurrent OTP media workers.
+  - `BuscarUrlEResponder(para, texto, url)`: fetches web page content before generating AI response.
+  - `BaixarVideoUrlEDescrever(chat_id, url)`: processes YouTube, Instagram or TikTok videos via `yt-dlp`.
 
 ### Workflow & Reliability
 - **Non-blocking Webhooks:** The `/webhook` endpoint returns `202 Accepted` immediately. Message processing happens in an isolated process via `spawn_fn`.
-- **Deduplication:** Messages are tracked in the `transacoes` table to avoid processing the same `message_id` multiple times (especially during WhatsApp history sync).
-- **Message Age Filter:** Messages older than 48 hours are ignored to prevent processing old history on startup.
-- **Media Limits:** `mist.read_body` is set to 20MB to accommodate large media files (Audio/Images).
-- **Async Media:** Large media processing (transcription, description) is handled by OTP actors in `shell/fila_midia.gleam`.
+- **Media Offloading via Temp Files:** Large incoming media (images, audio, video, documents, stickers) is saved by the bridge to `/tmp/amelie_midia_*` and read/deleted by the Gleam application, eliminating Mist HTTP body overflow.
+- **Deduplication & Transaction Audit:** Messages are tracked in the `transacoes` table to ensure at-most-once processing and retry tracking.
+- **Message Age Filter:** Messages older than 48 hours are ignored to prevent responding to old history on startup.
+- **Async Media Queues:** Media processing is handled by dedicated OTP actors in `shell/fila_midia.gleam` (`imagem`, `audio`, `video`, `documento`, `sticker`).
+- **Resilient AI Layer:** `shell/ia_resiliente.gleam` wraps provider calls with exponential backoff retry (up to 3 attempts), provider-specific circuit breaking (`shell/circuit_breaker.gleam`), and in-memory caching (`shell/cache_ia.gleam`).
+- **Bridge Reliability:** The Go bridge handles connection lifecycle events (`Connected`, `Disconnected`, `LoggedOut`, `StreamReplaced`, `TemporaryBan`), surfaces structured JSON errors on `/send`, `/react`, and `/health`, and maintains an internal retry queue.
 
 ### Coding Style
 - **Gleam Patterns:** Prefer `use` for monadic operations (Result, Option, Decoder).
 - **JSON Decoding:** Use `gleam_json` decoders. Note that `sqlight` decoders use positional indexing (`decode.at([0], ...)`).
-- **FFI:** Erlang FFI is used for system-level calls (OS environment, file reading) in `src/amelie_gleam_ffi.erl`.
+- **FFI:** Erlang FFI is used for system-level calls (OS environment, process spawning, file reading/deletion, memory inspection) in `src/amelie_gleam_ffi.erl`.
 
 ## Key Logic Paths
 
-1. **Incoming Message:** `amelie_gleam.gleam` receives POST -> Decodes to `Mensagem` -> Calls `handler_mensagem.handle`.
-2. **Processing:** `handler_mensagem` fetches `Config` and `Historico` -> Calls `core/processador.processar` (Pure) -> Receives `List(Acao)`.
-3. **Execution:** `handler_mensagem` iterates over `Acao` list and executes each via relevant ports (IA, Whatsapp, SQLite).
+1. **Incoming Message:** `POST /webhook` -> Decodes to `Webhook` -> Reads/deletes temp media file -> Calls `handler_mensagem.handle`.
+2. **Pure Decision:** `handler_mensagem` fetches `Config` and `Historico` -> Calls `core/processador.processar` (Pure) -> Receives `List(Acao)`.
+3. **Execution:** `handler_mensagem` iterates over `Acao` list and executes each via relevant ports (`ia_dispatcher`, `mensageiro`, `historico`, `transacoes`).

@@ -1,116 +1,101 @@
 # TODO: Paridade `amelie` -> `amelie_gleam`
 
-Este arquivo lista funcionalidades que existem em `~/git/amelie` e ainda nao
-estao disponiveis aqui, ou estao apenas parcialmente implementadas.
+Este arquivo lista o status de paridade com o sistema legado (`~/git/amelie`), registrando o que já foi implementado, o que foi vetado deliberadamente e os itens operacionais remanescentes.
 
-## Ja presentes aqui
+## Já presentes aqui
 
-Nao entram no TODO de paridade:
+Funcionalidades migradas e ativas no `amelie_gleam`:
 
-- Comandos `.ajuda`, `.reset`, `.audio`, `.imagem`, `.video`, `.doc`,
-  `.legenda`, `.longo`, `.curto`, `.cego`
-- Processamento de texto, imagem, audio, video e documento
-- Persistencia em SQLite para config, historico, prompts, usuarios, grupos e
-  transacoes
-- Bridge WhatsApp com QR Code e Pairing Code
-- Dispatcher multi-provider no backend (`gemini` + `openrouter`)
+- **Comandos:** `.ajuda`, `.reset`, `.audio`, `.imagem`, `.video`, `.doc`, `.legenda`, `.longo`, `.curto`, `.cego`, `.modelo [provedor/modelo]`.
+- **Processamento Multimodal:**
+  - Texto com histórico conversacional.
+  - Imagem (descrição concisa e modo longo detalhado).
+  - Áudio (transcrição via Gemini com sanitização de timestamps).
+  - Vídeo (upload assíncrono na Gemini File API, polling e descrição).
+  - Documentos (leitura e resumo de PDFs e arquivos textuais).
+  - Figurinhas / Stickers (WebP estático, figurinhas animadas convertidas para MP4 via PIL/ffmpeg ou grade de quadros via `webpmux`/`dwebp`, além de fallback textual por metadados).
+  - Links de redes sociais (extração e descrição de vídeos de YouTube, Instagram e TikTok via `yt-dlp`).
+- **Persistência SQLite:**
+  - Configuração por chat com migração automática para `gemini-3.8-flash`.
+  - Histórico de turnos com limite configurável.
+  - Auditoria transacional de entregas (`transacoes`) para deduplicação e retry.
+  - Registro de usuários, grupos e prompts nomeados.
+- **Conectividade WhatsApp:**
+  - Bridge Go baseado no `whatsmeow` com pareamento via QR Code e Pairing Code.
+  - Respostas citando mensagem original (`ContextInfo`) e reações por emoji.
+  - Fila local no bridge em SQLite para entrega persistente ao Gleam.
+  - Tráfego de arquivos grandes via disco temporário (`/tmp/amelie_midia_*`).
+  - Diagnóstico e propagação de estado de sessão e erros estruturados de conexão (`/health`, `/send`, `/react`).
+- **Resiliência e IA:**
+  - Dispatcher multi-provedor (`gemini` e `openrouter`).
+  - Retry exponencial com jitter para erros transientes de IA.
+  - Circuit Breaker por provedor (`Fechado`, `Aberto` 60s, `SemiAberto`).
+  - Cache de respostas em memória (SHA-256 de prompt + modelo, TTL 1h, max 500).
+  - Limpeza periódica de transações antigas (+7 dias) a cada 6h.
+  - Telemetria de memória BEAM e contagem de processos via FFI Erlang.
 
-## Lacunas mapeadas
+---
 
-### 1. Comandos do legado ainda ausentes no chat
+## Status das Lacunas Mapeadas
 
-- [x] ~~`.prompt`~~ — vetado (abuso pelos usuários; futuro: CLI admin)
-- [x] ~~`.config`~~ — vetado (abuso pelos usuários; futuro: CLI admin)
-- [x] ~~`.users`~~ — vetado via chat; futuro: CLI admin
-- [x] ~~`.filas`~~ — vetado via chat; futuro: CLI admin
+### 1. Comandos do legado vetados via chat
 
-Notas:
+- [x] ~~`.prompt`~~ — vetado no chat (abuso por usuários; futuro: CLI admin)
+- [x] ~~`.config`~~ — vetado no chat (abuso por usuários; futuro: CLI admin)
+- [x] ~~`.users`~~ — vetado no chat (futuro: CLI admin)
+- [x] ~~`.filas`~~ — vetado no chat (futuro: CLI admin)
 
-- O legado registra esses comandos em
-  `/home/micelio/git/amelie/src/adaptadores/whatsapp/comandos/RegistroComandos.js`
-- Aqui ja existem acoes internas para prompts, usuarios, grupos e metricas, mas
-  o dispatcher ainda nao expoe isso no WhatsApp
+### 2. Configuração operacional
 
-### 2. Paridade incompleta de configuracao operacional
+- [x] Expor seleção de `provedor` e `modelo` por comando com persistência (`.modelo provedor/modelo`).
+- [x] Validação de provedores e modelos a partir de `config/providers.yaml`.
+- [x] Migração automática de configurações legadas para o novo padrão `gemini-3.8-flash`.
 
-- [x] Expor selecao de `provedor` e `modelo` por comando, com persistencia por
-  chat (`.modelo provedor/modelo`)
-- [x] Corrigir bootstrap de providers: path ja era `.yaml`; TODO era obsoleto
-- [x] Conectar `providers_config` ao fluxo: `AlterarModelo` valida via
-  `providers_config.validar_modelo` no shell
+### 3. Resiliência de entrega
 
-### 3. Resiliencia de entrega ainda abaixo do legado
+- [x] Ciclo de auditoria transacional completo: registrar → enviar → marcar sucesso/falha (`shell/entrega_auditada.gleam`).
+- [x] Fila offline periódica para reenvio com limite de tentativas (`shell/fila_offline.gleam`).
+- [x] Classificação de erros de transporte e estruturados do whatsmeow (`src/adaptadores/whatsmeow_http.gleam`).
+- [ ] Preservar contexto da resposta pendente caso haja reinício forçado durante chamada síncrona longa.
 
-- [x] Fechar o ciclo de auditoria transacional:
-  registrar -> enviar -> marcar entregue/falha (`shell/entrega_auditada.gleam`)
-- [x] Usar o `id` retornado por `transacao_sqlite.registrar/1` no fluxo real
-- [x] Acionar `fila_offline.ProcessarPendentes` periodicamente
-  (`fila_offline.agendar_processamento` chamado em `amelie_gleam.gleam`)
-- [x] Enfileirar falhas de envio para retry automatico
-- [ ] Preservar contexto da resposta pendente (snapshot da mensagem original)
+### 4. UX e mídia
 
-### 4. Comportamentos de UX do legado ainda faltantes
+- [x] Resposta citando a mensagem original com fallback automático quando `message_id` for ausente.
+- [x] Extração e leitura de URLs em mensagens de texto (`url_scraper.gleam`).
+- [x] Suporte completo a figurinhas animadas (conversão para vídeo MP4 ou grade de quadros).
+- [x] Fallback de metadados quando mídia de sticker expira no WhatsApp.
+- [x] Suporte a links de vídeo (YouTube Shorts/Live, Instagram Reels, TikTok) via `yt-dlp`.
 
-- [x] Implementar resposta citando a mensagem original (`entregar` no handler,
-  `enviar_citando` em entrega_auditada, bridge Go com ContextInfo)
-- [x] Fallback para envio simples quando `message_id` ausente (sem citacao)
-- [x] Implementar leitura implicita de URLs em mensagens de texto
-  (`url_scraper`, `BuscarUrlEResponder`, `builder.montar_com_url`)
+### 5. Resiliência de IA
 
-### 5. Resiliencia de IA ainda inferior ao Node
+- [x] Retry com backoff exponencial (max 3 tentativas) para erros transientes (429, 503, ErroComunicacao) — `shell/ia_resiliente.gleam`.
+- [x] Circuit breaker por provedor (5 falhas → Aberto 60s → SemiAberto) — `shell/circuit_breaker.gleam`.
+- [x] Cache de respostas em memória (SHA-256 de prompt+modelo, TTL 1h, max 500) — `shell/cache_ia.gleam`.
+- [ ] Rate limiting granular na borda — baixa prioridade graças ao modelo de concorrência por atores do BEAM.
 
-- [x] Retry com backoff exponencial (max 3 tentativas, 1s/2s/4s) para erros
-  transientes (429, 503, ErroComunicacao) — `shell/ia_resiliente.gleam`
-- [x] Circuit breaker por provedor (5 falhas → Aberto 60s → SemiAberto) —
-  `shell/circuit_breaker.gleam`
-- [x] Cache de respostas (SHA256 de prompt+modelo, TTL 1h, max 500) —
-  `shell/cache_ia.gleam`; integrado em `ia_resiliente.envolver`
-- [ ] Rate limiting — BEAM lida bem com concorrencia nativa; baixa prioridade
+### 6. Operação e manutenção
 
-### 6. Operacao e manutencao
+- [x] Rotina periódica de limpeza de transações antigas (+7 dias) — `shell/manutencao.gleam`.
+- [x] Telemetria de memória e processos do runtime BEAM — `metricas.formatar`.
+- [x] Limpeza automática de arquivos temporários de mídia órfãos no bridge Go (`cleanupOrphanMediaFiles`).
+- [ ] Exposição de métricas e status operacional via endpoint HTTP autenticado.
 
-- [x] Rotina periodica de limpeza de transacoes antigas (entregue/descartada
-  com +7 dias) — `shell/manutencao.gleam`, roda a cada 6h
-- [ ] Limpeza de arquivos temporarios de video ja processados (Google File API)
-  — fila_midia ja chama deletar_arquivo; verificar se ha casos perdidos
-- [ ] Expor estado operacional (filas, CB status) via endpoint /status
-- [x] Telemetria de memoria/recursos BEAM — `metricas.formatar` agora inclui
-  memoria total, memoria de processos e contagem de processos via FFI
+---
 
-## Prioridade sugerida
+## Prioridades Atuais
 
-### P0
+### P0 — Concluído ✅
+- Auditoria transacional e fila offline.
+- Paridade de mídia (incluindo stickers, vídeos sociais e áudio).
+- Propagação de erros de conexão do WhatsApp.
 
-_Concluído — ver seção 3._
+### P1 — Concluído ✅
+- Citação de resposta e fallback.
+- Detecção e leitura de URLs em mensagens.
+- Provedor configurável (`.modelo`) e migração para `gemini-3.8-flash`.
+- Circuit Breaker, Cache de IA e telemetria BEAM.
 
-### P1 — Concluído
-
-- [x] Citacao de resposta + fallback de contexto
-- [x] Leitura implicita de URLs
-- [x] Corrigir `providers_config` externo + comando `.modelo`
-
-### P2
-
-- [ ] Circuit breaker, cache e rate limiting na camada de IA
-- [ ] Telemetria e rotinas de manutencao
-
-## Referencias de comparacao
-
-- Legado Node:
-  `/home/micelio/git/amelie/src/adaptadores/whatsapp/comandos/RegistroComandos.js`
-- Comando `.prompt`:
-  `/home/micelio/git/amelie/src/adaptadores/whatsapp/comandos/implementacoes/ComandoPrompt.js`
-- Comando `.config`:
-  `/home/micelio/git/amelie/src/adaptadores/whatsapp/comandos/implementacoes/ComandoConfig.js`
-- Comando `.users`:
-  `/home/micelio/git/amelie/src/adaptadores/whatsapp/comandos/implementacoes/ComandoUsers.js`
-- Comando `.filas`:
-  `/home/micelio/git/amelie/src/adaptadores/whatsapp/comandos/implementacoes/ComandoFilas.js`
-- Resiliencia de envio:
-  `/home/micelio/git/amelie/src/servicos/ServicoMensagem.js`
-- Notificacoes pendentes:
-  `/home/micelio/git/amelie/src/adaptadores/whatsapp/GerenciadorNotificacoes.js`
-- IA resiliente:
-  `/home/micelio/git/amelie/src/adaptadores/ai/GerenciadorAI.js`
-- URLs em texto:
-  `/home/micelio/git/amelie/src/adaptadores/whatsapp/processadores/ProcessadorTexto.js`
+### P2 — Melhorias Operacionais Futuras
+- [ ] Tornar estado da sessão do WhatsApp visível no healthcheck raiz da aplicação Gleam.
+- [ ] Expor endpoints administrativos/telemetria com autenticação.
+- [ ] Canal de entrada Telegram (integração de updates via webhook no mesmo pipeline de domínio).

@@ -1,106 +1,120 @@
-# Deployment - Amélie Gleam
+# Deployment — Amélie Gleam
 
-## Estrutura
+## Estrutura de Arquivos
 
-```
+```text
 amelie_gleam/
-├── src/                    # Código Gleam
-├── whatsmeow-bridge/       # Bridge Go (incluído no build)
-├── db/                     # Volume de dados (SQLite + sessão WhatsApp)
-├── Dockerfile              # Build unificado (bridge + app)
-├── entrypoint.sh           # Sobe bridge em background, Gleam em foreground
-├── docker-compose.yml      # Um único serviço
-├── .env.example            # Template de configuração
-└── .env                    # Suas chaves (NÃO commitar!)
+├── src/                    # Código Gleam (core funcional, portas, adaptadores, shell)
+├── whatsmeow-bridge/       # Bridge Go (conectividade WhatsApp via whatsmeow)
+├── config/                 # Configuração externa de provedores (providers.yaml)
+├── cookies/                # Cookies opcionais do yt-dlp (ex: instagram.txt)
+├── db/                     # Volume persistente (SQLite da aplicação + sessão WhatsApp)
+├── Dockerfile              # Imagem unificada multi-stage (bridge + app + ffmpeg + yt-dlp)
+├── entrypoint.sh           # Inicializa bridge em background e Gleam em foreground
+├── docker-compose.yml      # Definição do serviço unificado
+├── .env.example            # Template de variáveis de ambiente
+└── .env                    # Variáveis locais e chaves de API (NÃO commitar!)
 ```
 
 ## Deploy
 
 ### Pré-requisitos
-- Docker e Docker Compose
+- Docker Engine e Docker Compose (plugin v2 ou binário integrado).
 
 ### Passo a Passo
 
 ```bash
+# 1. Copiar o template de variáveis de ambiente
 cp .env.example .env
-# edite .env com suas chaves
 
-docker-compose up -d --build
+# 2. Editar o arquivo .env com suas chaves de API
+nano .env
+
+# 3. (Opcional) Criar diretório de cookies se for utilizar download de mídias restritas do Instagram
+mkdir -p cookies
+
+# 4. Construir e iniciar os containers em background
+docker compose up -d --build
 ```
 
 ### Conectar o WhatsApp
 
-O bridge exibe o QR Code ou usa Pairing Code nos logs:
+O bridge whatsmeow exibe o QR Code ou utiliza Pairing Code diretamente nos logs:
 
 ```bash
-docker-compose logs -f
+docker compose logs -f
 ```
 
-Escaneie com WhatsApp → Aparelhos Conectados, ou aguarde o Pairing Code
-se `MOBILE_NUMBER` estiver configurado.
+- **Via QR Code:** Abra o WhatsApp → *Aparelhos Conectados* → *Conectar um aparelho* e escaneie o código gerado no terminal.
+- **Via Pairing Code:** Defina a variável `MOBILE_NUMBER` no seu `.env` com seu número completo (ex: `5531999990000`) e confirme o código de pareamento no celular.
 
 ### Comandos Úteis
 
 ```bash
-docker-compose logs -f          # logs em tempo real
-docker-compose restart          # reiniciar
-docker-compose down             # parar
-docker-compose up -d --build    # rebuild + reiniciar
-docker-compose exec amelie sh   # shell para debug
+docker compose logs -f          # Acompanhar logs em tempo real
+docker compose restart          # Reiniciar o serviço
+docker compose down             # Parar o serviço
+docker compose up -d --build    # Rebuild e reinicialização
+docker compose exec amelie sh   # Acessar shell interno para depuração
 ```
 
-## Variáveis de Ambiente (.env)
+## Variáveis de Ambiente (`.env`)
 
 | Variável | Default | Descrição |
-|----------|---------|-----------|
-| `GEMINI_API_KEY` | — | Chave Google Gemini (**obrigatório**) |
-| `OPENROUTER_API_KEY` | — | Chave OpenRouter (opcional) |
-| `MOBILE_NUMBER` | — | Número do bot para Pairing Code (ex: `5531999990000`) |
-| `DB_PATH` | `/data/amelie.sqlite` | SQLite da aplicação |
-| `BRIDGE_DB_PATH` | `/data/bridge/whatsapp.db` | SQLite da sessão WhatsApp |
-| `PORT` | `4000` | Porta HTTP da aplicação |
-| `BRIDGE_PORT` | `8080` | Porta interna do bridge (não exposta) |
+|---|---|---|
+| `GEMINI_API_KEY` | — | Chave da Google Gemini API (**obrigatório**) |
+| `OPENROUTER_API_KEY` | — | Chave OpenRouter (opcional para modelos adicionais) |
+| `MOBILE_NUMBER` | — | Número de telefone para Pairing Code (ex: `5531999990000`) |
+| `DB_PATH` | `/data/amelie.sqlite` | Caminho do SQLite da aplicação Gleam |
+| `BRIDGE_DB_PATH` | `/data/bridge/whatsapp.db` | Caminho do SQLite de sessão do WhatsApp |
+| `PORT` | `4000` | Porta HTTP da aplicação Gleam (exposta externamente como `4001`) |
+| `BRIDGE_PORT` | `8080` | Porta interna do bridge whatsmeow (não exposta publicamente) |
+| `OFFLINE_RETRY_INTERVAL_MS`| `30000` | Intervalo em milissegundos para reprocessamento de mensagens offline |
+| `YTDLP_COOKIES_PATH` | — | Caminho interno do arquivo de cookies Netscape (ex: `/cookies/instagram.txt`) |
 
-`WHATSMEOW_URL` e `GLEAM_URL` são definidos automaticamente pelo `entrypoint.sh`
-e **não precisam** estar no `.env`.
+> [!NOTE]
+> `WHATSMEOW_URL` e `GLEAM_URL` são injetados automaticamente pelo script [`entrypoint.sh`](file:///home/micelio/git/amelie_gleam/entrypoint.sh) e não precisam ser declarados no `.env`.
 
-## Dados e Backup
+## Dados, Volumes e Backup
 
-Todos os dados ficam em `./db/` (mapeado para `/data` no container):
+Todos os dados persistentes ficam montados no volume `./db/` (mapeado para `/data` dentro do container):
 
-```
+```text
 db/
-├── amelie.sqlite          # histórico, config, prompts, transações
+├── amelie.sqlite          # Banco da aplicação: configs de chat, histórico, prompts, transações
 └── bridge/
-    └── whatsapp.db        # sessão WhatsApp (não apagar sem re-autenticar)
+    └── whatsapp.db        # Banco da sessão do whatsmeow (chave criptográfica do aparelho)
 ```
 
-### Backup
+### Backup do Banco de Dados
 
 ```bash
-docker-compose exec amelie sh -c \
+docker compose exec amelie sh -c \
   "cp /data/amelie.sqlite /data/amelie_backup_\$(date +%Y%m%d).sqlite"
 ```
 
-### Restore
+Para incluir a sessão do WhatsApp, faça backup de toda a pasta `db/`:
 
 ```bash
-docker-compose down
-cp amelie_backup_YYYYMMDD.sqlite db/amelie.sqlite
-docker-compose up -d
+tar -czvf backup_amelie_$(date +%Y%m%d).tar.gz db/
 ```
 
-## Upgrade
+### Restauração
 
 ```bash
-git pull
-docker-compose up -d --build
+docker compose down
+tar -xzvf backup_amelie_YYYYMMDD.tar.gz
+docker compose up -d
 ```
 
-## Troubleshooting
+## Resolução de Problemas (Troubleshooting)
 
-**QR Code expirou:** reinicie o container (`docker-compose restart`).
-
-**Bridge não sobe:** verifique se `BRIDGE_DB_PATH` tem diretório pai com permissão de escrita.
-
-**Banco corrompido:** pare, remova o arquivo `.sqlite` afetado, reinicie (histórico é perdido).
+1. **Sessão desconectada ou erro 401 (`whatsapp_logged_out`):**
+   O WhatsApp revogou o token do aparelho. Pare o container, remova `db/bridge/whatsapp.db` e inicie novamente para parear um novo QR Code ou Pairing Code.
+2. **Erro de DNS em downloads de mídia (`a.whatsapp.net`):**
+   O `docker-compose.yml` já inclui `extra_hosts: ["a.whatsapp.net:57.144.249.32"]` para contornar falhas de resolução dos domínios MMS do WhatsApp em certas redes e provedores.
+3. **Verificação de Saúde (Healthcheck):**
+   - Aplicação Gleam: `curl http://localhost:4001/health` (retorna `{"status":"ok"}`).
+   - Bridge whatsmeow (via shell do container): `curl http://localhost:8080/health` (retorna status e detalhe da conexão WhatsApp).
+4. **Erros de download no Instagram / YouTube:**
+   Para conteúdo que requer login ou restrição de idade, exporte os cookies do navegador em formato Netscape, salve em `./cookies/instagram.txt` e configure `YTDLP_COOKIES_PATH=/cookies/instagram.txt`.
