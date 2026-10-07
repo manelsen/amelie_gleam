@@ -12,6 +12,8 @@ services:
     volumes:
       - ./db:/data
       - ./cookies:/cookies:ro
+    extra_hosts:
+      - "a.whatsapp.net:57.144.249.32"
     ports:
       - "4001:4000"
     logging:

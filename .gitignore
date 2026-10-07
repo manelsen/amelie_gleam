@@ -14,6 +14,7 @@ whatsmeow-bridge/db/
 
 # Variáveis de ambiente
 .env
+cookies/
 
 # Arquivos de mídia temporários
 tmp/
