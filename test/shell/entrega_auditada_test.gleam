@@ -6,8 +6,8 @@ import dominio/transacao
 import gleam/erlang/process
 import gleam/option.{None, Some}
 import gleeunit/should
-import portas/transacao_porta.{type TransacaoPorta, TransacaoPorta}
 import portas/mensageiro_porta.{type MensageiroPorta, MensageiroPorta}
+import portas/transacao_porta.{type TransacaoPorta, TransacaoPorta}
 import shell/entrega_auditada
 
 fn mensageiro_ok() -> MensageiroPorta {

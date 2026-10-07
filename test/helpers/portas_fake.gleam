@@ -10,10 +10,10 @@ import portas/config_porta.{type ConfigPorta, ConfigPorta}
 import portas/grupo_porta.{type GrupoPorta, GrupoPorta}
 import portas/historico_porta.{type HistoricoPorta, HistoricoPorta}
 import portas/ia_porta.{type IAPorta, IAPorta}
+import portas/mensageiro_porta.{type MensageiroPorta, MensageiroPorta}
 import portas/prompt_porta.{type PromptPorta, PromptPorta}
 import portas/transacao_porta.{type TransacaoPorta, TransacaoPorta}
 import portas/usuario_porta.{type UsuarioPorta, UsuarioPorta}
-import portas/mensageiro_porta.{type MensageiroPorta, MensageiroPorta}
 import shell/fila_midia
 import shell/handler_mensagem.{type Portas, Portas}
 import shell/metricas

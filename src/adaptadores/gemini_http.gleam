@@ -121,10 +121,7 @@ fn processar_inline(
 
   let body =
     json.object([
-      #(
-        "contents",
-        json.preprocessed_array([json.object([#("parts", parts)])]),
-      ),
+      #("contents", json.preprocessed_array([json.object([#("parts", parts)])])),
     ])
     |> json.to_string
 
@@ -188,10 +185,7 @@ fn processar_video(
 
   let body =
     json.object([
-      #(
-        "contents",
-        json.preprocessed_array([json.object([#("parts", parts)])]),
-      ),
+      #("contents", json.preprocessed_array([json.object([#("parts", parts)])])),
     ])
     |> json.to_string
 
@@ -294,8 +288,7 @@ fn aguardar_loop(
   tipo: String,
 ) -> Result(Nil, Erro) {
   case restantes {
-    0 ->
-      Error(erro.ErroUpload("timeout aguardando " <> tipo <> " ficar ativo"))
+    0 -> Error(erro.ErroUpload("timeout aguardando " <> tipo <> " ficar ativo"))
     n -> {
       let url = uri <> "?key=" <> api_key
       use req <- result.try(
@@ -326,7 +319,10 @@ fn aguardar_loop(
         }
         status ->
           Error(erro.ErroUpload(
-            "status inesperado ao ativar " <> tipo <> ": " <> int.to_string(status),
+            "status inesperado ao ativar "
+            <> tipo
+            <> ": "
+            <> int.to_string(status),
           ))
       }
     }
@@ -355,7 +351,9 @@ fn deletar_arquivo(api_key: String, uri: String) -> Result(Nil, Erro) {
   let url = uri <> "?key=" <> api_key
   use req <- result.try(
     request.to(url)
-    |> result.map_error(fn(_) { erro.ErroComunicacao("url de deleção inválida") }),
+    |> result.map_error(fn(_) {
+      erro.ErroComunicacao("url de deleção inválida")
+    }),
   )
 
   let req = req |> request.set_method(http.Delete)
@@ -407,11 +405,13 @@ fn post_gemini(
 fn extrair_texto_resposta(json_str: String) -> Result(String, Erro) {
   // {"candidates":[{"content":{"parts":[{"text":"..."}]}}]}
   let decoder =
-    decode.at(["candidates"], decode.list(
-      decode.at(["content"],
+    decode.at(
+      ["candidates"],
+      decode.list(decode.at(
+        ["content"],
         decode.at(["parts"], decode.list(decode.at(["text"], decode.string))),
-      ),
-    ))
+      )),
+    )
 
   case json.parse(json_str, decoder) {
     Ok([[text, ..], ..]) -> Ok(text)

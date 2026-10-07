@@ -1,6 +1,8 @@
 // Despacha comandos. Puro — retorna Acao, não executa efeitos.
 
-import dominio/acao.{type Acao, AlterarModelo, EnviarResposta, LimparHistorico, SalvarConfig}
+import dominio/acao.{
+  type Acao, AlterarModelo, EnviarResposta, LimparHistorico, SalvarConfig,
+}
 import dominio/config.{type Config, Config, Curto, Longo}
 import dominio/erro.{type Erro}
 
@@ -47,34 +49,31 @@ fn ajuda(cfg: Config) -> List(Acao) {
 
 fn modelo_cmd(args: String, cfg: Config) -> List(Acao) {
   case string.trim(args) {
-    "" ->
-      [
-        EnviarResposta(
-          cfg.chat_id,
-          "Provedor atual: `"
-            <> cfg.provedor
-            <> "`\nModelo atual: `"
-            <> cfg.modelo
-            <> "`",
-        ),
-      ]
+    "" -> [
+      EnviarResposta(
+        cfg.chat_id,
+        "Provedor atual: `"
+          <> cfg.provedor
+          <> "`\nModelo atual: `"
+          <> cfg.modelo
+          <> "`",
+      ),
+    ]
     spec ->
       case string.split_once(spec, "/") {
-        Ok(#(provedor, modelo)) ->
-          [
-            AlterarModelo(
-              chat_id: cfg.chat_id,
-              provedor: string.trim(provedor),
-              modelo: string.trim(modelo),
-            ),
-          ]
-        Error(_) ->
-          [
-            EnviarResposta(
-              cfg.chat_id,
-              "Formato inválido. Use: `.modelo provedor/modelo`\nEx: `.modelo gemini/gemini-2.5-pro`",
-            ),
-          ]
+        Ok(#(provedor, modelo)) -> [
+          AlterarModelo(
+            chat_id: cfg.chat_id,
+            provedor: string.trim(provedor),
+            modelo: string.trim(modelo),
+          ),
+        ]
+        Error(_) -> [
+          EnviarResposta(
+            cfg.chat_id,
+            "Formato inválido. Use: `.modelo provedor/modelo`\nEx: `.modelo gemini/gemini-2.5-pro`",
+          ),
+        ]
       }
   }
 }
@@ -151,20 +150,14 @@ fn legenda_cmd(cfg: Config) -> List(Acao) {
 fn cego_cmd(cfg: Config) -> List(Acao) {
   case cfg.modo_descricao {
     Longo -> {
-      let nova =
-        Config(..cfg, modo_descricao: Curto)
+      let nova = Config(..cfg, modo_descricao: Curto)
       [
         SalvarConfig(nova),
         EnviarResposta(cfg.chat_id, "Modo acessibilidade desativado."),
       ]
     }
     _ -> {
-      let nova =
-        Config(
-          ..cfg,
-          imagem_ativo: True,
-          modo_descricao: Longo,
-        )
+      let nova = Config(..cfg, imagem_ativo: True, modo_descricao: Longo)
       [
         SalvarConfig(nova),
         EnviarResposta(

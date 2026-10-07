@@ -7,8 +7,8 @@ import gleam/option.{None, Some}
 import gleam/otp/actor
 import gleam/result
 import logging
-import portas/transacao_porta.{type TransacaoPorta}
 import portas/mensageiro_porta.{type MensageiroPorta}
+import portas/transacao_porta.{type TransacaoPorta}
 
 pub type FilaOffline =
   process.Subject(Mensagem)

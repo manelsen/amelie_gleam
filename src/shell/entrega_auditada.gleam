@@ -2,8 +2,8 @@ import dominio/erro.{type Erro}
 import dominio/transacao
 import gleam/option
 import gleam/result
-import portas/transacao_porta.{type TransacaoPorta}
 import portas/mensageiro_porta.{type MensageiroPorta}
+import portas/transacao_porta.{type TransacaoPorta}
 
 pub fn enviar(
   chat_id: String,

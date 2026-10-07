@@ -5,8 +5,8 @@ import dominio/transacao as t
 import gleam/erlang/process
 import gleam/option.{None, Some}
 import gleeunit/should
-import portas/transacao_porta.{TransacaoPorta}
 import portas/mensageiro_porta.{MensageiroPorta}
+import portas/transacao_porta.{TransacaoPorta}
 import shell/fila_offline
 
 fn tx_pendente(id: Int, tentativas: Int) -> t.Transacao {

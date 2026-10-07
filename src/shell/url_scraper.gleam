@@ -39,10 +39,7 @@ pub fn buscar(url: String) -> Result(String, Erro) {
       |> Ok
     status ->
       Error(erro.ErroComunicacao(
-        "URL retornou status "
-        <> string.inspect(status)
-        <> ": "
-        <> url,
+        "URL retornou status " <> string.inspect(status) <> ": " <> url,
       ))
   }
 }

@@ -232,7 +232,10 @@ fn transacao_decoder() -> decode.Decoder(t.Transacao) {
 }
 
 // Verifica se uma mensagem já foi processada (deduplicação para history sync).
-fn foi_recebida(conn: sqlight.Connection, message_id: String) -> Result(Bool, Erro) {
+fn foi_recebida(
+  conn: sqlight.Connection,
+  message_id: String,
+) -> Result(Bool, Erro) {
   sqlight.query(
     "SELECT 1 FROM mensagens_recebidas WHERE message_id = ? LIMIT 1",
     on: conn,
@@ -244,7 +247,10 @@ fn foi_recebida(conn: sqlight.Connection, message_id: String) -> Result(Bool, Er
 }
 
 // Marca uma mensagem como recebida (INSERT OR IGNORE — idempotente).
-fn marcar_recebida(conn: sqlight.Connection, message_id: String) -> Result(Nil, Erro) {
+fn marcar_recebida(
+  conn: sqlight.Connection,
+  message_id: String,
+) -> Result(Nil, Erro) {
   sqlight.query(
     "INSERT OR IGNORE INTO mensagens_recebidas (message_id) VALUES (?)",
     on: conn,

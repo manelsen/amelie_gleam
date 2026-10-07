@@ -18,7 +18,11 @@ pub fn criar(conn: sqlight.Connection) -> GrupoPorta {
   )
 }
 
-fn registrar(conn: sqlight.Connection, chat_id: String, nome: String) -> Result(Nil, Erro) {
+fn registrar(
+  conn: sqlight.Connection,
+  chat_id: String,
+  nome: String,
+) -> Result(Nil, Erro) {
   sqlight.query(
     "INSERT INTO grupos (chat_id, nome, last_seen) VALUES (?, ?, strftime('%s','now'))
      ON CONFLICT(chat_id) DO UPDATE SET last_seen = excluded.last_seen, nome = excluded.nome",

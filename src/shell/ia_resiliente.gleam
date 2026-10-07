@@ -45,7 +45,11 @@ pub fn envolver(porta: IAPorta, cb: Subject(CbMsg), cache: CacheIA) -> IAPorta {
       )
     },
     processar_audio: fn(dados, mime, prompt, modelo) {
-      com_retry(fn() { porta.processar_audio(dados, mime, prompt, modelo) }, cb, 1)
+      com_retry(
+        fn() { porta.processar_audio(dados, mime, prompt, modelo) },
+        cb,
+        1,
+      )
     },
     processar_video: fn(uri, prompt, modelo) {
       com_retry(fn() { porta.processar_video(uri, prompt, modelo) }, cb, 1)

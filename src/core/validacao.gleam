@@ -25,8 +25,8 @@ pub fn validar_texto(body: String) -> Result(String, Erro) {
 }
 
 const comandos_conhecidos = [
-  "ajuda", "start", "reset", "audio", "imagem", "video", "doc", "legenda", "longo",
-  "curto", "cego", "modelo",
+  "ajuda", "start", "reset", "audio", "imagem", "video", "doc", "legenda",
+  "longo", "curto", "cego", "modelo",
 ]
 
 pub fn parsear_comando(body: String) -> Result(#(String, String), Erro) {
@@ -43,7 +43,9 @@ pub fn parsear_comando(body: String) -> Result(#(String, String), Erro) {
   }
 }
 
-pub fn parsear_comando_sem_ponto(body: String) -> Result(#(String, String), Erro) {
+pub fn parsear_comando_sem_ponto(
+  body: String,
+) -> Result(#(String, String), Erro) {
   let #(primeira, resto) = case string.split_once(body, " ") {
     Ok(#(p, r)) -> #(p, string.trim(r))
     Error(_) -> #(body, "")

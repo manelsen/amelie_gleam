@@ -2,7 +2,7 @@
 // Implementa HistoricoPorta usando sqlight.
 
 import dominio/erro.{type Erro}
-import dominio/mensagem.{TurnoAssistente, TurnoUsuario, type Turno}
+import dominio/mensagem.{type Turno, TurnoAssistente, TurnoUsuario}
 import gleam/dynamic/decode
 import gleam/result
 import portas/historico_porta.{type HistoricoPorta, HistoricoPorta}
@@ -35,7 +35,12 @@ fn obter(conn: sqlight.Connection, chat_id: String) -> Result(List(Turno), Erro)
      WHERE chat_id = ?
      ORDER BY id ASC"
 
-  sqlight.query(sql, on: conn, with: [sqlight.text(chat_id)], expecting: turno_decoder())
+  sqlight.query(
+    sql,
+    on: conn,
+    with: [sqlight.text(chat_id)],
+    expecting: turno_decoder(),
+  )
   |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
 }
 
@@ -53,8 +58,7 @@ fn adicionar(
   chat_id: String,
   turno: Turno,
 ) -> Result(Nil, Erro) {
-  let sql =
-    "INSERT INTO historico (chat_id, papel, conteudo) VALUES (?, ?, ?)"
+  let sql = "INSERT INTO historico (chat_id, papel, conteudo) VALUES (?, ?, ?)"
   let #(papel, conteudo) = case turno {
     TurnoUsuario(c) -> #("usuario", c)
     TurnoAssistente(c) -> #("assistente", c)
@@ -72,7 +76,12 @@ fn adicionar(
 
 fn limpar(conn: sqlight.Connection, chat_id: String) -> Result(Nil, Erro) {
   let sql = "DELETE FROM historico WHERE chat_id = ?"
-  sqlight.query(sql, on: conn, with: [sqlight.text(chat_id)], expecting: decode.dynamic)
+  sqlight.query(
+    sql,
+    on: conn,
+    with: [sqlight.text(chat_id)],
+    expecting: decode.dynamic,
+  )
   |> result.map(fn(_) { Nil })
   |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
 }
