@@ -12,7 +12,7 @@ import sqlight
 const schema = "CREATE TABLE IF NOT EXISTS configs (
   chat_id TEXT PRIMARY KEY,
   provedor TEXT NOT NULL DEFAULT 'gemini',
-  modelo TEXT NOT NULL DEFAULT 'gemini-2.5-flash-lite',
+  modelo TEXT NOT NULL DEFAULT 'gemini-3.8-flash',
   historico_max INTEGER NOT NULL DEFAULT 50,
   prompt_sistema TEXT NOT NULL DEFAULT '',
   audio_ativo INTEGER NOT NULL DEFAULT 1,
@@ -27,8 +27,21 @@ const schema = "CREATE TABLE IF NOT EXISTS configs (
 pub fn criar(conn: sqlight.Connection) -> ConfigPorta {
   let _ = sqlight.exec(schema, conn)
   // Migração: reverter prompts customizados e reativar áudio desligado pelo antigo .cego
-  let _ = sqlight.exec("UPDATE configs SET prompt_sistema = '', audio_ativo = 1 WHERE prompt_sistema != ''", conn)
-  let _ = sqlight.exec("UPDATE configs SET video_ativo = 1 WHERE video_ativo = 0", conn)
+  let _ =
+    sqlight.exec(
+      "UPDATE configs SET prompt_sistema = '', audio_ativo = 1 WHERE prompt_sistema != ''",
+      conn,
+    )
+  let _ =
+    sqlight.exec(
+      "UPDATE configs SET video_ativo = 1 WHERE video_ativo = 0",
+      conn,
+    )
+  let _ =
+    sqlight.exec(
+      "UPDATE configs SET modelo = 'gemini-3.8-flash' WHERE provedor = 'gemini' AND modelo = 'gemini-3.1-flash-lite'",
+      conn,
+    )
   ConfigPorta(
     obter: fn(chat_id) { obter(conn, chat_id) },
     salvar: fn(cfg) { salvar(conn, cfg) },

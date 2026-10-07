@@ -376,7 +376,7 @@ fn executar_acao(
             prompt <> "\n\n" <> historia_texto,
             [],
             "gemini",
-            "gemini-2.5-flash-lite",
+            "gemini-3.8-flash",
           ))
 
           use _ <- result.try(portas.historico.limpar(chat_id))

@@ -1,5 +1,6 @@
-import gleam/list
+import dominio/config
 import dominio/providers_config
+import gleam/list
 import gleeunit/should
 
 pub fn ler_arquivo_yaml_test() {
@@ -11,6 +12,11 @@ pub fn ler_arquivo_yaml_test() {
 
 pub fn validar_modelo_yaml_test() {
   let assert Ok(cfg) = providers_config.ler_arquivo("./config/providers.yaml")
-  providers_config.validar_modelo(cfg, "gemini", "gemini-2.5-flash-lite")
+  providers_config.validar_modelo(cfg, "gemini", "gemini-3.8-flash")
   |> should.be_ok
+}
+
+pub fn modelo_padrao_e_gemini_3_8_flash_test() {
+  let cfg = config.padrao("chat")
+  cfg.modelo |> should.equal("gemini-3.8-flash")
 }

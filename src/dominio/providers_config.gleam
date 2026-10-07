@@ -35,7 +35,8 @@ pub fn padrao() -> ProvidersConfig {
       #(
         "gemini",
         Provedor(name: "Google Gemini", models: [
-          "gemini-2.5-flash-lite",
+          "gemini-3.8-flash",
+          "gemini-3.1-flash-lite",
           "gemini-2.5-pro",
           "gemini-1.5-flash",
           "gemini-1.5-pro",
@@ -195,18 +196,18 @@ fn parsear_linha(state: ParseState, line: String) -> ParseState {
                 True ->
                   ParseState(
                     ..state,
-                    current_name: option.Some(extract_yaml_value(line, "    name:")),
+                    current_name: option.Some(extract_yaml_value(
+                      line,
+                      "    name:",
+                    )),
                   )
                 False ->
                   case string.starts_with(line, "      - ") {
                     True ->
-                      ParseState(
-                        ..state,
-                        current_models: [
-                          extract_yaml_value(line, "      - "),
-                          ..state.current_models
-                        ],
-                      )
+                      ParseState(..state, current_models: [
+                        extract_yaml_value(line, "      - "),
+                        ..state.current_models
+                      ])
                     False -> state
                   }
               }
