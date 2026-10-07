@@ -66,6 +66,30 @@ pub fn audio_on_persiste_config_test() {
   nova_cfg.audio_ativo |> should.be_true
 }
 
+pub fn audio_toggle_sem_argumento_persiste_config_test() {
+  let ref = process.new_subject()
+  let portas =
+    Portas(
+      mensageiro: portas_fake.mensageiro_ok(),
+      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      config: portas_fake.config_capturar(ref),
+      historico: portas_fake.historico_vazio(),
+      fila: fila(),
+      prompts: portas_fake.prompt_noop(),
+      metricas: met(),
+      usuarios: portas_fake.usuario_noop(),
+      grupos: portas_fake.grupo_noop(),
+      transacoes: portas_fake.transacao_noop(),
+      providers_config: portas_fake.providers_config_ok(),
+    )
+  // config_padrao tem audio_ativo: True; sem argumento, alterna para False
+  let msg = fixtures.mensagem_comando("audio", "")
+  let _ = handler_mensagem.handle(msg, portas)
+
+  let assert Ok(nova_cfg): Result(config.Config, _) = process.receive(ref, 1000)
+  nova_cfg.audio_ativo |> should.be_false
+}
+
 pub fn reset_limpa_historico_test() {
   let ref = process.new_subject()
   let portas =
