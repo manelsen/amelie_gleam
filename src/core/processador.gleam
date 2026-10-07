@@ -106,13 +106,47 @@ fn e_url_video(url: String) -> Bool {
 
 fn extrair_url(texto: String) -> option.Option(String) {
   texto
-  |> string.split(" ")
+  |> dividir_em_palavras()
   |> list.find(fn(palavra) {
     string.starts_with(palavra, "https://")
     || string.starts_with(palavra, "http://")
   })
   |> result.map(limpar_url)
   |> option.from_result
+}
+
+fn dividir_em_palavras(texto: String) -> List(String) {
+  dividir_graphemes(string.to_graphemes(texto), [], [])
+}
+
+fn dividir_graphemes(
+  restantes: List(String),
+  palavra_atual: List(String),
+  palavras: List(String),
+) -> List(String) {
+  case restantes {
+    [] -> finalizar_palavra(palavra_atual, palavras) |> list.reverse
+    [grapheme, ..resto] ->
+      case string.trim(grapheme) == "" {
+        True ->
+          dividir_graphemes(
+            resto,
+            [],
+            finalizar_palavra(palavra_atual, palavras),
+          )
+        False -> dividir_graphemes(resto, [grapheme, ..palavra_atual], palavras)
+      }
+  }
+}
+
+fn finalizar_palavra(
+  palavra_atual: List(String),
+  palavras: List(String),
+) -> List(String) {
+  case palavra_atual {
+    [] -> palavras
+    _ -> [palavra_atual |> list.reverse |> string.concat, ..palavras]
+  }
 }
 
 fn limpar_url(url: String) -> String {
