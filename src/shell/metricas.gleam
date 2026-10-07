@@ -1,7 +1,10 @@
 // Métricas simples via OTP actor.
 // Conta mensagens processadas, erros, e mídia por tipo.
 
-import dominio/acao.{MidiaAudio, MidiaDocumento, MidiaImagem, MidiaVideo, type TipoMidia}
+import dominio/acao.{
+  type TipoMidia, MidiaAudio, MidiaDocumento, MidiaImagem, MidiaSticker,
+  MidiaVideo,
+}
 import gleam/erlang/process.{type Subject}
 import gleam/int
 import gleam/otp/actor
@@ -29,6 +32,7 @@ pub type Estado {
     audios: Int,
     videos: Int,
     documentos: Int,
+    stickers: Int,
   )
 }
 
@@ -40,6 +44,7 @@ fn estado_inicial() -> Estado {
     audios: 0,
     videos: 0,
     documentos: 0,
+    stickers: 0,
   )
 }
 
@@ -91,6 +96,9 @@ pub fn formatar(estado: Estado) -> String {
   <> "`\n"
   <> "- Documentos: `"
   <> int.to_string(estado.documentos)
+  <> "`\n"
+  <> "- Stickers: `"
+  <> int.to_string(estado.stickers)
   <> "`\n\n"
   <> "*BEAM:*\n"
   <> "- Memória total: `"
@@ -122,5 +130,6 @@ fn incrementar(state: Estado, tipo: TipoContador) -> Estado {
     MidiaPorTipo(MidiaVideo) -> Estado(..state, videos: state.videos + 1)
     MidiaPorTipo(MidiaDocumento) ->
       Estado(..state, documentos: state.documentos + 1)
+    MidiaPorTipo(MidiaSticker) -> Estado(..state, stickers: state.stickers + 1)
   }
 }

@@ -20,6 +20,7 @@ pub type Conteudo {
   Audio(mime: String, dados: BitArray)
   Video(caminho_temp: String, mime: String)
   Documento(mime: String, dados: BitArray, nome: String)
+  Sticker(mime: String, dados: BitArray)
   MidiaIndisponivel(mensagem: String)
   Comando(nome: String, args: String)
 }
@@ -32,17 +33,18 @@ pub type Turno {
 pub fn e_comando(msg: Mensagem) -> Bool {
   case msg.corpo {
     Comando(..) -> True
-    Texto(body) -> case body {
-      "." <> _ -> True
-      _ -> False
-    }
+    Texto(body) ->
+      case body {
+        "." <> _ -> True
+        _ -> False
+      }
     _ -> False
   }
 }
 
 pub fn e_midia(msg: Mensagem) -> Bool {
   case msg.corpo {
-    Imagem(..) | Audio(..) | Video(..) | Documento(..) -> True
+    Imagem(..) | Audio(..) | Video(..) | Documento(..) | Sticker(..) -> True
     _ -> False
   }
 }

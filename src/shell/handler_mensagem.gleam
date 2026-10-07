@@ -474,7 +474,10 @@ fn executar_acao(
               let msg_video =
                 mensagem.Mensagem(
                   ..msg,
-                  corpo: mensagem.Video(caminho_temp: caminho, mime: "video/mp4"),
+                  corpo: mensagem.Video(
+                    caminho_temp: caminho,
+                    mime: "video/mp4",
+                  ),
                 )
               let _ =
                 fila_midia.enfileirar(
@@ -538,6 +541,7 @@ fn extrair_texto_usuario(msg: Mensagem) -> String {
     Audio(..) -> "[áudio]"
     Video(..) -> "[vídeo]"
     Documento(nome: nome, ..) -> "[documento: " <> nome <> "]"
+    mensagem.Sticker(..) -> "[sticker]"
     mensagem.MidiaIndisponivel(..) -> "[mídia indisponível]"
     mensagem.Comando(nome, args) -> "." <> nome <> " " <> args
   }

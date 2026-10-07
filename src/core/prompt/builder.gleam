@@ -7,11 +7,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 
-pub fn montar(
-  texto: String,
-  config: Config,
-  historico: List(Turno),
-) -> String {
+pub fn montar(texto: String, config: Config, historico: List(Turno)) -> String {
   let cabecalho = montar_cabecalho(config)
   let hist_str = montar_historico(historico, config.historico_max)
 
@@ -85,6 +81,13 @@ fn sufixo_modo(config: Config) -> String {
 fn sufixo_legenda(legenda: Option(String)) -> String {
   case legenda {
     Some(caption) -> "\n\nO usuário pediu foco em: " <> caption
+    None -> ""
+  }
+}
+
+fn sufixo_contexto_sticker(contexto: Option(String)) -> String {
+  case contexto {
+    Some(texto) -> "\n\nContexto do sticker: " <> texto
     None -> ""
   }
 }
@@ -174,16 +177,10 @@ pub fn montar_para_legenda(config: Config) -> String {
   <> "\nInicie sua resposta exatamente com \"Transcrição do vídeo\" e finalize com \"Fim da transcrição\"."
 }
 
-pub fn montar_para_documento(
-  config: Config,
-  legenda: Option(String),
-) -> String {
+pub fn montar_para_documento(config: Config, legenda: Option(String)) -> String {
   let base = case config.prompt_sistema {
     Some(p) -> p <> "\n\nAnalise e resuma este documento."
-    None ->
-      "Analise e resuma este documento em "
-      <> config.idioma
-      <> "."
+    None -> "Analise e resuma este documento em " <> config.idioma <> "."
   }
   base
   <> sufixo_modo(config)
@@ -192,3 +189,45 @@ pub fn montar_para_documento(
   <> "\nInicie sua resposta exatamente com \"Descrição do documento\" e finalize com \"Fim da descrição\"."
 }
 
+pub fn montar_para_sticker(
+  config: Config,
+  contexto_sticker: Option(String),
+) -> String {
+  let contexto = case config.prompt_sistema {
+    Some(p) -> p <> "\n\n"
+    None -> ""
+  }
+  contexto
+  <> "Faça a audiodescrição deste sticker em "
+  <> config.idioma
+  <> ". REGRAS:"
+  <> "\n- Identifique o que está acontecendo no sticker (meme, personagem, texto)."
+  <> "\n- Descreva primeiro o conteúdo visual; depois, quando fizer sentido, explique o humor, ironia ou referência cultural."
+  <> "\n- Se houver texto no sticker, transcreva-o e comente sobre ele."
+  <> sufixo_modo(config)
+  <> sufixo_contexto_sticker(contexto_sticker)
+  <> sem_introducao()
+  <> "\nInicie sua resposta exatamente com \"Audiodescrição do sticker\" e finalize com \"Fim da audiodescrição\"."
+}
+
+pub fn montar_para_sticker_animado(
+  config: Config,
+  contexto_sticker: Option(String),
+) -> String {
+  let contexto = case config.prompt_sistema {
+    Some(p) -> p <> "\n\n"
+    None -> ""
+  }
+  contexto
+  <> "Faça a audiodescrição deste sticker animado em "
+  <> config.idioma
+  <> ". REGRAS:"
+  <> "\n- Analise a animação inteira em ordem cronológica, não apenas o primeiro quadro."
+  <> "\n- Transcreva todo texto que apareça em qualquer momento da animação."
+  <> "\n- Descreva movimento, entrada e saída de elementos, expressões, personagens e cenário."
+  <> "\n- Explique o humor, ironia ou referência cultural quando fizer sentido."
+  <> sufixo_modo(config)
+  <> sufixo_contexto_sticker(contexto_sticker)
+  <> sem_introducao()
+  <> "\nInicie sua resposta exatamente com \"Audiodescrição do sticker\" e finalize com \"Fim da audiodescrição\"."
+}

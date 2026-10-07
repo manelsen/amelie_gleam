@@ -35,4 +35,5 @@ pub type TipoMidia {
   MidiaAudio
   MidiaVideo
   MidiaDocumento
+  MidiaSticker
 }

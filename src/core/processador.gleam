@@ -7,7 +7,7 @@ import core/validacao
 import dominio/acao.{
   type Acao, BaixarVideoUrlEDescrever, BuscarUrlEResponder, EnfileirarMidia,
   EnviarResposta, GerarEEnviar, MidiaAudio, MidiaDocumento, MidiaImagem,
-  MidiaVideo, NaoResponder,
+  MidiaSticker, MidiaVideo, NaoResponder,
 }
 import dominio/config.{type Config}
 import dominio/erro.{type Erro}
@@ -51,6 +51,7 @@ fn processar_filtrado(
     Audio(..) -> processar_midia(msg, config, MidiaAudio)
     Video(..) -> processar_midia(msg, config, MidiaVideo)
     Documento(..) -> processar_midia(msg, config, MidiaDocumento)
+    mensagem.Sticker(..) -> processar_midia(msg, config, MidiaSticker)
     mensagem.MidiaIndisponivel(mensagem) ->
       Ok([EnviarResposta(config.chat_id, mensagem)])
   }
@@ -197,6 +198,7 @@ fn processar_midia(
     MidiaAudio -> config.audio_ativo
     MidiaVideo -> config.video_ativo
     MidiaDocumento -> config.doc_ativo
+    MidiaSticker -> config.imagem_ativo
   }
 
   use <- bool.guard(!ativa, Ok([NaoResponder]))

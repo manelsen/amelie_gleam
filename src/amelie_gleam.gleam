@@ -283,6 +283,7 @@ fn parsear_corpo(
       mensagem.Documento(mime: mime, dados: bytes, nome: text),
       arquivo,
     )
+    "sticker" -> #(mensagem.Sticker(mime: mime, dados: bytes), arquivo)
     // Vídeo segue em disco até o upload para a IA; fila_midia apaga o arquivo.
     "video" -> #(
       mensagem.Video(caminho_temp: caminho_temp, mime: mime),
@@ -343,6 +344,8 @@ fn com_bytes(corpo: mensagem.Conteudo, bytes: BitArray) -> mensagem.Conteudo {
     mensagem.Audio(mime: mime, ..) -> mensagem.Audio(mime: mime, dados: bytes)
     mensagem.Documento(mime: mime, nome: nome, ..) ->
       mensagem.Documento(mime: mime, dados: bytes, nome: nome)
+    mensagem.Sticker(mime: mime, ..) ->
+      mensagem.Sticker(mime: mime, dados: bytes)
     outro -> outro
   }
 }

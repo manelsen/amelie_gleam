@@ -129,6 +129,20 @@ pub fn mensagem_video() -> Mensagem {
   )
 }
 
+pub fn mensagem_sticker() -> Mensagem {
+  Mensagem(
+    chat_id: chat_id(),
+    remetente: remetente(),
+    message_id: Some("MSG001"),
+    corpo: mensagem.Sticker(mime: "image/webp", dados: <<82, 73, 70, 70>>),
+    timestamp: agora_s(),
+    em_grupo: False,
+    nome_grupo: None,
+    menciona_bot: False,
+    legenda: None,
+  )
+}
+
 pub fn historico_vazio() -> List(Turno) {
   []
 }

@@ -11,7 +11,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +23,7 @@ import (
 	osExec "os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -506,32 +506,51 @@ func (b *Bridge) processMessage(evt *events.Message) {
 			return
 		}
 	} else if sticker := evt.Message.GetStickerMessage(); sticker != nil {
-		payload.Tipo = "imagem"
+		payload.Tipo = "sticker"
 		payload.Mime = normalizeStickerMime(sticker.GetMimetype())
 		payload.Legenda = stickerPromptContext(sticker)
-		data, ok := b.downloadMediaBytes(evt, "figurinha", payload.Mime, "", sticker, func(path string) {
+		log.Printf("Figurinha recebida: chat=%s mensagem=%s mime=%s animada=%v", chatID, evt.Info.ID, payload.Mime, sticker.GetIsAnimated())
+		applyDirectPath := func(path string) {
 			sticker.URL = nil
 			sticker.DirectPath = proto.String(path)
-		})
+		}
+		data, ok := b.downloadStickerBytes(evt, payload.Mime, sticker, applyDirectPath)
 		if !ok {
-			var fallbackOK bool
-			data, payload.Mime, fallbackOK = stickerThumbnailFallback(sticker)
-			if !fallbackOK {
+			if b.hasPendingMediaRetry(evt.Info.Chat, evt.Info.ID) {
+				b.scheduleStickerMetadataFallback(payload, sticker, evt.Info.Chat, evt.Info.ID)
 				return
 			}
-			log.Printf("Usando thumbnail PNG da figurinha como fallback: chat=%s mensagem=%s", chatID, evt.Info.ID)
+
+			fallbackData, fallbackMime, fallbackOK := stickerThumbnailFallback(sticker)
+			if fallbackOK {
+				data = fallbackData
+				payload.Mime = fallbackMime
+				log.Printf("Usando thumbnail PNG da figurinha como fallback: chat=%s mensagem=%s", chatID, evt.Info.ID)
+			} else {
+				log.Printf("Figurinha sem dados e sem thumbnail: chat=%s mensagem=%s mime=%s animada=%v", chatID, evt.Info.ID, payload.Mime, sticker.GetIsAnimated())
+				if err := b.enqueueAndDeliver(stickerMetadataFallbackPayload(payload, sticker)); err != nil {
+					log.Printf("Erro ao enfileirar fallback textual de figurinha: chat=%s mensagem=%s erro=%v", chatID, evt.Info.ID, err)
+				}
+				return
+			}
 		}
-		if sticker.GetIsAnimated() && ok {
-			videoPath, convOK := convertAnimatedStickerToMP4(data)
-			if convOK {
+		if sticker.GetIsAnimated() {
+			if videoPath, convOK := convertAnimatedStickerToMP4(data); convOK {
 				payload.Tipo = "video"
 				payload.Mime = "video/mp4"
 				payload.Caminho = videoPath
+				payload.Dados = ""
+				log.Printf("Figurinha animada convertida para MP4: chat=%s mensagem=%s caminho=%s", chatID, evt.Info.ID, videoPath)
+			} else if sheet, sheetMime, sheetOK := convertAnimatedStickerToContactSheet(data); sheetOK {
+				data = sheet
+				payload.Mime = sheetMime
+				log.Printf("Figurinha animada convertida em grade de quadros: chat=%s mensagem=%s bytes=%d", chatID, evt.Info.ID, len(data))
 			} else {
-				payload.Dados = base64.StdEncoding.EncodeToString(data)
+				log.Printf("Figurinha animada será processada como sticker WebP: chat=%s mensagem=%s", chatID, evt.Info.ID)
 			}
-		} else {
-			payload.Dados = base64.StdEncoding.EncodeToString(data)
+		}
+		if payload.Caminho == "" && !b.attachMediaFile(&payload, "sticker", "", data) {
+			return
 		}
 	} else {
 		payload.Tipo = "texto"
@@ -589,6 +608,40 @@ func (b *Bridge) downloadMediaBytes(
 
 	log.Printf("Falha ao baixar %s do WhatsApp: chat=%s mime=%s arquivo=%q erro=%v", kind, evt.Info.Chat.String(), mime, fileName, err)
 	return nil, false
+}
+
+func (b *Bridge) downloadStickerBytes(
+	evt *events.Message,
+	mime string,
+	sticker *waProto.StickerMessage,
+	applyDirectPath func(string),
+) ([]byte, bool) {
+	if sticker.GetDirectPath() != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), mediaDownloadTimeout("figurinha"))
+		defer cancel()
+
+		data, err := b.client.DownloadMediaWithPath(
+			ctx,
+			sticker.GetDirectPath(),
+			sticker.GetFileEncSHA256(),
+			sticker.GetFileSHA256(),
+			sticker.GetMediaKey(),
+			whatsmeow.MediaImage,
+			"sticker",
+			false,
+		)
+		if err == nil {
+			if len(data) == 0 {
+				log.Printf("figurinha vazia recebida do WhatsApp com mms-type=sticker: chat=%s mime=%s", evt.Info.Chat.String(), mime)
+				return nil, false
+			}
+			log.Printf("Figurinha baixada com mms-type=sticker: chat=%s mensagem=%s bytes=%d", evt.Info.Chat.String(), evt.Info.ID, len(data))
+			return data, true
+		}
+		log.Printf("Falha ao baixar figurinha com mms-type=sticker: chat=%s mensagem=%s mime=%s erro=%v", evt.Info.Chat.String(), evt.Info.ID, mime, err)
+	}
+
+	return b.downloadMediaBytes(evt, "figurinha", mime, "", sticker, applyDirectPath)
 }
 
 func mediaDownloadTimeout(kind string) time.Duration {
@@ -681,6 +734,24 @@ func (b *Bridge) clearMediaRetryState(chat types.JID, messageID types.MessageID)
 	delete(b.pendingMediaRetries, key)
 	delete(b.mediaRetryAttempts, key)
 	b.retryMu.Unlock()
+}
+
+func (b *Bridge) hasPendingMediaRetry(chat types.JID, messageID types.MessageID) bool {
+	key := mediaRetryKey(chat, messageID)
+	b.retryMu.Lock()
+	_, ok := b.pendingMediaRetries[key]
+	b.retryMu.Unlock()
+	return ok
+}
+
+func (b *Bridge) takePendingMediaRetry(chat types.JID, messageID types.MessageID) bool {
+	key := mediaRetryKey(chat, messageID)
+	b.retryMu.Lock()
+	_, ok := b.pendingMediaRetries[key]
+	delete(b.pendingMediaRetries, key)
+	delete(b.mediaRetryAttempts, key)
+	b.retryMu.Unlock()
+	return ok
 }
 
 func shouldRequestMediaRetry(err error) bool {
@@ -802,7 +873,7 @@ func normalizeStickerMime(rawMime string) string {
 func stickerPromptContext(sticker *waProto.StickerMessage) string {
 	context := "Esta imagem é uma figurinha/sticker do WhatsApp. Descreva o conteúdo visual e interprete o texto, a expressão, a referência cultural ou o sentido provável da figurinha no contexto de conversa."
 	if sticker.GetIsAnimated() {
-		context += " A figurinha é animada; se a mídia recebida mostrar apenas um quadro, descreva o que estiver visível nesse quadro."
+		context += " A figurinha é animada; examine todos os quadros disponíveis, especialmente textos ou mudanças que aparecem depois dos primeiros quadros."
 	}
 	if label := strings.TrimSpace(sticker.GetAccessibilityLabel()); label != "" {
 		context += " Rótulo de acessibilidade informado pelo WhatsApp: " + label
@@ -818,43 +889,112 @@ func stickerThumbnailFallback(sticker *waProto.StickerMessage) ([]byte, string, 
 	return thumbnail, "image/png", true
 }
 
+func (b *Bridge) scheduleStickerMetadataFallback(
+	payload IncomingWebhook,
+	sticker *waProto.StickerMessage,
+	chat types.JID,
+	messageID types.MessageID,
+) {
+	fallback := stickerMetadataFallbackPayload(payload, sticker)
+	go func() {
+		time.Sleep(12 * time.Second)
+		if !b.takePendingMediaRetry(chat, messageID) {
+			return
+		}
+		log.Printf("Media retry de figurinha não respondeu; enfileirando fallback textual: chat=%s mensagem=%s", chat.String(), messageID)
+		if err := b.enqueueAndDeliver(fallback); err != nil {
+			log.Printf("Erro ao enfileirar fallback textual de figurinha: chat=%s mensagem=%s erro=%v", chat.String(), messageID, err)
+		}
+	}()
+}
+
+func stickerMetadataFallbackPayload(payload IncomingWebhook, sticker *waProto.StickerMessage) IncomingWebhook {
+	fallback := payload
+	fallback.Tipo = "midia_indisponivel"
+	fallback.Mime = ""
+	fallback.Dados = ""
+	fallback.Caminho = ""
+	fallback.Legenda = ""
+	fallback.Text = stickerMetadataFallbackText(sticker)
+	return fallback
+}
+
+func stickerMetadataFallbackText(sticker *waProto.StickerMessage) string {
+	parts := []string{
+		"A mídia veio indisponível e não pude audiodescrever a figurinha.",
+		"Se quiser que eu a descreva, reenvie como imagem, print ou arquivo.",
+	}
+
+	if label := strings.TrimSpace(sticker.GetAccessibilityLabel()); label != "" {
+		parts = append(parts, "Rótulo de acessibilidade informado pelo WhatsApp: "+label+".")
+	}
+	if emojis := strings.TrimSpace(sticker.GetEmojis()); emojis != "" {
+		parts = append(parts, "Emojis associados ao sticker: "+emojis+".")
+	}
+	if sticker.GetWidth() > 0 && sticker.GetHeight() > 0 {
+		parts = append(parts, fmt.Sprintf("Dimensões declaradas: %dx%d.", sticker.GetWidth(), sticker.GetHeight()))
+	}
+	if sticker.GetIsAiSticker() {
+		parts = append(parts, "O WhatsApp marcou este item como sticker gerado por IA.")
+	}
+	if sticker.GetIsAnimated() {
+		parts = append(parts, "O WhatsApp marcou este item como sticker animado.")
+	}
+
+	return strings.Join(parts, "\n")
+}
+
+const maxAnimatedStickerFrames = 16
+const animatedStickerTileSize = 320
+
 func convertAnimatedStickerToMP4(data []byte) (string, bool) {
-	input, err := os.CreateTemp("", "amelie_sticker_*.webp")
+	dir, err := os.MkdirTemp("", "amelie_sticker_anim_*")
 	if err != nil {
-		log.Printf("Falha ao criar arquivo temporario de figurinha animada: %v", err)
+		log.Printf("Falha ao criar diretório temporário para vídeo de figurinha animada: %v", err)
 		return "", false
 	}
-	inputPath := input.Name()
-	defer os.Remove(inputPath)
+	defer os.RemoveAll(dir)
 
-	if _, err := input.Write(data); err != nil {
-		input.Close()
-		log.Printf("Falha ao escrever figurinha animada temporaria: %v", err)
-		return "", false
-	}
-	if err := input.Close(); err != nil {
-		log.Printf("Falha ao fechar figurinha animada temporaria: %v", err)
+	inputPath := filepath.Join(dir, "input.webp")
+	if err := os.WriteFile(inputPath, data, 0o600); err != nil {
+		log.Printf("Falha ao escrever figurinha animada temporária: %v", err)
 		return "", false
 	}
 
-	output, err := os.CreateTemp("", "amelie_sticker_*.mp4")
+	scriptPath := filepath.Join(dir, "decode_webp_animation.py")
+	if err := os.WriteFile(scriptPath, []byte(animatedWebPToFramesScript), 0o600); err != nil {
+		log.Printf("Falha ao escrever decoder de figurinha animada: %v", err)
+		return "", false
+	}
+
+	framesDir := filepath.Join(dir, "frames")
+	out, err := osExec.Command("python3", scriptPath, inputPath, framesDir).CombinedOutput()
 	if err != nil {
-		log.Printf("Falha ao criar video temporario de figurinha animada: %v", err)
+		log.Printf("Falha ao decodificar ANIM/ANMF da figurinha: erro=%v saida=%s", err, strings.TrimSpace(string(out)))
+		return "", false
+	}
+
+	output, err := os.CreateTemp("", mediaTempPrefix+"sticker_*.mp4")
+	if err != nil {
+		log.Printf("Falha ao criar MP4 temporário de figurinha animada: %v", err)
 		return "", false
 	}
 	outputPath := output.Name()
 	output.Close()
 
-	cmd := osExec.Command(
+	out, err = osExec.Command(
 		"ffmpeg",
 		"-y",
-		"-i", inputPath,
+		"-hide_banner",
+		"-loglevel", "error",
+		"-f", "concat",
+		"-safe", "0",
+		"-i", filepath.Join(framesDir, "frames.txt"),
+		"-c:v", "libx264",
+		"-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
 		"-movflags", "+faststart",
-		"-pix_fmt", "yuv420p",
-		"-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
 		outputPath,
-	)
-	out, err := cmd.CombinedOutput()
+	).CombinedOutput()
 	if err != nil {
 		os.Remove(outputPath)
 		log.Printf("Falha ao converter figurinha animada para MP4: erro=%v saida=%s", err, strings.TrimSpace(string(out)))
@@ -864,11 +1004,252 @@ func convertAnimatedStickerToMP4(data []byte) (string, bool) {
 	info, err := os.Stat(outputPath)
 	if err != nil || info.Size() == 0 {
 		os.Remove(outputPath)
-		log.Printf("Conversao de figurinha animada gerou arquivo invalido: erro=%v", err)
+		log.Printf("Conversão de figurinha animada gerou MP4 inválido: erro=%v", err)
 		return "", false
 	}
 
 	return outputPath, true
+}
+
+const animatedWebPToFramesScript = `
+import os
+import sys
+from PIL import Image
+
+def concat_quote(path):
+    return "'" + path.replace("'", "'\\''") + "'"
+
+def frame_duration_seconds(image):
+    duration_ms = image.info.get("duration") or 100
+    try:
+        duration_ms = int(duration_ms)
+    except Exception:
+        duration_ms = 100
+    duration_ms = max(20, min(duration_ms, 2000))
+    return duration_ms / 1000.0
+
+def main():
+    if len(sys.argv) != 3:
+        raise SystemExit("uso: decode_webp_animation.py entrada.webp diretorio_frames")
+
+    input_path = sys.argv[1]
+    frames_dir = sys.argv[2]
+    os.makedirs(frames_dir, exist_ok=True)
+
+    image = Image.open(input_path)
+    frame_count = getattr(image, "n_frames", 1)
+    if frame_count < 2:
+        raise SystemExit("WebP sem animação útil")
+
+    paths = []
+    durations = []
+    for index in range(frame_count):
+        image.seek(index)
+        frame = image.convert("RGBA")
+        background = Image.new("RGBA", frame.size, (128, 128, 128, 255))
+        background.alpha_composite(frame)
+        output_path = os.path.join(frames_dir, f"frame_{index:05d}.png")
+        background.convert("RGB").save(output_path)
+        paths.append(output_path)
+        durations.append(frame_duration_seconds(image))
+
+    concat_path = os.path.join(frames_dir, "frames.txt")
+    with open(concat_path, "w", encoding="utf-8") as concat:
+        concat.write("ffconcat version 1.0\n")
+        for path, duration in zip(paths, durations):
+            concat.write(f"file {concat_quote(path)}\n")
+            concat.write(f"duration {duration:.3f}\n")
+        concat.write(f"file {concat_quote(paths[-1])}\n")
+
+    print(f"frames={len(paths)}")
+
+if __name__ == "__main__":
+    main()
+`
+
+func convertAnimatedStickerToContactSheet(data []byte) ([]byte, string, bool) {
+	dir, err := os.MkdirTemp("", "amelie_sticker_frames_*")
+	if err != nil {
+		log.Printf("Falha ao criar diretório temporário para figurinha animada: %v", err)
+		return nil, "", false
+	}
+	defer os.RemoveAll(dir)
+
+	inputPath := filepath.Join(dir, "input.webp")
+	if err := os.WriteFile(inputPath, data, 0o600); err != nil {
+		log.Printf("Falha ao escrever figurinha animada temporária: %v", err)
+		return nil, "", false
+	}
+
+	infoOut, err := osExec.Command("webpmux", "-info", inputPath).CombinedOutput()
+	if err != nil {
+		log.Printf("Falha ao inspecionar figurinha animada com webpmux: erro=%v saida=%s", err, strings.TrimSpace(string(infoOut)))
+		return nil, "", false
+	}
+	frameCount, ok := parseWebPMuxFrameCount(string(infoOut))
+	if !ok || frameCount < 2 {
+		log.Printf("Figurinha marcada como animada sem contagem de quadros útil: frames=%d", frameCount)
+		return nil, "", false
+	}
+
+	indices := sampleFrameIndices(frameCount, maxAnimatedStickerFrames)
+	for pos, frameIndex := range indices {
+		webpPath := filepath.Join(dir, fmt.Sprintf("frame_%03d.webp", pos+1))
+		pngPath := filepath.Join(dir, fmt.Sprintf("frame_%03d.png", pos+1))
+
+		out, err := osExec.Command("webpmux", "-get", "frame", strconv.Itoa(frameIndex), inputPath, "-o", webpPath).CombinedOutput()
+		if err != nil {
+			log.Printf("Falha ao extrair quadro %d/%d da figurinha: erro=%v saida=%s", frameIndex, frameCount, err, strings.TrimSpace(string(out)))
+			return nil, "", false
+		}
+
+		out, err = osExec.Command("dwebp", "-quiet", webpPath, "-o", pngPath).CombinedOutput()
+		if err != nil {
+			log.Printf("Falha ao converter quadro %d da figurinha para PNG: erro=%v saida=%s", frameIndex, err, strings.TrimSpace(string(out)))
+			return nil, "", false
+		}
+	}
+
+	cols, rows := contactSheetGrid(len(indices))
+	outputPath := filepath.Join(dir, "sheet.png")
+	filter := fmt.Sprintf(
+		"scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2:color=white,tile=%dx%d:padding=8:margin=8:color=white",
+		animatedStickerTileSize,
+		animatedStickerTileSize,
+		animatedStickerTileSize,
+		animatedStickerTileSize,
+		cols,
+		rows,
+	)
+	out, err := osExec.Command(
+		"ffmpeg",
+		"-y",
+		"-hide_banner",
+		"-loglevel", "error",
+		"-framerate", "1",
+		"-i", filepath.Join(dir, "frame_%03d.png"),
+		"-frames:v", "1",
+		"-vf", filter,
+		outputPath,
+	).CombinedOutput()
+	if err != nil {
+		log.Printf("Falha ao montar grade de quadros da figurinha: erro=%v saida=%s", err, strings.TrimSpace(string(out)))
+		return nil, "", false
+	}
+
+	sheet, err := os.ReadFile(outputPath)
+	if err != nil || len(sheet) == 0 {
+		log.Printf("Grade de quadros da figurinha inválida: erro=%v bytes=%d", err, len(sheet))
+		return nil, "", false
+	}
+	return sheet, "image/png", true
+}
+
+func parseWebPMuxFrameCount(info string) (int, bool) {
+	for _, line := range strings.Split(info, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Number of frames:") {
+			value := strings.TrimSpace(strings.TrimPrefix(line, "Number of frames:"))
+			count, err := strconv.Atoi(value)
+			return count, err == nil
+		}
+	}
+	return 0, false
+}
+
+func sampleFrameIndices(frameCount int, maxFrames int) []int {
+	if frameCount <= 0 || maxFrames <= 0 {
+		return []int{}
+	}
+	if frameCount <= maxFrames {
+		indices := make([]int, frameCount)
+		for i := range indices {
+			indices[i] = i + 1
+		}
+		return indices
+	}
+
+	indices := make([]int, 0, maxFrames)
+	last := 0
+	for i := 0; i < maxFrames; i++ {
+		index := 1 + (i*(frameCount-1)+(maxFrames-1)/2)/(maxFrames-1)
+		if index != last {
+			indices = append(indices, index)
+			last = index
+		}
+	}
+	return indices
+}
+
+func contactSheetGrid(frameCount int) (int, int) {
+	if frameCount <= 1 {
+		return 1, 1
+	}
+	cols := 4
+	if frameCount < cols {
+		cols = frameCount
+	}
+	rows := (frameCount + cols - 1) / cols
+	return cols, rows
+}
+
+// mediaTempPrefix identifica arquivos de mídia que o bridge entrega ao Gleam
+// por caminho. O Gleam apaga cada arquivo depois de lê-lo; os que sobrarem
+// (mensagens abandonadas pela fila) são removidos por cleanupOrphanMediaFiles.
+const mediaTempPrefix = "amelie_midia_"
+
+// orphanMediaMaxAge supera a janela de 24h em que a fila ainda tenta entregar.
+const orphanMediaMaxAge = 26 * time.Hour
+
+// writeMediaTemp grava a mídia em arquivo temporário. O webhook leva só o
+// caminho: base64 de mídia grande ultrapassava o limite de corpo do Mist.
+func writeMediaTemp(kind, ext string, data []byte) (string, error) {
+	f, err := os.CreateTemp("", mediaTempPrefix+kind+"_*"+ext)
+	if err != nil {
+		return "", err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
+}
+
+func (b *Bridge) attachMediaFile(payload *IncomingWebhook, kind, ext string, data []byte) bool {
+	path, err := writeMediaTemp(kind, ext, data)
+	if err != nil {
+		log.Printf("Falha ao gravar mídia temporária: chat=%s mensagem=%s tipo=%s mime=%s bytes=%d erro=%v", payload.ChatID, payload.MessageID, kind, payload.Mime, len(data), err)
+		return false
+	}
+	payload.Dados = ""
+	payload.Caminho = path
+	return true
+}
+
+func cleanupOrphanMediaFiles(dir string, maxAge time.Duration) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		log.Printf("[Fila] Erro ao listar mídias temporárias: %v", err)
+		return
+	}
+	limite := time.Now().Add(-maxAge)
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() || !strings.HasPrefix(entry.Name(), mediaTempPrefix) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || info.ModTime().After(limite) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, entry.Name())); err == nil {
+			log.Printf("[Fila] Mídia temporária órfã removida: %s", entry.Name())
+		}
+	}
 }
 
 func extractText(msg *waProto.Message) string {
@@ -1008,65 +1389,6 @@ func (b *Bridge) processQueue() {
 
 		b.queueDB.Exec("UPDATE webhook_queue SET delivered_at = unixepoch() WHERE id = ?", id)
 		log.Printf("[Fila] Mensagem %d entregue com sucesso (msg_id=%s)", id, payload.MessageID)
-	}
-}
-
-// mediaTempPrefix identifica arquivos de mídia que o bridge entrega ao Gleam
-// por caminho. O Gleam apaga cada arquivo depois de lê-lo; os que sobrarem
-// (mensagens abandonadas pela fila) são removidos por cleanupOrphanMediaFiles.
-const mediaTempPrefix = "amelie_midia_"
-
-// orphanMediaMaxAge supera a janela de 24h em que a fila ainda tenta entregar.
-const orphanMediaMaxAge = 26 * time.Hour
-
-// writeMediaTemp grava a mídia em arquivo temporário. O webhook leva só o
-// caminho: base64 de mídia grande ultrapassava o limite de corpo do Mist.
-func writeMediaTemp(kind, ext string, data []byte) (string, error) {
-	f, err := os.CreateTemp("", mediaTempPrefix+kind+"_*"+ext)
-	if err != nil {
-		return "", err
-	}
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		os.Remove(f.Name())
-		return "", err
-	}
-	if err := f.Close(); err != nil {
-		os.Remove(f.Name())
-		return "", err
-	}
-	return f.Name(), nil
-}
-
-func (b *Bridge) attachMediaFile(payload *IncomingWebhook, kind, ext string, data []byte) bool {
-	path, err := writeMediaTemp(kind, ext, data)
-	if err != nil {
-		log.Printf("Falha ao gravar mídia temporária: chat=%s mensagem=%s tipo=%s mime=%s bytes=%d erro=%v", payload.ChatID, payload.MessageID, kind, payload.Mime, len(data), err)
-		return false
-	}
-	payload.Dados = ""
-	payload.Caminho = path
-	return true
-}
-
-func cleanupOrphanMediaFiles(dir string, maxAge time.Duration) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		log.Printf("[Fila] Erro ao listar mídias temporárias: %v", err)
-		return
-	}
-	limite := time.Now().Add(-maxAge)
-	for _, entry := range entries {
-		if !entry.Type().IsRegular() || !strings.HasPrefix(entry.Name(), mediaTempPrefix) {
-			continue
-		}
-		info, err := entry.Info()
-		if err != nil || info.ModTime().After(limite) {
-			continue
-		}
-		if err := os.Remove(filepath.Join(dir, entry.Name())); err == nil {
-			log.Printf("[Fila] Mídia temporária órfã removida: %s", entry.Name())
-		}
 	}
 }
 

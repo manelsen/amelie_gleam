@@ -2,7 +2,10 @@
 // Shell: tem side effects (chama IA, envia mensagens).
 
 import core/prompt/builder
-import dominio/acao.{MidiaAudio, MidiaDocumento, MidiaImagem, MidiaVideo, type TipoMidia}
+import dominio/acao.{
+  type TipoMidia, MidiaAudio, MidiaDocumento, MidiaImagem, MidiaSticker,
+  MidiaVideo,
+}
 import dominio/config.{type Config}
 import dominio/erro.{type Erro}
 import dominio/mensagem.{type Mensagem, Audio, Documento, Imagem, Video}
@@ -13,8 +16,8 @@ import gleam/result
 import gleam/string
 import logging
 import portas/ia_porta.{type IAPorta}
-import portas/transacao_porta.{type TransacaoPorta}
 import portas/mensageiro_porta.{type MensageiroPorta}
+import portas/transacao_porta.{type TransacaoPorta}
 import shell/entrega_auditada
 
 pub type FilaMidia =
@@ -26,6 +29,7 @@ pub type FilasMidia {
     audio: FilaMidia,
     video: FilaMidia,
     documento: FilaMidia,
+    sticker: FilaMidia,
   )
 }
 
@@ -48,12 +52,17 @@ fn iniciar_uma() -> Result(FilaMidia, actor.StartError) {
     case msg {
       Parar -> actor.stop()
       Enfileirar(chat_id, mensagem, tipo, cfg, ia, mensageiro, transacoes) -> {
-        case processar(chat_id, mensagem, tipo, cfg, ia, mensageiro, transacoes) {
+        case
+          processar(chat_id, mensagem, tipo, cfg, ia, mensageiro, transacoes)
+        {
           Ok(_) -> Nil
           Error(e) ->
             logging.log(
               logging.Warning,
-              "Erro ao processar mídia em " <> chat_id <> ": " <> erro.descricao(e),
+              "Erro ao processar mídia em "
+                <> chat_id
+                <> ": "
+                <> erro.descricao(e),
             )
         }
         actor.continue(state)
@@ -69,7 +78,14 @@ pub fn iniciar_todas() -> Result(FilasMidia, actor.StartError) {
   use aud <- result.try(iniciar_uma())
   use vid <- result.try(iniciar_uma())
   use doc <- result.try(iniciar_uma())
-  Ok(FilasMidia(imagem: img, audio: aud, video: vid, documento: doc))
+  use stk <- result.try(iniciar_uma())
+  Ok(FilasMidia(
+    imagem: img,
+    audio: aud,
+    video: vid,
+    documento: doc,
+    sticker: stk,
+  ))
 }
 
 pub fn enfileirar(
@@ -87,6 +103,7 @@ pub fn enfileirar(
     MidiaAudio -> filas.audio
     MidiaVideo -> filas.video
     MidiaDocumento -> filas.documento
+    MidiaSticker -> filas.sticker
   }
   process.send(
     fila,
@@ -105,11 +122,14 @@ fn processar(
   transacoes: TransacaoPorta,
 ) -> Result(Nil, Erro) {
   case tipo {
-    MidiaImagem -> processar_imagem(chat_id, msg, cfg, ia, mensageiro, transacoes)
+    MidiaImagem ->
+      processar_imagem(chat_id, msg, cfg, ia, mensageiro, transacoes)
     MidiaAudio -> processar_audio(chat_id, msg, cfg, ia, mensageiro, transacoes)
     MidiaVideo -> processar_video(chat_id, msg, cfg, ia, mensageiro, transacoes)
     MidiaDocumento ->
       processar_documento(chat_id, msg, cfg, ia, mensageiro, transacoes)
+    MidiaSticker ->
+      processar_sticker(chat_id, msg, cfg, ia, mensageiro, transacoes)
   }
 }
 
@@ -123,10 +143,18 @@ fn processar_imagem(
 ) -> Result(Nil, Erro) {
   case msg.corpo {
     Imagem(mime: mime, dados: dados) -> {
-      logging.log(logging.Info, "[Imagem] Iniciando processamento para " <> chat_id)
+      logging.log(
+        logging.Info,
+        "[Imagem] Iniciando processamento para " <> chat_id,
+      )
       reagir(msg, "⌛", mensageiro)
       let prompt = builder.montar_para_imagem(cfg, msg.legenda)
-      use resposta <- result.try(ia.processar_imagem(dados, mime, prompt, cfg.modelo))
+      use resposta <- result.try(ia.processar_imagem(
+        dados,
+        mime,
+        prompt,
+        cfg.modelo,
+      ))
       logging.log(logging.Info, "[Imagem] Concluído para " <> chat_id)
       reagir(msg, "🆗", mensageiro)
       entregar(chat_id, "imagem", resposta, msg, mensageiro, transacoes)
@@ -145,10 +173,18 @@ fn processar_audio(
 ) -> Result(Nil, Erro) {
   case msg.corpo {
     Audio(mime: mime, dados: dados) -> {
-      logging.log(logging.Info, "[Áudio] Iniciando processamento para " <> chat_id)
+      logging.log(
+        logging.Info,
+        "[Áudio] Iniciando processamento para " <> chat_id,
+      )
       reagir(msg, "⌛", mensageiro)
       let prompt = builder.montar_para_audio(cfg)
-      use resposta <- result.try(ia.processar_audio(dados, mime, prompt, cfg.modelo))
+      use resposta <- result.try(ia.processar_audio(
+        dados,
+        mime,
+        prompt,
+        cfg.modelo,
+      ))
       let resposta = limpar_timestamps(resposta)
       logging.log(logging.Info, "[Áudio] Concluído para " <> chat_id)
       reagir(msg, "🆗", mensageiro)
@@ -168,11 +204,22 @@ fn processar_video(
 ) -> Result(Nil, Erro) {
   case msg.corpo {
     Video(caminho_temp: caminho, mime: mime) -> {
-      logging.log(logging.Info, "[Vídeo] Iniciando upload e processamento para " <> chat_id)
+      logging.log(
+        logging.Info,
+        "[Vídeo] Iniciando upload e processamento para " <> chat_id,
+      )
       reagir(msg, "⌛", mensageiro)
-      let prompt = case cfg.legenda_ativo {
-        True -> builder.montar_para_legenda(cfg)
-        False -> builder.montar_para_video(cfg, msg.legenda)
+      let eh_sticker_animado =
+        msg.legenda
+        |> option.unwrap("")
+        |> string.contains("figurinha/sticker")
+      let prompt = case eh_sticker_animado {
+        True -> builder.montar_para_sticker_animado(cfg, msg.legenda)
+        False ->
+          case cfg.legenda_ativo {
+            True -> builder.montar_para_legenda(cfg)
+            False -> builder.montar_para_video(cfg, msg.legenda)
+          }
       }
       case ia.fazer_upload_video(caminho, mime) {
         Error(e) -> {
@@ -182,7 +229,11 @@ fn processar_video(
         Ok(uri) -> {
           let processamento = {
             use _ <- result.try(ia.aguardar_video_ativo(uri))
-            use resposta <- result.try(ia.processar_video(uri, prompt, cfg.modelo))
+            use resposta <- result.try(ia.processar_video(
+              uri,
+              prompt,
+              cfg.modelo,
+            ))
             Ok(resposta)
           }
           let _ = ia.deletar_arquivo(uri)
@@ -208,15 +259,52 @@ fn processar_documento(
 ) -> Result(Nil, Erro) {
   case msg.corpo {
     Documento(mime: mime, dados: dados, nome: _nome) -> {
-      logging.log(logging.Info, "[Doc] Iniciando processamento para " <> chat_id)
+      logging.log(
+        logging.Info,
+        "[Doc] Iniciando processamento para " <> chat_id,
+      )
       reagir(msg, "⌛", mensageiro)
       let prompt = builder.montar_para_documento(cfg, msg.legenda)
-      use resposta <- result.try(
-        ia.processar_documento(dados, mime, prompt, cfg.modelo),
-      )
+      use resposta <- result.try(ia.processar_documento(
+        dados,
+        mime,
+        prompt,
+        cfg.modelo,
+      ))
       logging.log(logging.Info, "[Doc] Concluído para " <> chat_id)
       reagir(msg, "🆗", mensageiro)
       entregar(chat_id, "documento", resposta, msg, mensageiro, transacoes)
+    }
+    _ -> Ok(Nil)
+  }
+}
+
+fn processar_sticker(
+  chat_id: String,
+  msg: Mensagem,
+  cfg: Config,
+  ia: IAPorta,
+  mensageiro: MensageiroPorta,
+  transacoes: TransacaoPorta,
+) -> Result(Nil, Erro) {
+  case msg.corpo {
+    mensagem.Sticker(mime: mime, dados: dados) -> {
+      logging.log(
+        logging.Info,
+        "[Sticker] Iniciando processamento para " <> chat_id,
+      )
+      reagir(msg, "⌛", mensageiro)
+      let prompt = builder.montar_para_sticker(cfg, msg.legenda)
+      // Stickers são tratados como imagens para a IA
+      use resposta <- result.try(ia.processar_imagem(
+        dados,
+        mime,
+        prompt,
+        cfg.modelo,
+      ))
+      logging.log(logging.Info, "[Sticker] Concluído para " <> chat_id)
+      reagir(msg, "🆗", mensageiro)
+      entregar(chat_id, "sticker", resposta, msg, mensageiro, transacoes)
     }
     _ -> Ok(Nil)
   }
@@ -255,7 +343,14 @@ fn entregar(
         transacoes,
       )
     option.None ->
-      entrega_auditada.enviar(chat_id, "amelie", tipo, resposta, mensageiro, transacoes)
+      entrega_auditada.enviar(
+        chat_id,
+        "amelie",
+        tipo,
+        resposta,
+        mensageiro,
+        transacoes,
+      )
   }
 }
 

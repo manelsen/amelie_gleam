@@ -1,7 +1,7 @@
 import core/processador
 import dominio/acao.{
   BaixarVideoUrlEDescrever, BuscarUrlEResponder, EnfileirarMidia, EnviarResposta,
-  GerarEEnviar, MidiaAudio, MidiaImagem, MidiaVideo, NaoResponder,
+  GerarEEnviar, MidiaAudio, MidiaImagem, MidiaSticker, MidiaVideo, NaoResponder,
 }
 import dominio/erro
 import dominio/mensagem
@@ -84,6 +84,14 @@ pub fn processar_video_ativo_test() {
   let result = processador.processar(msg, cfg, [])
   result |> should.be_ok
   let assert Ok([EnfileirarMidia(_, MidiaVideo)]) = result
+}
+
+pub fn processar_sticker_ativo_test() {
+  let msg = fixtures.mensagem_sticker()
+  let cfg = fixtures.config_padrao()
+  let result = processador.processar(msg, cfg, [])
+  result |> should.be_ok
+  let assert Ok([EnfileirarMidia(_, MidiaSticker)]) = result
 }
 
 pub fn processar_midia_indisponivel_responde_direto_test() {

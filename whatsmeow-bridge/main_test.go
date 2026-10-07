@@ -20,7 +20,13 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestHealthUnavailableWithoutSession(t *testing.T) {
+func TestHandleEventIgnoresHistorySync(t *testing.T) {
+	bridge := &Bridge{}
+
+	bridge.handleEvent(&events.HistorySync{})
+}
+
+func TestHandleHealthReportsMissingSession(t *testing.T) {
 	bridge := bridgeWithoutSession()
 	recorder := httptest.NewRecorder()
 
@@ -271,6 +277,105 @@ func TestStickerThumbnailFallbackMissing(t *testing.T) {
 	_, _, ok := stickerThumbnailFallback(&waProto.StickerMessage{})
 	if ok {
 		t.Fatal("did not expect thumbnail fallback")
+	}
+}
+
+func TestStickerMetadataFallbackPayload(t *testing.T) {
+	sticker := &waProto.StickerMessage{
+		AccessibilityLabel: proto.String("personagem sorrindo"),
+		Emojis:             proto.String("😀"),
+		Width:              proto.Uint32(512),
+		Height:             proto.Uint32(512),
+	}
+	payload := IncomingWebhook{
+		ChatID:    "chat",
+		From:      "sender",
+		MessageID: "msg",
+		Tipo:      "sticker",
+		Mime:      "image/webp",
+		Dados:     "abc",
+		Legenda:   "contexto",
+	}
+
+	got := stickerMetadataFallbackPayload(payload, sticker)
+	if got.Tipo != "midia_indisponivel" {
+		t.Fatalf("tipo = %q, want midia_indisponivel", got.Tipo)
+	}
+	if got.Mime != "" || got.Dados != "" || got.Legenda != "" {
+		t.Fatalf("media fields should be cleared: %#v", got)
+	}
+	for _, want := range []string{"mídia veio indisponível", "personagem sorrindo", "😀", "512x512"} {
+		if !strings.Contains(got.Text, want) {
+			t.Fatalf("fallback text %q does not contain %q", got.Text, want)
+		}
+	}
+}
+
+func TestParseWebPMuxFrameCount(t *testing.T) {
+	info := "Canvas size: 512 x 512\nNumber of frames: 27\n"
+
+	got, ok := parseWebPMuxFrameCount(info)
+	if !ok {
+		t.Fatal("expected frame count to parse")
+	}
+	if got != 27 {
+		t.Fatalf("frame count = %d, want 27", got)
+	}
+}
+
+func TestParseWebPMuxFrameCountMissing(t *testing.T) {
+	got, ok := parseWebPMuxFrameCount("Canvas size: 512 x 512\n")
+	if ok {
+		t.Fatalf("expected parse failure, got %d", got)
+	}
+}
+
+func TestSampleFrameIndicesAllFrames(t *testing.T) {
+	got := sampleFrameIndices(4, maxAnimatedStickerFrames)
+	want := []int{1, 2, 3, 4}
+
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("indices = %v, want %v", got, want)
+	}
+}
+
+func TestSampleFrameIndicesSpansAnimation(t *testing.T) {
+	got := sampleFrameIndices(27, maxAnimatedStickerFrames)
+
+	if len(got) != maxAnimatedStickerFrames {
+		t.Fatalf("len(indices) = %d, want %d", len(got), maxAnimatedStickerFrames)
+	}
+	if got[0] != 1 {
+		t.Fatalf("first index = %d, want 1", got[0])
+	}
+	if got[len(got)-1] != 27 {
+		t.Fatalf("last index = %d, want 27", got[len(got)-1])
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i] <= got[i-1] {
+			t.Fatalf("indices should be strictly increasing: %v", got)
+		}
+	}
+}
+
+func TestContactSheetGrid(t *testing.T) {
+	tests := []struct {
+		frameCount int
+		wantCols   int
+		wantRows   int
+	}{
+		{frameCount: 1, wantCols: 1, wantRows: 1},
+		{frameCount: 3, wantCols: 3, wantRows: 1},
+		{frameCount: 16, wantCols: 4, wantRows: 4},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%d_frames", tt.frameCount), func(t *testing.T) {
+			gotCols, gotRows := contactSheetGrid(tt.frameCount)
+			if gotCols != tt.wantCols || gotRows != tt.wantRows {
+				t.Fatalf("grid = %dx%d, want %dx%d", gotCols, gotRows, tt.wantCols, tt.wantRows)
+			}
+		})
 	}
 }
 

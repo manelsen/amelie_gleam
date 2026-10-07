@@ -84,6 +84,33 @@ pub fn montar_para_documento_com_prompt_personalizado_test() {
   string.contains(prompt, "documento") |> should.be_true
 }
 
+pub fn montar_para_sticker_test() {
+  let cfg = fixtures.config_padrao()
+  let prompt = builder.montar_para_sticker(cfg, None)
+  string.contains(prompt, "sticker") |> should.be_true
+  string.contains(prompt, "Audiodescrição do sticker") |> should.be_true
+}
+
+pub fn montar_para_sticker_com_contexto_test() {
+  let cfg = fixtures.config_padrao()
+  let prompt =
+    builder.montar_para_sticker(
+      cfg,
+      Some("figurinha animada com personagem sorrindo"),
+    )
+  string.contains(prompt, "Contexto do sticker") |> should.be_true
+  string.contains(prompt, "personagem sorrindo") |> should.be_true
+}
+
+pub fn montar_para_sticker_animado_test() {
+  let cfg = fixtures.config_padrao()
+  let prompt =
+    builder.montar_para_sticker_animado(cfg, Some("figurinha/sticker animada"))
+  string.contains(prompt, "sticker animado") |> should.be_true
+  string.contains(prompt, "animação inteira") |> should.be_true
+  string.contains(prompt, "Audiodescrição do sticker") |> should.be_true
+}
+
 // Testes para modo de descrição
 pub fn montar_para_imagem_modo_longo_test() {
   let cfg = config.Config(..fixtures.config_padrao(), modo_descricao: Longo)
@@ -92,7 +119,8 @@ pub fn montar_para_imagem_modo_longo_test() {
 }
 
 pub fn montar_para_imagem_modo_curto_test() {
-  let cfg = fixtures.config_padrao()  // curto is default
+  let cfg = fixtures.config_padrao()
+  // curto is default
   let prompt = builder.montar_para_imagem(cfg, None)
   string.contains(prompt, "concisa e objetiva") |> should.be_true
 }
