@@ -213,12 +213,14 @@ fn processar_video(
         msg.legenda
         |> option.unwrap("")
         |> string.contains("figurinha/sticker")
+      let tem_audio = video_tem_audio(caminho)
       let prompt = case eh_sticker_animado {
         True -> builder.montar_para_sticker_animado(cfg, msg.legenda)
         False ->
-          case cfg.legenda_ativo {
+          case cfg.legenda_ativo && tem_audio {
             True -> builder.montar_para_legenda(cfg)
-            False -> builder.montar_para_video(cfg, msg.legenda)
+            False ->
+              builder.montar_para_video_com_audio(cfg, msg.legenda, tem_audio)
           }
       }
       case ia.fazer_upload_video(caminho, mime) {
@@ -371,6 +373,9 @@ fn colapsar_linhas_vazias(texto: String) -> String {
 
 @external(erlang, "amelie_gleam_ffi", "strip_timestamps")
 fn strip_timestamps_ffi(texto: String) -> String
+
+@external(erlang, "amelie_gleam_ffi", "video_tem_audio")
+fn video_tem_audio(caminho: String) -> Bool
 
 @external(erlang, "file", "delete")
 fn simplifile_delete(path: String) -> Result(Nil, ErlFileError)

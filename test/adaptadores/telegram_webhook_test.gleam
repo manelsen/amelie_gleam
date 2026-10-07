@@ -327,6 +327,7 @@ pub fn parsear_evento_animation_test() {
       file_id |> should.equal("anim_gif123")
       mime |> should.equal("video/mp4")
       base.chat_id |> should.equal("tg:998877")
+      base.legenda |> should.equal(Some("Animação/GIF sem áudio"))
     }
     _ -> should.fail()
   }

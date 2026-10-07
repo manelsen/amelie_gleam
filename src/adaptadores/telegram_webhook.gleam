@@ -177,13 +177,19 @@ pub fn converter_update_em_evento(update: TelegramUpdate) -> EventoUpdate {
                               )
                             None -> {
                               case msg.animation {
-                                Some(#(file_id, mime)) ->
+                                Some(#(file_id, mime)) -> {
+                                  let legenda_anim = case msg.caption {
+                                    Some(c) ->
+                                      Some("Animação/GIF sem áudio. " <> c)
+                                    None -> Some("Animação/GIF sem áudio")
+                                  }
                                   EventoVideoParaBaixar(
                                     update.update_id,
-                                    base,
+                                    Mensagem(..base, legenda: legenda_anim),
                                     file_id,
                                     mime,
                                   )
+                                }
                                 None -> {
                                   case msg.document {
                                     Some(#(file_id, mime, file_name)) -> {

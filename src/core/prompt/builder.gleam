@@ -138,9 +138,23 @@ pub fn montar_para_audio(config: Config) -> String {
 }
 
 pub fn montar_para_video(config: Config, legenda: Option(String)) -> String {
+  montar_para_video_com_audio(config, legenda, True)
+}
+
+pub fn montar_para_video_com_audio(
+  config: Config,
+  legenda: Option(String),
+  tem_audio: Bool,
+) -> String {
   let contexto = case config.prompt_sistema {
     Some(p) -> p <> "\n\n"
     None -> ""
+  }
+  let regra_audio = case tem_audio {
+    False ->
+      "\n- ATENÇÃO CRÍTICA AO ÁUDIO: Este vídeo é MUDO ou uma animação/GIF SEM ÁUDIO. NÃO invente, não deduza e não alucine falas, músicas, gritos, sons ou ruídos com base na ação visual. Não descreva áudio inexistente."
+    True ->
+      "\n- Incorpore o que é dito ou narrado no áudio apenas se for audível na gravação, integrando fala e descrição visual. NUNCA deduza ou invente falas ou sons baseando-se apenas em gestos ou instrumentos visíveis."
   }
   contexto
   <> "Faça a audiodescrição deste vídeo em "
@@ -148,9 +162,8 @@ pub fn montar_para_video(config: Config, legenda: Option(String)) -> String {
   <> ". REGRAS:"
   <> "\n- Descreva ações, personagens, cenários e mudanças de cena em sequência cronológica."
   <> "\n- Inclua: cores, posições espaciais, expressões faciais, gestos, vestuário e ambiente."
-  <> "\n- Incorpore o que é dito ou narrado no áudio, integrando fala e descrição visual."
+  <> regra_audio
   <> "\n- Transcreva na íntegra qualquer texto visível na tela (títulos, legendas, créditos, placas)."
-  <> "\n- Identifique a origem de sons não óbvios quando relevante."
   <> "\n- Identifique pessoas por nome (se reconhecíveis) ou por atributo físico visível."
   <> "\n- Seja objetiva: descreva apenas o observável, sem interpretar intenções ou estados mentais. Não censure conteúdo."
   <> "\n- Use tempo presente, voz ativa e terceira pessoa."
@@ -173,6 +186,7 @@ pub fn montar_para_legenda(config: Config) -> String {
   <> "\n- Identifique os falantes quando houver mais de um."
   <> "\n- Descreva sons relevantes entre colchetes (ex: [aplausos], [música de fundo])."
   <> "\n- Transcreva textos visíveis na tela que complementem o áudio."
+  <> "\n- Se o vídeo for mudo ou não tiver áudio, informe que não há trilha sonora audível."
   <> sem_introducao()
   <> "\nInicie sua resposta exatamente com \"Transcrição do vídeo\" e finalize com \"Fim da transcrição\"."
 }

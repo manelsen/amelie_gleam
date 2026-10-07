@@ -2,7 +2,7 @@
 -export([read_file/1, int_to_string/1, get_env/1, now_ms/0,
          sha256_hex/1, memoria_total_mb/0, memoria_processos_mb/0,
          contagem_processos/0, spawn_fn/1, upload_file/3, debug_log/1,
-         strip_timestamps/1, ytdlp_download/1]).
+         strip_timestamps/1, ytdlp_download/1, video_tem_audio/1]).
 
 %% Lê arquivo do disco.
 %% Retorna {ok, Binary} | {error, Binary} — Result(BitArray, String) no Gleam.
@@ -169,3 +169,16 @@ ytdlp_wait(Port, Dir, Acc) ->
 debug_log(Msg) ->
     io:format(<<"DEBUG: ~s~n">>, [Msg]),
     ok.
+
+%% Verifica se o arquivo de vídeo possui faixa/stream de áudio.
+%% Retorna true | false.
+video_tem_audio(Path) ->
+    case os:find_executable("ffprobe") of
+        false ->
+            true;
+        Ffprobe ->
+            Cmd = Ffprobe ++ " -v error -select_streams a:0 -show_entries stream=codec_type -of default=nw=1:nk=1 \"" ++ binary_to_list(Path) ++ "\"",
+            Output = os:cmd(Cmd),
+            string:trim(Output) =:= "audio"
+    end.
+
