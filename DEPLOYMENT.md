@@ -64,6 +64,8 @@ docker compose exec amelie sh   # Acessar shell interno para depuração
 |---|---|---|
 | `GEMINI_API_KEY` | — | Chave da Google Gemini API (**obrigatório**) |
 | `OPENROUTER_API_KEY` | — | Chave OpenRouter (opcional para modelos adicionais) |
+| `TELEGRAM_BOT_TOKEN` | — | Token da Telegram Bot API gerado via @BotFather (opcional) |
+| `TELEGRAM_SECRET_TOKEN` | — | Token secreto para validação do webhook do Telegram (opcional) |
 | `MOBILE_NUMBER` | — | Número de telefone para Pairing Code (ex: `5531999990000`) |
 | `DB_PATH` | `/data/amelie.sqlite` | Caminho do SQLite da aplicação Gleam |
 | `BRIDGE_DB_PATH` | `/data/bridge/whatsapp.db` | Caminho do SQLite de sessão do WhatsApp |

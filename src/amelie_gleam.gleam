@@ -4,6 +4,9 @@ import adaptadores/grupo_sqlite
 import adaptadores/historico_sqlite
 import adaptadores/openrouter_http
 import adaptadores/prompt_sqlite
+import adaptadores/roteador_mensageiro
+import adaptadores/telegram_http
+import adaptadores/telegram_webhook
 import adaptadores/transacao_sqlite
 import adaptadores/usuario_sqlite
 import adaptadores/whatsmeow_http
@@ -71,6 +74,13 @@ pub fn main() {
   let openrouter_api_key =
     get_env("OPENROUTER_API_KEY")
     |> result.unwrap(or: "")
+  let telegram_bot_token =
+    get_env("TELEGRAM_BOT_TOKEN")
+    |> result.unwrap(or: "")
+  let telegram_secret_token =
+    get_env("TELEGRAM_SECRET_TOKEN")
+    |> result.unwrap(or: "")
+
   let bridge_url =
     get_env("WHATSMEOW_URL")
     |> result.unwrap(or: "http://localhost:8080")
@@ -122,6 +132,8 @@ pub fn main() {
   let ia_dispatcher =
     ia_dispatcher.IADispatcher(gemini: gemini_ia, openrouter: openrouter_ia)
   let whatsapp = whatsmeow_http.criar(bridge_url)
+  let telegram = telegram_http.criar(telegram_bot_token)
+  let mensageiro = roteador_mensageiro.criar(whatsapp, telegram)
   let config_p = config_sqlite.criar(conn)
   let historico_p = historico_sqlite.criar(conn)
   let prompts_p = prompt_sqlite.criar(conn)
@@ -138,7 +150,7 @@ pub fn main() {
     |> result.lazy_unwrap(fn() { panic as "falha ao iniciar métricas" })
 
   let fila_offline_actor =
-    fila_offline.iniciar(transacoes_p, whatsapp, 3)
+    fila_offline.iniciar(transacoes_p, mensageiro, 3)
     |> result.lazy_unwrap(fn() { panic as "falha ao iniciar fila offline" })
   let _ =
     fila_offline.agendar_processamento(
@@ -149,7 +161,7 @@ pub fn main() {
 
   let portas =
     Portas(
-      mensageiro: whatsapp,
+      mensageiro: mensageiro,
       ia_dispatcher: ia_dispatcher,
       config: config_p,
       historico: historico_p,
@@ -163,7 +175,7 @@ pub fn main() {
     )
 
   let assert Ok(_) =
-    mist.new(fn(req) { handle_request(req, portas) })
+    mist.new(fn(req) { handle_request(req, portas, telegram_secret_token) })
     |> mist.port(port)
     |> mist.bind("0.0.0.0")
     |> mist.start
@@ -178,11 +190,50 @@ pub fn main() {
 fn handle_request(
   req: Request(Connection),
   portas: Portas,
+  telegram_secret: String,
 ) -> response.Response(ResponseData) {
   case req.path {
     "/webhook" -> handle_webhook(req, portas)
+    "/webhook/telegram" -> handle_telegram_webhook(req, portas, telegram_secret)
     "/health" -> json_response(200, "{\"status\":\"ok\"}")
     _ -> json_response(404, "{\"error\":\"not found\"}")
+  }
+}
+
+fn handle_telegram_webhook(
+  req: Request(Connection),
+  portas: Portas,
+  secret_token: String,
+) -> response.Response(ResponseData) {
+  case secret_token {
+    "" -> processar_telegram_body(req, portas)
+    expected -> {
+      case request.get_header(req, "x-telegram-bot-api-secret-token") {
+        Ok(token) if token == expected -> processar_telegram_body(req, portas)
+        _ -> json_response(401, "{\"error\":\"unauthorized\"}")
+      }
+    }
+  }
+}
+
+fn processar_telegram_body(
+  req: Request(Connection),
+  portas: Portas,
+) -> response.Response(ResponseData) {
+  case mist.read_body(req, 1024 * 1024) {
+    Error(_) -> json_response(400, "{\"error\":\"failed to read body\"}")
+    Ok(req_with_body) ->
+      case telegram_webhook.parsear_update(req_with_body.body) {
+        Error(_) ->
+          json_response(400, "{\"error\":\"invalid telegram payload\"}")
+        Ok(option.None) -> json_response(200, "{\"ok\":true,\"ignored\":true}")
+        Ok(option.Some(msg)) -> {
+          spawn_fn(fn() {
+            handler_mensagem.handle(msg, portas)
+          })
+          json_response(200, "{\"ok\":true}")
+        }
+      }
   }
 }
 
