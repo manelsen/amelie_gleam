@@ -7,8 +7,11 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
@@ -268,5 +271,60 @@ func TestStickerThumbnailFallbackMissing(t *testing.T) {
 	_, _, ok := stickerThumbnailFallback(&waProto.StickerMessage{})
 	if ok {
 		t.Fatal("did not expect thumbnail fallback")
+	}
+}
+
+func TestAttachMediaFileReplacesInlineData(t *testing.T) {
+	b := &Bridge{}
+	payload := IncomingWebhook{ChatID: "chat", Mime: "audio/ogg", Dados: "resto"}
+	data := []byte("conteudo binario")
+
+	if !b.attachMediaFile(&payload, "audio", "", data) {
+		t.Fatal("attachMediaFile falhou")
+	}
+	defer os.Remove(payload.Caminho)
+
+	if payload.Dados != "" {
+		t.Fatalf("Dados deveria ficar vazio, veio %q", payload.Dados)
+	}
+	if !strings.HasPrefix(filepath.Base(payload.Caminho), mediaTempPrefix+"audio_") {
+		t.Fatalf("caminho sem prefixo esperado: %s", payload.Caminho)
+	}
+	gravado, err := os.ReadFile(payload.Caminho)
+	if err != nil {
+		t.Fatalf("lendo arquivo: %v", err)
+	}
+	if string(gravado) != string(data) {
+		t.Fatalf("conteudo gravado diferente: %q", gravado)
+	}
+}
+
+func TestCleanupOrphanMediaFiles(t *testing.T) {
+	dir := t.TempDir()
+	antigo := filepath.Join(dir, mediaTempPrefix+"imagem_antigo")
+	recente := filepath.Join(dir, mediaTempPrefix+"imagem_recente")
+	alheio := filepath.Join(dir, "outro_arquivo")
+	for _, path := range []string{antigo, recente, alheio} {
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	velho := time.Now().Add(-48 * time.Hour)
+	for _, path := range []string{antigo, alheio} {
+		if err := os.Chtimes(path, velho, velho); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cleanupOrphanMediaFiles(dir, orphanMediaMaxAge)
+
+	if _, err := os.Stat(antigo); !os.IsNotExist(err) {
+		t.Fatalf("arquivo órfão antigo deveria ter sido removido: %v", err)
+	}
+	if _, err := os.Stat(recente); err != nil {
+		t.Fatalf("arquivo recente deveria permanecer: %v", err)
+	}
+	if _, err := os.Stat(alheio); err != nil {
+		t.Fatalf("arquivo sem prefixo deveria permanecer: %v", err)
 	}
 }

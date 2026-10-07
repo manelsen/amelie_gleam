@@ -86,6 +86,18 @@ pub fn processar_video_ativo_test() {
   let assert Ok([EnfileirarMidia(_, MidiaVideo)]) = result
 }
 
+pub fn processar_midia_indisponivel_responde_direto_test() {
+  let msg =
+    mensagem.Mensagem(
+      ..fixtures.mensagem_texto(""),
+      corpo: mensagem.MidiaIndisponivel("Mídia indisponível."),
+    )
+  let cfg = fixtures.config_padrao()
+  let result = processador.processar(msg, cfg, [])
+  result |> should.be_ok
+  let assert Ok([EnviarResposta(_, "Mídia indisponível.")]) = result
+}
+
 pub fn processar_chat_id_vazio_retorna_erro_test() {
   let msg = mensagem.Mensagem(..fixtures.mensagem_texto("teste"), chat_id: "")
   let cfg = fixtures.config_padrao()

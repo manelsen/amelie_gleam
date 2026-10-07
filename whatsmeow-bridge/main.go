@@ -412,7 +412,9 @@ func (b *Bridge) processMessage(evt *events.Message) {
 		if !ok {
 			return
 		}
-		payload.Dados = base64.StdEncoding.EncodeToString(data)
+		if !b.attachMediaFile(&payload, "imagem", "", data) {
+			return
+		}
 	} else if aud := evt.Message.GetAudioMessage(); aud != nil {
 		payload.Tipo = "audio"
 		payload.Mime = aud.GetMimetype()
@@ -423,7 +425,9 @@ func (b *Bridge) processMessage(evt *events.Message) {
 		if !ok {
 			return
 		}
-		payload.Dados = base64.StdEncoding.EncodeToString(data)
+		if !b.attachMediaFile(&payload, "audio", "", data) {
+			return
+		}
 	} else if doc := evt.Message.GetDocumentMessage(); doc != nil {
 		// WhatsApp moderno envia imagem/áudio/vídeo como DocumentMessage.
 		// Reclassifica pelo MIME type e, quando ele vier genérico, pelo nome do arquivo.
@@ -441,7 +445,9 @@ func (b *Bridge) processMessage(evt *events.Message) {
 			if !ok {
 				return
 			}
-			payload.Dados = base64.StdEncoding.EncodeToString(data)
+			if !b.attachMediaFile(&payload, "imagem", "", data) {
+				return
+			}
 		case "audio":
 			payload.Tipo = "audio"
 			payload.Mime = mime
@@ -452,7 +458,9 @@ func (b *Bridge) processMessage(evt *events.Message) {
 			if !ok {
 				return
 			}
-			payload.Dados = base64.StdEncoding.EncodeToString(data)
+			if !b.attachMediaFile(&payload, "audio", "", data) {
+				return
+			}
 		case "video":
 			payload.Tipo = "video"
 			payload.Mime = mime
@@ -464,14 +472,9 @@ func (b *Bridge) processMessage(evt *events.Message) {
 			if !ok {
 				return
 			}
-			tmpFile, ferr := os.CreateTemp("", "amelie_video_*.mp4")
-			if ferr != nil {
-				log.Printf("Falha ao criar arquivo temporario de video: chat=%s mime=%s arquivo=%q erro=%v", chatID, mime, fileName, ferr)
+			if !b.attachMediaFile(&payload, "video", ".mp4", data) {
 				return
 			}
-			_, _ = tmpFile.Write(data)
-			payload.Caminho = tmpFile.Name()
-			tmpFile.Close()
 		default:
 			payload.Tipo = "documento"
 			payload.Mime = mime
@@ -484,7 +487,9 @@ func (b *Bridge) processMessage(evt *events.Message) {
 			if !ok {
 				return
 			}
-			payload.Dados = base64.StdEncoding.EncodeToString(data)
+			if !b.attachMediaFile(&payload, "documento", "", data) {
+				return
+			}
 		}
 	} else if vid := evt.Message.GetVideoMessage(); vid != nil {
 		payload.Tipo = "video"
@@ -497,14 +502,9 @@ func (b *Bridge) processMessage(evt *events.Message) {
 		if !ok {
 			return
 		}
-		tmpFile, err := os.CreateTemp("", "amelie_video_*.mp4")
-		if err != nil {
-			log.Printf("Falha ao criar arquivo temporario de video: chat=%s mime=%s erro=%v", chatID, payload.Mime, err)
+		if !b.attachMediaFile(&payload, "video", ".mp4", data) {
 			return
 		}
-		tmpFile.Write(data)
-		payload.Caminho = tmpFile.Name()
-		tmpFile.Close()
 	} else if sticker := evt.Message.GetStickerMessage(); sticker != nil {
 		payload.Tipo = "imagem"
 		payload.Mime = normalizeStickerMime(sticker.GetMimetype())
@@ -1011,9 +1011,69 @@ func (b *Bridge) processQueue() {
 	}
 }
 
+// mediaTempPrefix identifica arquivos de mídia que o bridge entrega ao Gleam
+// por caminho. O Gleam apaga cada arquivo depois de lê-lo; os que sobrarem
+// (mensagens abandonadas pela fila) são removidos por cleanupOrphanMediaFiles.
+const mediaTempPrefix = "amelie_midia_"
+
+// orphanMediaMaxAge supera a janela de 24h em que a fila ainda tenta entregar.
+const orphanMediaMaxAge = 26 * time.Hour
+
+// writeMediaTemp grava a mídia em arquivo temporário. O webhook leva só o
+// caminho: base64 de mídia grande ultrapassava o limite de corpo do Mist.
+func writeMediaTemp(kind, ext string, data []byte) (string, error) {
+	f, err := os.CreateTemp("", mediaTempPrefix+kind+"_*"+ext)
+	if err != nil {
+		return "", err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
+}
+
+func (b *Bridge) attachMediaFile(payload *IncomingWebhook, kind, ext string, data []byte) bool {
+	path, err := writeMediaTemp(kind, ext, data)
+	if err != nil {
+		log.Printf("Falha ao gravar mídia temporária: chat=%s mensagem=%s tipo=%s mime=%s bytes=%d erro=%v", payload.ChatID, payload.MessageID, kind, payload.Mime, len(data), err)
+		return false
+	}
+	payload.Dados = ""
+	payload.Caminho = path
+	return true
+}
+
+func cleanupOrphanMediaFiles(dir string, maxAge time.Duration) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		log.Printf("[Fila] Erro ao listar mídias temporárias: %v", err)
+		return
+	}
+	limite := time.Now().Add(-maxAge)
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() || !strings.HasPrefix(entry.Name(), mediaTempPrefix) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || info.ModTime().After(limite) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, entry.Name())); err == nil {
+			log.Printf("[Fila] Mídia temporária órfã removida: %s", entry.Name())
+		}
+	}
+}
+
 func (b *Bridge) cleanupQueue() {
 	b.queueDB.Exec(`DELETE FROM webhook_queue WHERE delivered_at IS NOT NULL AND created_at < unixepoch() - 3600`)
 	b.queueDB.Exec(`DELETE FROM webhook_queue WHERE attempts >= 100 AND created_at < unixepoch() - 86400`)
+	cleanupOrphanMediaFiles(os.TempDir(), orphanMediaMaxAge)
 }
 
 func (b *Bridge) postToGleam(payload IncomingWebhook) error {

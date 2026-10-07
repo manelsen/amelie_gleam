@@ -20,6 +20,7 @@ pub type Conteudo {
   Audio(mime: String, dados: BitArray)
   Video(caminho_temp: String, mime: String)
   Documento(mime: String, dados: BitArray, nome: String)
+  MidiaIndisponivel(mensagem: String)
   Comando(nome: String, args: String)
 }
 

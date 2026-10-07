@@ -45,6 +45,20 @@ fn get_env(name: String) -> Result(String, Nil)
 @external(erlang, "amelie_gleam_ffi", "spawn_fn")
 fn spawn_fn(f: fn() -> a) -> Nil
 
+@external(erlang, "amelie_gleam_ffi", "read_file")
+fn read_file(path: String) -> Result(BitArray, String)
+
+@external(erlang, "file", "delete")
+fn delete_file(path: String) -> Result(Nil, ErlFileError)
+
+type ErlFileError
+
+/// Webhook decodificado. `arquivo` aponta para a mídia que o bridge gravou em
+/// disco e que ainda precisa ser lida para preencher `msg.corpo`.
+type Webhook {
+  Webhook(msg: Mensagem, arquivo: option.Option(String))
+}
+
 pub fn main() {
   dot_env.new()
   |> dot_env.load
@@ -181,17 +195,19 @@ fn handle_webhook(
     Ok(req_with_body) ->
       case parse_webhook(req_with_body.body) {
         Error(_) -> json_response(400, "{\"error\":\"invalid payload\"}")
-        Ok(msg) -> {
+        Ok(webhook) -> {
           // Processa em processo isolado — webhook retorna imediatamente.
           // Evita bloquear o Mist durante chamadas à IA (2-10s).
-          spawn_fn(fn() { handler_mensagem.handle(msg, portas) })
+          spawn_fn(fn() {
+            handler_mensagem.handle(carregar_midia(webhook), portas)
+          })
           json_response(202, "{\"ok\":true}")
         }
       }
   }
 }
 
-fn parse_webhook(body: BitArray) -> Result(Mensagem, Nil) {
+fn parse_webhook(body: BitArray) -> Result(Webhook, Nil) {
   case bit_array.to_string(body) {
     Error(_) -> Error(Nil)
     Ok(s) ->
@@ -200,7 +216,7 @@ fn parse_webhook(body: BitArray) -> Result(Mensagem, Nil) {
   }
 }
 
-fn mensagem_decoder() -> decode.Decoder(Mensagem) {
+fn mensagem_decoder() -> decode.Decoder(Webhook) {
   use chat_id <- decode.field("chat_id", decode.string)
   use from <- decode.field("from", decode.string)
   use message_id <- decode.optional_field(
@@ -228,18 +244,20 @@ fn mensagem_decoder() -> decode.Decoder(Mensagem) {
   use dados <- decode.optional_field("dados", "", decode.string)
   use caminho <- decode.optional_field("caminho_temp", "", decode.string)
 
-  let corpo = parsear_corpo(tipo, text, mime, dados, caminho)
-  decode.success(Mensagem(
-    chat_id: chat_id,
-    remetente: from,
-    message_id: message_id,
-    corpo: corpo,
-    timestamp: ts,
-    em_grupo: em_grupo,
-    nome_grupo: nome_grupo,
-    menciona_bot: menciona,
-    legenda: caption,
-  ))
+  let #(corpo, arquivo) = parsear_corpo(tipo, text, mime, dados, caminho)
+  let msg =
+    Mensagem(
+      chat_id: chat_id,
+      remetente: from,
+      message_id: message_id,
+      corpo: corpo,
+      timestamp: ts,
+      em_grupo: em_grupo,
+      nome_grupo: nome_grupo,
+      menciona_bot: menciona,
+      legenda: caption,
+    )
+  decode.success(Webhook(msg: msg, arquivo: arquivo))
 }
 
 fn parsear_corpo(
@@ -248,25 +266,34 @@ fn parsear_corpo(
   mime: String,
   dados: String,
   caminho_temp: String,
-) -> mensagem.Conteudo {
+) -> #(mensagem.Conteudo, option.Option(String)) {
+  // Mídia chega por arquivo (`caminho_temp`); `dados` em base64 só aparece em
+  // payloads antigos que ainda estejam na fila do bridge.
+  let #(bytes, arquivo) = case caminho_temp {
+    "" -> #(
+      bit_array.base64_decode(dados) |> result.unwrap(or: <<>>),
+      option.None,
+    )
+    _ -> #(<<>>, option.Some(caminho_temp))
+  }
   case tipo {
-    "imagem" -> {
-      let b = bit_array.base64_decode(dados) |> result.unwrap(or: <<>>)
-      mensagem.Imagem(mime: mime, dados: b)
-    }
-    "audio" -> {
-      let b = bit_array.base64_decode(dados) |> result.unwrap(or: <<>>)
-      mensagem.Audio(mime: mime, dados: b)
-    }
-    "documento" -> {
-      let b = bit_array.base64_decode(dados) |> result.unwrap(or: <<>>)
-      mensagem.Documento(mime: mime, dados: b, nome: text)
-    }
-    "video" -> {
-      mensagem.Video(caminho_temp: caminho_temp, mime: mime)
-    }
+    "imagem" -> #(mensagem.Imagem(mime: mime, dados: bytes), arquivo)
+    "audio" -> #(mensagem.Audio(mime: mime, dados: bytes), arquivo)
+    "documento" -> #(
+      mensagem.Documento(mime: mime, dados: bytes, nome: text),
+      arquivo,
+    )
+    // Vídeo segue em disco até o upload para a IA; fila_midia apaga o arquivo.
+    "video" -> #(
+      mensagem.Video(caminho_temp: caminho_temp, mime: mime),
+      option.None,
+    )
+    "midia_indisponivel" -> #(
+      mensagem.MidiaIndisponivel(mensagem: text),
+      option.None,
+    )
     _ -> {
-      case string.trim(text) {
+      let corpo = case string.trim(text) {
         "." <> rest -> {
           case string.split_once(rest, " ") {
             Ok(#(nome, args)) ->
@@ -276,7 +303,47 @@ fn parsear_corpo(
         }
         _ -> Texto(text)
       }
+      #(corpo, option.None)
     }
+  }
+}
+
+/// Lê do disco a mídia gravada pelo bridge e apaga o arquivo. Se a leitura
+/// falhar, responde ao usuário em vez de processar mídia vazia.
+fn carregar_midia(webhook: Webhook) -> Mensagem {
+  case webhook.arquivo {
+    option.None -> webhook.msg
+    option.Some(caminho) -> {
+      let corpo = case read_file(caminho) {
+        Ok(bytes) -> com_bytes(webhook.msg.corpo, bytes)
+        Error(motivo) -> {
+          logging.log(
+            logging.Warning,
+            "Falha ao ler mídia temporária "
+              <> caminho
+              <> " de "
+              <> webhook.msg.chat_id
+              <> ": "
+              <> motivo,
+          )
+          mensagem.MidiaIndisponivel(
+            mensagem: "Não consegui ler a mídia que você enviou. Pode reenviar?",
+          )
+        }
+      }
+      let _ = delete_file(caminho)
+      Mensagem(..webhook.msg, corpo: corpo)
+    }
+  }
+}
+
+fn com_bytes(corpo: mensagem.Conteudo, bytes: BitArray) -> mensagem.Conteudo {
+  case corpo {
+    mensagem.Imagem(mime: mime, ..) -> mensagem.Imagem(mime: mime, dados: bytes)
+    mensagem.Audio(mime: mime, ..) -> mensagem.Audio(mime: mime, dados: bytes)
+    mensagem.Documento(mime: mime, nome: nome, ..) ->
+      mensagem.Documento(mime: mime, dados: bytes, nome: nome)
+    outro -> outro
   }
 }
 

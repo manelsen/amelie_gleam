@@ -538,6 +538,7 @@ fn extrair_texto_usuario(msg: Mensagem) -> String {
     Audio(..) -> "[áudio]"
     Video(..) -> "[vídeo]"
     Documento(nome: nome, ..) -> "[documento: " <> nome <> "]"
+    mensagem.MidiaIndisponivel(..) -> "[mídia indisponível]"
     mensagem.Comando(nome, args) -> "." <> nome <> " " <> args
   }
 }

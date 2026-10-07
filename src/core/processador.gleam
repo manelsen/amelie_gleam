@@ -6,7 +6,8 @@ import core/prompt/builder
 import core/validacao
 import dominio/acao.{
   type Acao, BaixarVideoUrlEDescrever, BuscarUrlEResponder, EnfileirarMidia,
-  GerarEEnviar, MidiaAudio, MidiaDocumento, MidiaImagem, MidiaVideo, NaoResponder,
+  EnviarResposta, GerarEEnviar, MidiaAudio, MidiaDocumento, MidiaImagem,
+  MidiaVideo, NaoResponder,
 }
 import dominio/config.{type Config}
 import dominio/erro.{type Erro}
@@ -50,6 +51,8 @@ fn processar_filtrado(
     Audio(..) -> processar_midia(msg, config, MidiaAudio)
     Video(..) -> processar_midia(msg, config, MidiaVideo)
     Documento(..) -> processar_midia(msg, config, MidiaDocumento)
+    mensagem.MidiaIndisponivel(mensagem) ->
+      Ok([EnviarResposta(config.chat_id, mensagem)])
   }
 }
 
