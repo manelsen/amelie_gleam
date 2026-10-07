@@ -59,14 +59,14 @@ Para usar a Amélie, basta adicioná-la aos seus contatos e enviar mensagens. El
 - `.longo`: Configura a assistente para enviar descrições detalhadas e aprofundadas.
 - `.reset`: Limpa o histórico da conversa e retorna as configurações para o padrão.
 
-### Comandos para ativar ou desativar tipos de mídia
+### Comandos para alternar tipos de mídia
 
-Se você preferir que a Amélie processe apenas certos tipos de arquivos na conversa, use:
+Se você preferir ligar ou desligar o processamento de certos arquivos na conversa, basta enviar o comando (ele funciona como um interruptor liga/desliga):
 
-- `.audio on` ou `.audio off`: Ativa ou desativa o processamento de mensagens de voz.
-- `.imagem on` ou `.imagem off`: Ativa ou desativa a audiodescrição de fotos e imagens.
-- `.video on` ou `.video off`: Ativa ou desativa a análise de vídeos.
-- `.doc on` ou `.doc off`: Ativa ou desativa a leitura e resumo de documentos.
+- `.audio`: Alterna o processamento e a transcrição de mensagens de voz.
+- `.imagem`: Alterna a audiodescrição de fotos e imagens.
+- `.video`: Alterna a audiodescrição e análise de vídeos.
+- `.doc`: Alterna a leitura e resumo de documentos.
 - `.legenda`: Alterna o modo de vídeo entre resumo visual e transcrição de falas.
 
 ### Comandos avançados de inteligência artificial

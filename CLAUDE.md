@@ -130,7 +130,7 @@ amelie_gleam.gleam — Entry point: wires adapters → ports → Mist HTTP serve
 Messages starting with `.` (or without point where supported) are parsed as bot commands:
 - `.ajuda` — help text.
 - `.reset` — reset chat configuration and conversation history.
-- `.audio on|off`, `.imagem on|off`, `.video on|off`, `.doc on|off` — toggle media processing.
+- `.audio`, `.imagem`, `.video`, `.doc` — alternar processamento de mídia (toggle liga/desliga).
 - `.legenda` — toggle video transcription vs description.
 - `.longo` / `.curto` — toggle detailed vs concise image descriptions.
 - `.cego` — accessibility mode for visually impaired users.
