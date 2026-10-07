@@ -33,6 +33,7 @@ import shell/handler_mensagem.{type Portas, Portas}
 import shell/ia_resiliente
 import shell/manutencao
 import shell/metricas
+import shell/telegram_poller
 import sqlight
 
 import dot_env
@@ -173,6 +174,8 @@ pub fn main() {
       transacoes: transacoes_p,
       providers_config: providers_config,
     )
+
+  let _ = telegram_poller.iniciar(telegram_bot_token, portas)
 
   let assert Ok(_) =
     mist.new(fn(req) { handle_request(req, portas, telegram_secret_token) })

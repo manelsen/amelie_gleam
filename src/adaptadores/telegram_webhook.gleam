@@ -8,6 +8,7 @@ import gleam/bit_array
 import gleam/dynamic/decode
 import gleam/int
 import gleam/json
+import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
@@ -27,6 +28,10 @@ pub type TelegramMessage {
   )
 }
 
+pub type UpdateItem {
+  UpdateItem(update_id: Int, mensagem: Option(Mensagem))
+}
+
 pub fn parsear_update(body: BitArray) -> Result(Option(Mensagem), Erro) {
   use s <- result.try(
     bit_array.to_string(body)
@@ -43,31 +48,49 @@ pub fn parsear_update(body: BitArray) -> Result(Option(Mensagem), Erro) {
 
   case update.message {
     None -> Ok(None)
-    Some(msg) -> {
-      // Regra de segurança/privacidade: Amélie NUNCA atua em grupos no Telegram
-      case msg.chat_type == "private" {
-        False -> Ok(None)
-        True -> {
-          case msg.text {
-            None -> Ok(None)
-            Some(raw_text) -> {
-              let sender_id = option.unwrap(msg.from_id, msg.chat_id)
-              let corpo = parsear_texto_ou_comando(raw_text)
-              let m =
-                Mensagem(
-                  chat_id: "tg:" <> int.to_string(msg.chat_id),
-                  remetente: "tg:" <> int.to_string(sender_id),
-                  message_id: Some(int.to_string(msg.message_id)),
-                  corpo: corpo,
-                  timestamp: msg.date,
-                  em_grupo: False,
-                  nome_grupo: None,
-                  menciona_bot: True,
-                  legenda: None,
-                )
-              Ok(Some(m))
-            }
-          }
+    Some(msg) -> Ok(converter_mensagem(msg))
+  }
+}
+
+pub fn extrair_updates(json_str: String) -> Result(List(UpdateItem), Erro) {
+  use updates <- result.try(
+    json.parse(json_str, get_updates_response_decoder())
+    |> result.map_error(fn(_) {
+      erro.ErroValidacao("telegram", "json de getUpdates inválido")
+    }),
+  )
+
+  let itens =
+    list.map(updates, fn(up) {
+      let msg_opt = case up.message {
+        None -> None
+        Some(m) -> converter_mensagem(m)
+      }
+      UpdateItem(update_id: up.update_id, mensagem: msg_opt)
+    })
+  Ok(itens)
+}
+
+pub fn converter_mensagem(msg: TelegramMessage) -> Option(Mensagem) {
+  case msg.chat_type == "private" {
+    False -> None
+    True -> {
+      case msg.text {
+        None -> None
+        Some(raw_text) -> {
+          let sender_id = option.unwrap(msg.from_id, msg.chat_id)
+          let corpo = parsear_texto_ou_comando(raw_text)
+          Some(Mensagem(
+            chat_id: "tg:" <> int.to_string(msg.chat_id),
+            remetente: "tg:" <> int.to_string(sender_id),
+            message_id: Some(int.to_string(msg.message_id)),
+            corpo: corpo,
+            timestamp: msg.date,
+            em_grupo: False,
+            nome_grupo: None,
+            menciona_bot: True,
+            legenda: None,
+          ))
         }
       }
     }
@@ -127,4 +150,8 @@ fn telegram_message_decoder() -> decode.Decoder(TelegramMessage) {
     from_id: from_id,
     text: text,
   ))
+}
+
+fn get_updates_response_decoder() -> decode.Decoder(List(TelegramUpdate)) {
+  decode.at(["result"], decode.list(telegram_update_decoder()))
 }
