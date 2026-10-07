@@ -1,119 +1,114 @@
-# Amélie — WhatsApp Multimodal Bot (Gleam / BEAM)
+# Amélie: Assistente Acessível de Inteligência Artificial para WhatsApp
 
-Amélie é uma assistente inteligente para WhatsApp construída em **[Gleam](https://gleam.run/)** sobre a máquina virtual **Erlang/OTP (BEAM)**, integrando-se ao ecossistema do WhatsApp através de um bridge local de alto desempenho em **Go** ([whatsmeow](https://github.com/tulir/whatsmeow)) e provedores de Inteligência Artificial multimodal de ponta (**Google Gemini** e **OpenRouter**).
+A **Amélie** é uma assistente virtual de inteligência artificial que vive no WhatsApp, pensada desde o início para promover a autonomia, a inclusão e o acesso à informação de **pessoas com deficiência**.
 
-O projeto adota rigorosamente os princípios de **Arquitetura Hexagonal (Ports & Adapters)** com um **Functional Core puro**, garantindo separação absoluta entre regras de negócio determinísticas e efeitos colaterais de I/O.
-
----
-
-## ✨ Funcionalidades Principais
-
-- 💬 **Texto Conversacional:** Respostas contextuais com histórico persistente por conversa em SQLite e compactação automática de contexto longo.
-- 🎙️ **Transcrição de Áudio:** Processamento de mensagens de voz e arquivos de áudio via Gemini, com sanitização de timestamps.
-- 🖼️ **Visão Computacional e Audiodescrição:** Interpretação visual com modos conciso (`.curto`), detalhado (`.longo`) ou de acessibilidade para pessoas com deficiência visual (`.cego`).
-- 🎬 **Vídeos e Redes Sociais:**
-  - Análise e audiodescrição de vídeos enviados diretamente no chat.
-  - Extração e análise automática de links de vídeo do **YouTube (Shorts/Live)**, **Instagram (Reels)** e **TikTok** via `yt-dlp`.
-- 🎭 **Figurinhas e Stickers:**
-  - Suporte nativo a figurinhas estáticas (WebP).
-  - Processamento de figurinhas animadas via conversão cronológica para vídeo MP4 (Python PIL + `ffmpeg`) ou grade de quadros (*contact sheet* via `webpmux`/`dwebp`).
-  - Fallback por metadados quando o arquivo de figurinha já expirou nos servidores do WhatsApp.
-- 📄 **Leitura de Documentos:** Análise e resumo estruturado de documentos e PDFs.
-- 🌐 **Leitura de Links:** Extração de conteúdo textual de páginas web compartilhadas no chat.
-- 🛡️ **Resiliência e Tolerância a Falhas:**
-  - Transações auditadas em SQLite e deduplicação de mensagens recebidas.
-  - Fila offline automática com backoff para reenvio de mensagens em instabilidades.
-  - Circuit Breaker individual por provedor de IA com estados Fechado, Aberto e SemiAberto.
-  - Cache de respostas de IA em memória (SHA-256 de prompt + modelo, TTL 1h).
-  - Offload de mídia pesada para disco temporário para evitar limites de buffer HTTP.
+Seja você uma pessoa cega, com baixa visão, surda, ensurdecida, neurodivergente ou com mobilidade reduzida, a Amélie transforma mídias visuais e auditivas em formatos acessíveis e fáceis de compreender diretamente no seu aplicativo de mensagens.
 
 ---
 
-## 🏛️ Visão da Arquitetura
+## O que a Amélie faz por você
 
-```text
-src/
-├── dominio/          # Tipos puros: Mensagem, Acao, Config, Erro, Transacao
-├── core/             # Lógica pura: processador, validacao, comandos, prompt builder
-├── portas/           # Interfaces abstratas: Mensageiro, IA, Config, Historico, Transacao
-├── adaptadores/      # Implementações concretas de I/O: whatsmeow, Gemini, OpenRouter, SQLite
-├── shell/            # Orquestração com efeitos: atores OTP, filas de mídia, circuit breaker
-├── amelie_gleam_ffi.erl # FFI Erlang (variáveis de ambiente, IO de arquivos, métricas BEAM)
-└── amelie_gleam.gleam   # Ponto de entrada e servidor HTTP Mist (:4000)
-whatsmeow-bridge/     # Microserviço em Go para conexão com WhatsApp (:8080)
-```
+A Amélie funciona como um contato comum na sua lista do WhatsApp. Você pode encaminhar mensagens, enviar fotos, áudios e vídeos, e ela responde em texto limpo e organizado.
 
----
+### 1. Audiodescrição de fotos e imagens
+Ao receber uma foto, print ou imagem da galeria, a Amélie analisa a cena e descreve:
+- Quem ou o que está na foto (pessoas, animais, objetos e cenário).
+- Cores, iluminação e disposição espacial dos elementos.
+- Textos visíveis (como placas, cardápios, avisos e capturas de tela).
+- Expressões faciais, roupas e ações em andamento.
 
-## 🚀 Como Executar
+### 2. Transcrição de mensagens de voz e áudios
+Para quem não pode ou não consegue ouvir mensagens de áudio, a Amélie ouve o áudio enviado e responde com a transcrição completa do conteúdo em texto, removendo marcações desnecessárias para facilitar a leitura.
 
-### 1. Usando Docker Compose (Recomendado)
+### 3. Audiodescrição de vídeos e redes sociais
+Você pode enviar um arquivo de vídeo ou compartilhar links de plataformas como **YouTube**, **Instagram (Reels)** e **TikTok**. A Amélie assiste ao conteúdo e conta o que acontece visualmente, transcrevendo falas e explicando o contexto da cena.
 
-O projeto possui build unificado em um único container multi-stage contendo o runtime Erlang/Gleam, o bridge Go compilado, `ffmpeg`, `yt-dlp` e `libwebp-tools`:
+### 4. Interpretação de figurinhas e memes (stickers)
+Figurinhas do WhatsApp costumam ser inacessíveis para leitores de tela. A Amélie:
+- Descreve figurinhas estáticas, identificando personagens e transcrevendo textos.
+- Analisa figurinhas animadas quadro a quadro, explicando o movimento e a piada visual.
+- Explica o sentido cultural ou o humor do meme.
+- Caso a figurinha expire nos servidores, usa os dados declarados pelo WhatsApp para informar sobre o que se tratava.
 
-```bash
-# Copie o template de ambiente
-cp .env.example .env
+### 5. Leitura e resumo de documentos
+Encaminhe arquivos em formato PDF ou texto. A Amélie lê o material e envia um resumo estruturado em tópicos, facilitando o estudo e o trabalho no celular.
 
-# Configure suas chaves de API (pelo menos GEMINI_API_KEY)
-nano .env
-
-# Inicie o serviço unificado
-docker compose up -d --build
-
-# Acompanhe os logs para parear via QR Code ou Pairing Code
-docker compose logs -f
-```
-
-### 2. Desenvolvimento Local
-
-#### Pré-requisitos
-- [Gleam](https://gleam.run/) (v1.15+) e Erlang/OTP 26+
-- [Go](https://go.dev/) (v1.24+)
-- SQLite3, `ffmpeg`, Python 3 + Pillow, `libwebp-tools` e `yt-dlp`
-
-```bash
-# 1. Instalar dependências Gleam
-gleam deps download
-
-# 2. Rodar a suíte de testes do Gleam
-gleam test
-
-# 3. Rodar a suíte de testes do bridge Go
-cd whatsmeow-bridge && go test -count=1 ./... && cd ..
-
-# 4. Executar localmente
-GEMINI_API_KEY=sua_chave WHATSMEOW_URL=http://localhost:8080 DB_PATH=./db/amelie.sqlite PORT=4000 gleam run
-```
+### 6. Conversa em texto e tira-dúvidas
+A Amélie responde perguntas gerais, ajuda a redigir textos, tira dúvidas do dia a dia e dialoga em linguagem clara e amigável.
 
 ---
 
-## 🤖 Comandos Disponíveis no Chat
+## Recursos pensados para a sua acessibilidade
 
-Envie no WhatsApp para o bot:
-
-| Comando | Descrição |
-|---|---|
-| `.ajuda` | Exibe a lista de comandos disponíveis |
-| `.reset` | Limpa histórico de conversa e restaura configurações padrão |
-| `.audio on\|off` | Ativa ou desativa a transcrição de mensagens de áudio |
-| `.imagem on\|off` | Ativa ou desativa a análise de imagens |
-| `.video on\|off` | Ativa ou desativa a análise de vídeos |
-| `.doc on\|off` | Ativa ou desativa a análise de documentos |
-| `.legenda` | Alterna entre transcrição literal e descrição detalhada de vídeo |
-| `.longo` | Configura modo de audiodescrição detalhada |
-| `.curto` | Configura modo de audiodescrição concisa |
-| `.cego` | Ativa perfil de acessibilidade para deficientes visuais |
-| `.modelo` | Consulta o provedor e modelo ativos no chat |
-| `.modelo provedor/modelo` | Altera o modelo (ex: `.modelo gemini/gemini-2.5-pro` ou `.modelo gemini/gemini-3.8-flash`) |
+- **Modo Audiodescrição Detalhada (`.cego`):** Configura a assistente com instruções estritas de audiodescrição para pessoas com deficiência visual, priorizando detalhes espaciais, descrições precisas de vestimentas, feições e elementos do ambiente.
+- **Controle de tamanho de resposta (`.curto` e `.longo`):** Quem usa leitores de tela muitas vezes prefere respostas rápidas e concisas (`.curto`), ou descrições ricas e completas (`.longo`). Você escolhe o tamanho ideal.
+- **Formatação amigável a sintetizadores de voz:** Respostas sem decorações excessivas de caracteres, sem repetição desnecessária de emojis e organizadas com pontuação natural, garantindo uma leitura confortável no **TalkBack**, **VoiceOver**, **NVDA** e **JAWS**.
+- **Respostas citando a mensagem original:** Quando a Amélie responde, ela cita a mensagem correspondente para que você saiba com clareza a qual arquivo ou pergunta ela está se referindo.
 
 ---
 
-## 📚 Documentação Complementar
+## Como usar no WhatsApp
 
-- [DEPLOYMENT.md](file:///home/micelio/git/amelie_gleam/DEPLOYMENT.md) — Guia operacional detalhado, volumes, variáveis de ambiente e backups.
-- [ROADMAP.md](file:///home/micelio/git/amelie_gleam/ROADMAP.md) — Estado atual de validação, capacidades implementadas e prioridades P0–P3.
-- [GEMINI.md](file:///home/micelio/git/amelie_gleam/GEMINI.md) — Especificação técnica da arquitetura, ciclo de vida e convenções.
-- [CLAUDE.md](file:///home/micelio/git/amelie_gleam/CLAUDE.md) — Diretrizes de desenvolvimento, regras de trabalho e notas de compilação.
-- [AGENTS.md](file:///home/micelio/git/amelie_gleam/AGENTS.md) — Padrões de código, testes e boas práticas para agentes e mantenedores.
-- [TODO.md](file:///home/micelio/git/amelie_gleam/TODO.md) — Matriz de paridade histórica em relação ao projeto legado Node.js.
+Para usar a Amélie, basta adicioná-la aos seus contatos e enviar mensagens. Ela compreende comandos de texto simples iniciados por ponto (`.`).
+
+### Comandos de ajuda e configuração
+
+- `.ajuda`: Envia uma mensagem com a lista de todos os comandos e suas funções.
+- `.cego`: Ativa o modo de acessibilidade com audiodescrição minuciosa de imagens.
+- `.curto`: Configura a assistente para enviar descrições diretas, objetivas e concisas.
+- `.longo`: Configura a assistente para enviar descrições detalhadas e aprofundadas.
+- `.reset`: Limpa o histórico da conversa e retorna as configurações para o padrão.
+
+### Comandos para ativar ou desativar tipos de mídia
+
+Se você preferir que a Amélie processe apenas certos tipos de arquivos na conversa, use:
+
+- `.audio on` ou `.audio off`: Ativa ou desativa o processamento de mensagens de voz.
+- `.imagem on` ou `.imagem off`: Ativa ou desativa a audiodescrição de fotos e imagens.
+- `.video on` ou `.video off`: Ativa ou desativa a análise de vídeos.
+- `.doc on` ou `.doc off`: Ativa ou desativa a leitura e resumo de documentos.
+- `.legenda`: Alterna o modo de vídeo entre resumo visual e transcrição de falas.
+
+### Comandos avançados de inteligência artificial
+
+- `.modelo`: Informa qual motor de inteligência artificial e modelo estão ativos na sua conversa.
+- `.modelo provedor/modelo`: Troca o modelo utilizado (por exemplo: `.modelo gemini/gemini-2.5-pro` ou `.modelo gemini/gemini-3.8-flash`).
+
+---
+
+## Dicas para usuários de leitores de tela
+
+1. **Fotos de documentos:** Ao enviar fotos de contas, cartas ou embalagens, tire a foto com boa iluminação e envie. A Amélie lerá todos os textos visíveis, na ordem em que aparecem.
+2. **Identificação de objetos:** Se você tiver dúvida sobre uma roupa, cor ou objeto na sua casa, tire uma foto e pergunte: "Qual é a cor desta blusa?" ou "O que está escrito neste remédio?".
+3. **Áudios longos:** Se receber um áudio longo que não puder ouvir no momento, encaminhe para a Amélie para receber o texto pronto para leitura.
+4. **Grupos:** Se a Amélie for adicionada a um grupo, ela responderá apenas quando for mencionada com `@Amélie`, evitando poluir a conversa dos participantes.
+
+---
+
+## Para desenvolvedores e mantenedores técnicos
+
+A Amélie é um software livre e de código aberto, projetado para operar com alta disponibilidade, baixo consumo de recursos e estrita separação arquitetural.
+
+### Arquitetura do Sistema
+- **Linguagem e Runtime:** Construído em [Gleam](https://gleam.run/) sobre a máquina virtual **Erlang/OTP (BEAM)**, garantindo tolerância a falhas nativa, concorrência por atores e tratamento funcional puro de erros.
+- **Padrão Arquitetural:** Arquitetura Hexagonal rigorosa (*Ports & Adapters*) com *Functional Core* puro (camadas `dominio/`, `core/`, `portas/`, `adaptadores/` e `shell/`).
+- **Conectividade WhatsApp:** Microserviço em Go integrado via biblioteca [whatsmeow](https://github.com/tulir/whatsmeow), com banco SQLite local, fila persistente de entrega e repasse de mídias pesadas via arquivos temporários.
+- **Provedores de IA:** Integração primária com a API do **Google Gemini** (usando Gemini File API para upload e processamento de vídeos pesados) e suporte alternativo via **OpenRouter**.
+- **Ferramentas de Mídia:** `ffmpeg`, Python PIL (para decomposição de WebP animado), `libwebp-tools` (`webpmux`/`dwebp`) e `yt-dlp`.
+
+### Como rodar em ambiente próprio
+
+Consulte a documentação técnica especializada nos seguintes arquivos:
+
+- [DEPLOYMENT.md](DEPLOYMENT.md): Guia passo a passo de deploy com Docker Compose, configuração de variáveis de ambiente (`.env`), volumes persistentes, pareamento e backup.
+- [ROADMAP.md](ROADMAP.md): Estado atual de validação do projeto, histórico de testes automatizados e prioridades de engenharia.
+- [GEMINI.md](GEMINI.md): Especificação técnica detalhada das portas, adaptadores, filas de mídia e convenções de código.
+- [CLAUDE.md](CLAUDE.md): Instruções de desenvolvimento e regras de trabalho com o compilador Gleam.
+- [AGENTS.md](AGENTS.md): Diretrizes para agentes de inteligência artificial e mantenedores de código.
+- [TODO.md](TODO.md): Matriz de paridade histórica em relação ao projeto legado Node.js.
+
+---
+
+## Licença e Agradecimentos
+
+Este projeto é dedicado à promoção da tecnologia assistiva inclusiva e acessível em língua portuguesa.
