@@ -4,16 +4,18 @@
 
 import adaptadores/telegram_http
 import adaptadores/telegram_webhook
-import dominio/mensagem.{Mensagem}
+import dominio/mensagem.{type Mensagem, Mensagem}
 import gleam/erlang/process
 import gleam/http
 import gleam/http/request
 import gleam/httpc
 import gleam/int
 import gleam/list
+import gleam/option.{None, Some}
 import gleam/string
 import logging
 import shell/handler_mensagem.{type Portas}
+import simplifile
 
 const base_url = "https://api.telegram.org"
 
@@ -29,6 +31,9 @@ pub fn iniciar(bot_token: String, portas: Portas) -> Nil {
 
 @external(erlang, "amelie_gleam_ffi", "spawn_fn")
 fn spawn_fn(f: fn() -> a) -> Nil
+
+@external(erlang, "amelie_gleam_ffi", "now_ms")
+fn now_ms() -> Int
 
 fn spawn_poller(bot_token: String, offset: Int, portas: Portas) -> Nil {
   spawn_fn(fn() { loop(bot_token, offset, portas) })
@@ -120,6 +125,7 @@ pub fn despachar_evento(
     }
     telegram_webhook.EventoFotoParaBaixar(_, base, file_id) -> {
       spawn_fn(fn() {
+        reagir_se_possivel(base, portas)
         case telegram_http.baixar_arquivo(bot_token, file_id) {
           Ok(bytes) -> {
             let msg =
@@ -147,6 +153,7 @@ pub fn despachar_evento(
     }
     telegram_webhook.EventoAudioParaBaixar(_, base, file_id, mime) -> {
       spawn_fn(fn() {
+        reagir_se_possivel(base, portas)
         case telegram_http.baixar_arquivo(bot_token, file_id) {
           Ok(bytes) -> {
             let msg = Mensagem(..base, corpo: mensagem.Audio(mime, bytes))
@@ -171,7 +178,71 @@ pub fn despachar_evento(
         }
       })
     }
+    telegram_webhook.EventoVideoParaBaixar(_, base, file_id, mime) -> {
+      spawn_fn(fn() {
+        reagir_se_possivel(base, portas)
+        case telegram_http.baixar_arquivo(bot_token, file_id) {
+          Ok(bytes) -> {
+            let caminho =
+              "/tmp/amelie_tg_video_"
+              <> int.to_string(now_ms())
+              <> "_"
+              <> file_id
+              <> ".mp4"
+            case simplifile.write_bits(to: caminho, bits: bytes) {
+              Ok(_) -> {
+                let msg =
+                  Mensagem(
+                    ..base,
+                    corpo: mensagem.Video(caminho_temp: caminho, mime: mime),
+                  )
+                let _ = handler_mensagem.handle(msg, portas)
+                Nil
+              }
+              Error(e) -> {
+                logging.log(
+                  logging.Warning,
+                  "Telegram poller: falha ao salvar vídeo temporário: "
+                    <> simplifile.describe_error(e),
+                )
+                let _ =
+                  portas.mensageiro.enviar(
+                    base.chat_id,
+                    "Não consegui salvar o vídeo temporariamente. Tente novamente.",
+                  )
+                Nil
+              }
+            }
+          }
+          Error(e) -> {
+            logging.log(
+              logging.Warning,
+              "Telegram poller: falha ao baixar vídeo ("
+                <> file_id
+                <> "): "
+                <> string.inspect(e),
+            )
+            let _ =
+              portas.mensageiro.enviar(
+                base.chat_id,
+                "Não consegui baixar o vídeo do Telegram. O limite suportado pelo bot é de 20MB.",
+              )
+            Nil
+          }
+        }
+      })
+    }
     telegram_webhook.EventoIgnorado(_) -> Nil
+  }
+}
+
+fn reagir_se_possivel(msg: Mensagem, portas: Portas) -> Nil {
+  case msg.message_id {
+    Some(mid) -> {
+      let _ = portas.mensageiro.reagir(msg.chat_id, mid, msg.remetente, "⌛")
+      Nil
+    }
+    None -> Nil
   }
 }
 

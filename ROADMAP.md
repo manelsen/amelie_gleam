@@ -86,7 +86,7 @@ de integração entre os processos Gleam e Go.
 
 ## Validação atual
 
-- 127 testes Gleam passando.
+- 133 testes Gleam passando.
 - Testes, race detector, `go vet` e build do bridge Go passando.
 - Testes de regressão para HistorySync, estado de sessão, respostas HTTP de erro,
   migração de modelo, URLs com newline/tab, filas e handlers.
@@ -136,8 +136,10 @@ de integração entre os processos Gleam e Go.
   - Encaminhamento direto para as filas OTP existentes em `fila_midia.gleam` e pipeline multimodal do Gemini.
   - Rejeição categórica de mídias recebidas em grupos do Telegram.
 - [ ] **Etapa 3 (Documentos, Vídeos até 20MB e Observabilidade):**
-  - Suporte a documentos (PDFs/texto) e vídeos respeitando o teto de 20MB da Bot API pública.
-  - Métricas de atendimento e auditoria de transações segmentadas por canal.
+  - [x] Suporte a vídeos (`video` e `video_note`) até 20MB via Bot API com download assíncrono e fila OTP de vídeo.
+  - [x] Mapeamento compatível de reações (`⌛`/`⏳` -> `🤔` e `🆗` -> `👍`) com feedback visual imediato ao usuário.
+  - [ ] Suporte a documentos (PDFs/texto) até 20MB.
+  - [ ] Métricas de atendimento e auditoria de transações segmentadas por canal.
 
 ### P3 — Evolução de produto
 

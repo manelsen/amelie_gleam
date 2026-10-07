@@ -16,9 +16,7 @@ const base_url = "https://api.telegram.org"
 
 pub fn criar(bot_token: String) -> MensageiroPorta {
   MensageiroPorta(
-    enviar: fn(chat_id, texto) {
-      enviar_mensagem(bot_token, chat_id, texto)
-    },
+    enviar: fn(chat_id, texto) { enviar_mensagem(bot_token, chat_id, texto) },
     enviar_citando: fn(chat_id, quoted_id, _quoted_sender, texto) {
       enviar_citando(bot_token, chat_id, quoted_id, texto)
     },
@@ -39,8 +37,7 @@ pub fn baixar_arquivo(
   // 1. Chama getFile para obter file_path
   use file_path <- result.try(obter_file_path(bot_token, file_id))
   // 2. Baixa o arquivo
-  let url =
-    base_url <> "/file/bot" <> bot_token <> "/" <> file_path
+  let url = base_url <> "/file/bot" <> bot_token <> "/" <> file_path
   use req <- result.try(
     request.to(url)
     |> result.map_error(fn(_) { erro.ErroComunicacao("url inválida") }),
@@ -56,7 +53,9 @@ pub fn baixar_arquivo(
     200 -> Ok(resp.body)
     status ->
       Error(erro.ErroComunicacao(
-        "Telegram retornou status " <> int.to_string(status) <> " ao baixar arquivo",
+        "Telegram retornou status "
+        <> int.to_string(status)
+        <> " ao baixar arquivo",
       ))
   }
 }
@@ -107,6 +106,14 @@ fn enviar_citando(
   post(bot_token, "/sendMessage", body)
 }
 
+pub fn mapear_emoji_telegram(emoji: String) -> String {
+  case emoji {
+    "⌛" | "⏳" -> "🤔"
+    "🆗" -> "👍"
+    outro -> outro
+  }
+}
+
 fn reagir(
   bot_token: String,
   chat_id: String,
@@ -115,6 +122,7 @@ fn reagir(
 ) -> Result(Nil, Erro) {
   let target_id = normalizar_id(chat_id)
   let msg_id = int.parse(normalizar_id(message_id)) |> result.unwrap(0)
+  let emoji_tg = mapear_emoji_telegram(emoji)
   let body =
     json.object([
       #("chat_id", json.string(target_id)),
@@ -124,7 +132,7 @@ fn reagir(
         json.preprocessed_array([
           json.object([
             #("type", json.string("emoji")),
-            #("emoji", json.string(emoji)),
+            #("emoji", json.string(emoji_tg)),
           ]),
         ]),
       ),
@@ -135,10 +143,7 @@ fn reagir(
   Ok(Nil)
 }
 
-fn obter_file_path(
-  bot_token: String,
-  file_id: String,
-) -> Result(String, Erro) {
+fn obter_file_path(bot_token: String, file_id: String) -> Result(String, Erro) {
   let body =
     json.object([#("file_id", json.string(file_id))])
     |> json.to_string
@@ -160,8 +165,7 @@ fn obter_file_path(
   )
   case resp.status {
     200 -> {
-      let decoder =
-        decode.at(["result", "file_path"], decode.string)
+      let decoder = decode.at(["result", "file_path"], decode.string)
       json.parse(resp.body, decoder)
       |> result.map_error(fn(_) {
         erro.ErroComunicacao("resposta getFile inválida")
@@ -223,10 +227,7 @@ fn post(bot_token: String, method: String, body: String) -> Result(Nil, Erro) {
               ))
           }
         }
-        False ->
-          Error(erro.ErroComunicacao(
-            "Telegram retornou status 400",
-          ))
+        False -> Error(erro.ErroComunicacao("Telegram retornou status 400"))
       }
     }
     status ->

@@ -30,6 +30,8 @@ pub type TelegramMessage {
     photo_file_id: Option(String),
     voice: Option(#(String, String)),
     audio: Option(#(String, String)),
+    video: Option(#(String, String)),
+    video_note: Option(#(String, String)),
   )
 }
 
@@ -37,6 +39,12 @@ pub type EventoUpdate {
   EventoMensagemPronta(update_id: Int, msg: Mensagem)
   EventoFotoParaBaixar(update_id: Int, base: Mensagem, file_id: String)
   EventoAudioParaBaixar(
+    update_id: Int,
+    base: Mensagem,
+    file_id: String,
+    mime: String,
+  )
+  EventoVideoParaBaixar(
     update_id: Int,
     base: Mensagem,
     file_id: String,
@@ -50,6 +58,7 @@ pub fn obter_update_id(evento: EventoUpdate) -> Int {
     EventoMensagemPronta(id, _) -> id
     EventoFotoParaBaixar(id, _, _) -> id
     EventoAudioParaBaixar(id, _, _, _) -> id
+    EventoVideoParaBaixar(id, _, _, _) -> id
     EventoIgnorado(id) -> id
   }
 }
@@ -131,15 +140,37 @@ pub fn converter_update_em_evento(update: TelegramUpdate) -> EventoUpdate {
                         mime,
                       )
                     None -> {
-                      case msg.text {
-                        Some(raw_text) -> {
-                          let corpo = parsear_texto_ou_comando(raw_text)
-                          EventoMensagemPronta(
+                      case msg.video {
+                        Some(#(file_id, mime)) ->
+                          EventoVideoParaBaixar(
                             update.update_id,
-                            Mensagem(..base, corpo: corpo),
+                            base,
+                            file_id,
+                            mime,
                           )
+                        None -> {
+                          case msg.video_note {
+                            Some(#(file_id, mime)) ->
+                              EventoVideoParaBaixar(
+                                update.update_id,
+                                base,
+                                file_id,
+                                mime,
+                              )
+                            None -> {
+                              case msg.text {
+                                Some(raw_text) -> {
+                                  let corpo = parsear_texto_ou_comando(raw_text)
+                                  EventoMensagemPronta(
+                                    update.update_id,
+                                    Mensagem(..base, corpo: corpo),
+                                  )
+                                }
+                                None -> EventoIgnorado(update.update_id)
+                              }
+                            }
+                          }
                         }
-                        None -> EventoIgnorado(update.update_id)
                       }
                     }
                   }
@@ -203,6 +234,17 @@ fn audio_decoder() -> decode.Decoder(#(String, String)) {
   decode.success(#(file_id, mime))
 }
 
+fn video_decoder() -> decode.Decoder(#(String, String)) {
+  use file_id <- decode.then(decode.at(["file_id"], decode.string))
+  use mime <- decode.optional_field("mime_type", "video/mp4", decode.string)
+  decode.success(#(file_id, mime))
+}
+
+fn video_note_decoder() -> decode.Decoder(#(String, String)) {
+  use file_id <- decode.then(decode.at(["file_id"], decode.string))
+  decode.success(#(file_id, "video/mp4"))
+}
+
 fn telegram_message_decoder() -> decode.Decoder(TelegramMessage) {
   use message_id <- decode.field("message_id", decode.int)
   use date <- decode.field("date", decode.int)
@@ -238,6 +280,16 @@ fn telegram_message_decoder() -> decode.Decoder(TelegramMessage) {
     None,
     audio_decoder() |> decode.map(Some),
   )
+  use video <- decode.optional_field(
+    "video",
+    None,
+    video_decoder() |> decode.map(Some),
+  )
+  use video_note <- decode.optional_field(
+    "video_note",
+    None,
+    video_note_decoder() |> decode.map(Some),
+  )
   decode.success(TelegramMessage(
     message_id: message_id,
     date: date,
@@ -249,6 +301,8 @@ fn telegram_message_decoder() -> decode.Decoder(TelegramMessage) {
     photo_file_id: photo_file_id,
     voice: voice,
     audio: audio,
+    video: video,
+    video_note: video_note,
   ))
 }
 
