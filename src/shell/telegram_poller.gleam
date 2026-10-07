@@ -2,14 +2,15 @@
 // Poller assíncrono de updates do Telegram (long polling via OTP / BEAM).
 // Permite recepção de mensagens sem depender de webhook ou IP público.
 
+import adaptadores/telegram_http
 import adaptadores/telegram_webhook
+import dominio/mensagem.{Mensagem}
 import gleam/erlang/process
 import gleam/http
 import gleam/http/request
 import gleam/httpc
 import gleam/int
 import gleam/list
-import gleam/option.{None, Some}
 import gleam/string
 import logging
 import shell/handler_mensagem.{type Portas}
@@ -54,7 +55,8 @@ fn loop(bot_token: String, offset: Int, portas: Portas) -> Nil {
         Ok(resp) if resp.status == 200 -> {
           case telegram_webhook.extrair_updates(resp.body) {
             Ok(updates) -> {
-              let proximo_offset = processar_updates(updates, offset, portas)
+              let proximo_offset =
+                processar_updates(updates, offset, bot_token, portas)
               loop(bot_token, proximo_offset, portas)
             }
             Error(_) -> {
@@ -104,21 +106,83 @@ fn loop(bot_token: String, offset: Int, portas: Portas) -> Nil {
   }
 }
 
+pub fn despachar_evento(
+  evento: telegram_webhook.EventoUpdate,
+  bot_token: String,
+  portas: Portas,
+) -> Nil {
+  case evento {
+    telegram_webhook.EventoMensagemPronta(_, msg) -> {
+      spawn_fn(fn() {
+        let _ = handler_mensagem.handle(msg, portas)
+        Nil
+      })
+    }
+    telegram_webhook.EventoFotoParaBaixar(_, base, file_id) -> {
+      spawn_fn(fn() {
+        case telegram_http.baixar_arquivo(bot_token, file_id) {
+          Ok(bytes) -> {
+            let msg =
+              Mensagem(..base, corpo: mensagem.Imagem("image/jpeg", bytes))
+            let _ = handler_mensagem.handle(msg, portas)
+            Nil
+          }
+          Error(e) -> {
+            logging.log(
+              logging.Warning,
+              "Telegram poller: falha ao baixar foto ("
+                <> file_id
+                <> "): "
+                <> string.inspect(e),
+            )
+            let _ =
+              portas.mensageiro.enviar(
+                base.chat_id,
+                "Não consegui baixar a imagem do Telegram. Tente enviar novamente.",
+              )
+            Nil
+          }
+        }
+      })
+    }
+    telegram_webhook.EventoAudioParaBaixar(_, base, file_id, mime) -> {
+      spawn_fn(fn() {
+        case telegram_http.baixar_arquivo(bot_token, file_id) {
+          Ok(bytes) -> {
+            let msg = Mensagem(..base, corpo: mensagem.Audio(mime, bytes))
+            let _ = handler_mensagem.handle(msg, portas)
+            Nil
+          }
+          Error(e) -> {
+            logging.log(
+              logging.Warning,
+              "Telegram poller: falha ao baixar áudio ("
+                <> file_id
+                <> "): "
+                <> string.inspect(e),
+            )
+            let _ =
+              portas.mensageiro.enviar(
+                base.chat_id,
+                "Não consegui baixar o áudio do Telegram. Tente enviar novamente.",
+              )
+            Nil
+          }
+        }
+      })
+    }
+    telegram_webhook.EventoIgnorado(_) -> Nil
+  }
+}
+
 pub fn processar_updates(
-  updates: List(telegram_webhook.UpdateItem),
+  updates: List(telegram_webhook.EventoUpdate),
   offset_atual: Int,
+  bot_token: String,
   portas: Portas,
 ) -> Int {
-  list.fold(updates, offset_atual, fn(maior_offset, item) {
-    case item.mensagem {
-      Some(msg) -> {
-        spawn_fn(fn() {
-          let _ = handler_mensagem.handle(msg, portas)
-          Nil
-        })
-      }
-      None -> Nil
-    }
-    int.max(maior_offset, item.update_id + 1)
+  list.fold(updates, offset_atual, fn(maior_offset, evento) {
+    despachar_evento(evento, bot_token, portas)
+    int.max(maior_offset, telegram_webhook.obter_update_id(evento) + 1)
   })
 }

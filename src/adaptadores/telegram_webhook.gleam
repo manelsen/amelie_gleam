@@ -1,5 +1,6 @@
 // Decodificador de Webhook da Telegram Bot API.
-// Converte updates do Telegram para o tipo de domínio Mensagem.
+// Converte updates do Telegram para o tipo de domínio Mensagem e identifica
+// fotos e áudios que necessitam de download assíncrono via Bot API.
 // Rejeita categoricamente qualquer mensagem de grupo.
 
 import dominio/erro.{type Erro}
@@ -25,14 +26,42 @@ pub type TelegramMessage {
     chat_type: String,
     from_id: Option(Int),
     text: Option(String),
+    caption: Option(String),
+    photo_file_id: Option(String),
+    voice: Option(#(String, String)),
+    audio: Option(#(String, String)),
   )
 }
 
-pub type UpdateItem {
-  UpdateItem(update_id: Int, mensagem: Option(Mensagem))
+pub type EventoUpdate {
+  EventoMensagemPronta(update_id: Int, msg: Mensagem)
+  EventoFotoParaBaixar(update_id: Int, base: Mensagem, file_id: String)
+  EventoAudioParaBaixar(
+    update_id: Int,
+    base: Mensagem,
+    file_id: String,
+    mime: String,
+  )
+  EventoIgnorado(update_id: Int)
 }
 
-pub fn parsear_update(body: BitArray) -> Result(Option(Mensagem), Erro) {
+pub fn obter_update_id(evento: EventoUpdate) -> Int {
+  case evento {
+    EventoMensagemPronta(id, _) -> id
+    EventoFotoParaBaixar(id, _, _) -> id
+    EventoAudioParaBaixar(id, _, _, _) -> id
+    EventoIgnorado(id) -> id
+  }
+}
+
+pub fn extrair_evento_mensagem(evento: EventoUpdate) -> Option(Mensagem) {
+  case evento {
+    EventoMensagemPronta(_, msg) -> Some(msg)
+    _ -> None
+  }
+}
+
+pub fn parsear_evento(body: BitArray) -> Result(EventoUpdate, Erro) {
   use s <- result.try(
     bit_array.to_string(body)
     |> result.map_error(fn(_) {
@@ -45,52 +74,79 @@ pub fn parsear_update(body: BitArray) -> Result(Option(Mensagem), Erro) {
       erro.ErroValidacao("telegram", "json de update inválido")
     }),
   )
-
-  case update.message {
-    None -> Ok(None)
-    Some(msg) -> Ok(converter_mensagem(msg))
-  }
+  Ok(converter_update_em_evento(update))
 }
 
-pub fn extrair_updates(json_str: String) -> Result(List(UpdateItem), Erro) {
+pub fn parsear_update(body: BitArray) -> Result(Option(Mensagem), Erro) {
+  use evento <- result.try(parsear_evento(body))
+  Ok(extrair_evento_mensagem(evento))
+}
+
+pub fn extrair_updates(json_str: String) -> Result(List(EventoUpdate), Erro) {
   use updates <- result.try(
     json.parse(json_str, get_updates_response_decoder())
     |> result.map_error(fn(_) {
       erro.ErroValidacao("telegram", "json de getUpdates inválido")
     }),
   )
-
-  let itens =
-    list.map(updates, fn(up) {
-      let msg_opt = case up.message {
-        None -> None
-        Some(m) -> converter_mensagem(m)
-      }
-      UpdateItem(update_id: up.update_id, mensagem: msg_opt)
-    })
-  Ok(itens)
+  Ok(list.map(updates, converter_update_em_evento))
 }
 
-pub fn converter_mensagem(msg: TelegramMessage) -> Option(Mensagem) {
-  case msg.chat_type == "private" {
-    False -> None
-    True -> {
-      case msg.text {
-        None -> None
-        Some(raw_text) -> {
+pub fn converter_update_em_evento(update: TelegramUpdate) -> EventoUpdate {
+  case update.message {
+    None -> EventoIgnorado(update.update_id)
+    Some(msg) -> {
+      // Regra de segurança/privacidade: Amélie NUNCA atua em grupos no Telegram
+      case msg.chat_type == "private" {
+        False -> EventoIgnorado(update.update_id)
+        True -> {
           let sender_id = option.unwrap(msg.from_id, msg.chat_id)
-          let corpo = parsear_texto_ou_comando(raw_text)
-          Some(Mensagem(
-            chat_id: "tg:" <> int.to_string(msg.chat_id),
-            remetente: "tg:" <> int.to_string(sender_id),
-            message_id: Some(int.to_string(msg.message_id)),
-            corpo: corpo,
-            timestamp: msg.date,
-            em_grupo: False,
-            nome_grupo: None,
-            menciona_bot: True,
-            legenda: None,
-          ))
+          let base =
+            Mensagem(
+              chat_id: "tg:" <> int.to_string(msg.chat_id),
+              remetente: "tg:" <> int.to_string(sender_id),
+              message_id: Some(int.to_string(msg.message_id)),
+              corpo: mensagem.Texto(""),
+              timestamp: msg.date,
+              em_grupo: False,
+              nome_grupo: None,
+              menciona_bot: True,
+              legenda: msg.caption,
+            )
+
+          case msg.photo_file_id {
+            Some(file_id) ->
+              EventoFotoParaBaixar(update.update_id, base, file_id)
+            None -> {
+              case msg.voice {
+                Some(#(file_id, mime)) ->
+                  EventoAudioParaBaixar(update.update_id, base, file_id, mime)
+                None -> {
+                  case msg.audio {
+                    Some(#(file_id, mime)) ->
+                      EventoAudioParaBaixar(
+                        update.update_id,
+                        base,
+                        file_id,
+                        mime,
+                      )
+                    None -> {
+                      case msg.text {
+                        Some(raw_text) -> {
+                          let corpo = parsear_texto_ou_comando(raw_text)
+                          EventoMensagemPronta(
+                            update.update_id,
+                            Mensagem(..base, corpo: corpo),
+                          )
+                        }
+                        None -> EventoIgnorado(update.update_id)
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -127,6 +183,26 @@ fn telegram_update_decoder() -> decode.Decoder(TelegramUpdate) {
   decode.success(TelegramUpdate(update_id: update_id, message: message))
 }
 
+fn photo_file_id_decoder() -> decode.Decoder(String) {
+  use photos <- decode.then(decode.list(decode.at(["file_id"], decode.string)))
+  case list.last(photos) {
+    Ok(file_id) -> decode.success(file_id)
+    Error(_) -> decode.failure("", "lista de fotos vazia")
+  }
+}
+
+fn voice_decoder() -> decode.Decoder(#(String, String)) {
+  use file_id <- decode.then(decode.at(["file_id"], decode.string))
+  use mime <- decode.optional_field("mime_type", "audio/ogg", decode.string)
+  decode.success(#(file_id, mime))
+}
+
+fn audio_decoder() -> decode.Decoder(#(String, String)) {
+  use file_id <- decode.then(decode.at(["file_id"], decode.string))
+  use mime <- decode.optional_field("mime_type", "audio/mpeg", decode.string)
+  decode.success(#(file_id, mime))
+}
+
 fn telegram_message_decoder() -> decode.Decoder(TelegramMessage) {
   use message_id <- decode.field("message_id", decode.int)
   use date <- decode.field("date", decode.int)
@@ -142,6 +218,26 @@ fn telegram_message_decoder() -> decode.Decoder(TelegramMessage) {
     None,
     decode.string |> decode.map(Some),
   )
+  use caption <- decode.optional_field(
+    "caption",
+    None,
+    decode.string |> decode.map(Some),
+  )
+  use photo_file_id <- decode.optional_field(
+    "photo",
+    None,
+    photo_file_id_decoder() |> decode.map(Some),
+  )
+  use voice <- decode.optional_field(
+    "voice",
+    None,
+    voice_decoder() |> decode.map(Some),
+  )
+  use audio <- decode.optional_field(
+    "audio",
+    None,
+    audio_decoder() |> decode.map(Some),
+  )
   decode.success(TelegramMessage(
     message_id: message_id,
     date: date,
@@ -149,6 +245,10 @@ fn telegram_message_decoder() -> decode.Decoder(TelegramMessage) {
     chat_type: chat_type,
     from_id: from_id,
     text: text,
+    caption: caption,
+    photo_file_id: photo_file_id,
+    voice: voice,
+    audio: audio,
   ))
 }
 

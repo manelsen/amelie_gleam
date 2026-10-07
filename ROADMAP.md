@@ -86,7 +86,7 @@ de integração entre os processos Gleam e Go.
 
 ## Validação atual
 
-- 122 testes Gleam passando.
+- 127 testes Gleam passando.
 - Testes, race detector, `go vet` e build do bridge Go passando.
 - Testes de regressão para HistorySync, estado de sessão, respostas HTTP de erro,
   migração de modelo, URLs com newline/tab, filas e handlers.
@@ -130,9 +130,11 @@ de integração entre os processos Gleam e Go.
   - Roteador multicanal (`roteador_mensageiro`) selecionando `MensageiroPorta` por prefixo de `chat_id` (`tg:` vs WhatsApp) sem duplicar core ou handlers.
   - Normalização de comandos com barra (`/start`, `/ajuda`, `/cego`, `/curto`, etc.) e suporte a menção do bot em comandos.
   - Cobertura completa com testes automatizados de decodificação, roteamento e fluxo end-to-end.
-- [ ] **Etapa 2 (Fotos e Áudio/Voz):**
-  - Download assíncrono de fotos e áudios via Telegram Bot API (`getFile` + `baixar_arquivo`).
-  - Encaminhamento direto para as filas OTP existentes em `fila_midia.gleam`.
+- [x] **Etapa 2 (Fotos e Áudio/Voz — Concluída):**
+  - Download assíncrono e não-bloqueante de fotos (alta resolução) e áudios/mensagens de voz via Telegram Bot API (`getFile` + `baixar_arquivo`).
+  - Suporte a legendas (`caption`) em fotos e áudios integradas ao contexto da mensagem.
+  - Encaminhamento direto para as filas OTP existentes em `fila_midia.gleam` e pipeline multimodal do Gemini.
+  - Rejeição categórica de mídias recebidas em grupos do Telegram.
 - [ ] **Etapa 3 (Documentos, Vídeos até 20MB e Observabilidade):**
   - Suporte a documentos (PDFs/texto) e vídeos respeitando o teto de 20MB da Bot API pública.
   - Métricas de atendimento e auditoria de transações segmentadas por canal.

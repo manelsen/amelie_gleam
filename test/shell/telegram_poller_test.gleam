@@ -17,12 +17,19 @@ pub fn extrair_updates_json_test() {
   let assert Ok(updates) = telegram_webhook.extrair_updates(json)
   let assert [u1, u2] = updates
 
-  u1.update_id |> should.equal(5001)
-  u1.mensagem |> should.be_some
+  case u1 {
+    telegram_webhook.EventoMensagemPronta(id, msg) -> {
+      id |> should.equal(5001)
+      msg.chat_id |> should.equal("tg:887766")
+    }
+    _ -> should.fail()
+  }
 
-  // Grupo deve ser ignorado (None)
-  u2.update_id |> should.equal(5002)
-  u2.mensagem |> should.be_none
+  // Grupo deve ser ignorado (EventoIgnorado)
+  case u2 {
+    telegram_webhook.EventoIgnorado(id) -> id |> should.equal(5002)
+    _ -> should.fail()
+  }
 }
 
 pub fn processar_updates_avanca_offset_e_despacha_test() {
@@ -51,7 +58,8 @@ pub fn processar_updates_avanca_offset_e_despacha_test() {
     "{\"ok\":true,\"result\":[{\"update_id\":5001,\"message\":{\"message_id\":10,\"date\":0,\"chat\":{\"id\":887766,\"type\":\"private\"},\"text\":\"/start\"}}]}"
 
   let assert Ok(updates) = telegram_webhook.extrair_updates(json)
-  let novo_offset = telegram_poller.processar_updates(updates, 0, portas)
+  let novo_offset =
+    telegram_poller.processar_updates(updates, 0, "fake_token", portas)
 
   // O novo offset deve ser update_id + 1 = 5002
   novo_offset |> should.equal(5002)

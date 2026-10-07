@@ -159,3 +159,94 @@ pub fn fluxo_telegram_conversa_ia_test() {
   texto
   |> should.equal("Olá! Sou a Amélie no Telegram. Como posso te ajudar hoje?")
 }
+
+pub fn parsear_evento_foto_alta_resolucao_test() {
+  let json =
+    "{\"update_id\":3001,\"message\":{\"message_id\":70,\"date\":1700000000,\"chat\":{\"id\":998877,\"type\":\"private\"},\"from\":{\"id\":998877},\"photo\":[{\"file_id\":\"thumb_id\",\"width\":90,\"height\":90},{\"file_id\":\"hd_file_id\",\"width\":1280,\"height\":720}]}}"
+    |> bit_array.from_string
+
+  let assert Ok(evento) = telegram_webhook.parsear_evento(json)
+  case evento {
+    telegram_webhook.EventoFotoParaBaixar(update_id, base, file_id) -> {
+      update_id |> should.equal(3001)
+      file_id |> should.equal("hd_file_id")
+      base.chat_id |> should.equal("tg:998877")
+      base.remetente |> should.equal("tg:998877")
+      base.message_id |> should.equal(Some("70"))
+      base.legenda |> should.be_none
+    }
+    _ -> should.fail()
+  }
+}
+
+pub fn parsear_evento_foto_com_legenda_test() {
+  let json =
+    "{\"update_id\":3002,\"message\":{\"message_id\":71,\"date\":1700000000,\"chat\":{\"id\":998877,\"type\":\"private\"},\"caption\":\"Descreva esta imagem por favor\",\"photo\":[{\"file_id\":\"pic_123\",\"width\":640,\"height\":480}]}}"
+    |> bit_array.from_string
+
+  let assert Ok(evento) = telegram_webhook.parsear_evento(json)
+  case evento {
+    telegram_webhook.EventoFotoParaBaixar(update_id, base, file_id) -> {
+      update_id |> should.equal(3002)
+      file_id |> should.equal("pic_123")
+      base.legenda |> should.equal(Some("Descreva esta imagem por favor"))
+    }
+    _ -> should.fail()
+  }
+}
+
+pub fn parsear_evento_voice_audio_ogg_test() {
+  let json =
+    "{\"update_id\":3003,\"message\":{\"message_id\":72,\"date\":1700000000,\"chat\":{\"id\":998877,\"type\":\"private\"},\"voice\":{\"file_id\":\"voice_abc\",\"mime_type\":\"audio/ogg\",\"duration\":8}}}"
+    |> bit_array.from_string
+
+  let assert Ok(evento) = telegram_webhook.parsear_evento(json)
+  case evento {
+    telegram_webhook.EventoAudioParaBaixar(update_id, base, file_id, mime) -> {
+      update_id |> should.equal(3003)
+      file_id |> should.equal("voice_abc")
+      mime |> should.equal("audio/ogg")
+      base.chat_id |> should.equal("tg:998877")
+    }
+    _ -> should.fail()
+  }
+}
+
+pub fn parsear_evento_audio_mp3_test() {
+  let json =
+    "{\"update_id\":3004,\"message\":{\"message_id\":73,\"date\":1700000000,\"chat\":{\"id\":998877,\"type\":\"private\"},\"caption\":\"Música do recital\",\"audio\":{\"file_id\":\"audio_xyz\",\"mime_type\":\"audio/mp3\",\"duration\":120}}}"
+    |> bit_array.from_string
+
+  let assert Ok(evento) = telegram_webhook.parsear_evento(json)
+  case evento {
+    telegram_webhook.EventoAudioParaBaixar(update_id, base, file_id, mime) -> {
+      update_id |> should.equal(3004)
+      file_id |> should.equal("audio_xyz")
+      mime |> should.equal("audio/mp3")
+      base.legenda |> should.equal(Some("Música do recital"))
+    }
+    _ -> should.fail()
+  }
+}
+
+pub fn parsear_evento_midia_em_grupo_rejeitada_test() {
+  let json_foto_grupo =
+    "{\"update_id\":3005,\"message\":{\"message_id\":74,\"date\":1700000000,\"chat\":{\"id\":-1008899,\"type\":\"group\"},\"photo\":[{\"file_id\":\"pic_grupo\",\"width\":100,\"height\":100}]}}"
+    |> bit_array.from_string
+
+  let assert Ok(evento) = telegram_webhook.parsear_evento(json_foto_grupo)
+  case evento {
+    telegram_webhook.EventoIgnorado(id) -> id |> should.equal(3005)
+    _ -> should.fail()
+  }
+
+  let json_voz_supergrupo =
+    "{\"update_id\":3006,\"message\":{\"message_id\":75,\"date\":1700000000,\"chat\":{\"id\":-1008899,\"type\":\"supergroup\"},\"voice\":{\"file_id\":\"voice_grupo\",\"mime_type\":\"audio/ogg\"}}}"
+    |> bit_array.from_string
+
+  let assert Ok(evento2) = telegram_webhook.parsear_evento(json_voz_supergrupo)
+  case evento2 {
+    telegram_webhook.EventoIgnorado(id) -> id |> should.equal(3006)
+    _ -> should.fail()
+  }
+}

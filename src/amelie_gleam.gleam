@@ -178,7 +178,9 @@ pub fn main() {
   let _ = telegram_poller.iniciar(telegram_bot_token, portas)
 
   let assert Ok(_) =
-    mist.new(fn(req) { handle_request(req, portas, telegram_secret_token) })
+    mist.new(fn(req) {
+      handle_request(req, portas, telegram_secret_token, telegram_bot_token)
+    })
     |> mist.port(port)
     |> mist.bind("0.0.0.0")
     |> mist.start
@@ -194,10 +196,12 @@ fn handle_request(
   req: Request(Connection),
   portas: Portas,
   telegram_secret: String,
+  telegram_bot_token: String,
 ) -> response.Response(ResponseData) {
   case req.path {
     "/webhook" -> handle_webhook(req, portas)
-    "/webhook/telegram" -> handle_telegram_webhook(req, portas, telegram_secret)
+    "/webhook/telegram" ->
+      handle_telegram_webhook(req, portas, telegram_secret, telegram_bot_token)
     "/health" -> json_response(200, "{\"status\":\"ok\"}")
     _ -> json_response(404, "{\"error\":\"not found\"}")
   }
@@ -207,12 +211,14 @@ fn handle_telegram_webhook(
   req: Request(Connection),
   portas: Portas,
   secret_token: String,
+  bot_token: String,
 ) -> response.Response(ResponseData) {
   case secret_token {
-    "" -> processar_telegram_body(req, portas)
+    "" -> processar_telegram_body(req, portas, bot_token)
     expected -> {
       case request.get_header(req, "x-telegram-bot-api-secret-token") {
-        Ok(token) if token == expected -> processar_telegram_body(req, portas)
+        Ok(token) if token == expected ->
+          processar_telegram_body(req, portas, bot_token)
         _ -> json_response(401, "{\"error\":\"unauthorized\"}")
       }
     }
@@ -222,18 +228,18 @@ fn handle_telegram_webhook(
 fn processar_telegram_body(
   req: Request(Connection),
   portas: Portas,
+  bot_token: String,
 ) -> response.Response(ResponseData) {
   case mist.read_body(req, 1024 * 1024) {
     Error(_) -> json_response(400, "{\"error\":\"failed to read body\"}")
     Ok(req_with_body) ->
-      case telegram_webhook.parsear_update(req_with_body.body) {
+      case telegram_webhook.parsear_evento(req_with_body.body) {
         Error(_) ->
           json_response(400, "{\"error\":\"invalid telegram payload\"}")
-        Ok(option.None) -> json_response(200, "{\"ok\":true,\"ignored\":true}")
-        Ok(option.Some(msg)) -> {
-          spawn_fn(fn() {
-            handler_mensagem.handle(msg, portas)
-          })
+        Ok(telegram_webhook.EventoIgnorado(_)) ->
+          json_response(200, "{\"ok\":true,\"ignored\":true}")
+        Ok(evento) -> {
+          telegram_poller.despachar_evento(evento, bot_token, portas)
           json_response(200, "{\"ok\":true}")
         }
       }
