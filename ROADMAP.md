@@ -78,9 +78,7 @@ de integração entre os processos Gleam e Go.
 
 ### 5. Capacidades parcialmente conectadas 🟡
 
-- Adaptador de saída e download de mídia para Telegram implementado.
-- Telegram ainda não está conectado ao runtime principal e não possui entrada de
-  updates/webhook integrada ao mesmo pipeline de domínio.
+- Telegram conectado para texto e comandos 1-a-1 via webhook (/webhook/telegram) e roteador multicanal (Etapa 1 concluída). Mídias assíncronas do Telegram seguem nas Etapas 2 e 3.
 - Persistência e executores de prompts nomeados implementados, mas ainda não
   expostos pelo dispatcher de comandos.
 - Ações para consultar métricas, usuários, grupos e executar snapshot existem no
@@ -88,7 +86,7 @@ de integração entre os processos Gleam e Go.
 
 ## Validação atual
 
-- 107 testes Gleam passando.
+- 120 testes Gleam passando.
 - Testes, race detector, `go vet` e build do bridge Go passando.
 - Testes de regressão para HistorySync, estado de sessão, respostas HTTP de erro,
   migração de modelo, URLs com newline/tab, filas e handlers.
@@ -126,12 +124,18 @@ de integração entre os processos Gleam e Go.
 
 ### P2 — Multi-canal
 
-- [ ] Implementar entrada de updates do Telegram e traduzir seus eventos para os
-  tipos de domínio existentes.
-- [ ] Selecionar o `MensageiroPorta` por canal sem duplicar core ou handlers.
-- [ ] Cobrir WhatsApp e Telegram simultâneos com testes de roteamento e auditoria.
-- [ ] Tornar reações, citações e download de mídia capacidades explícitas de cada
-  canal.
+- [x] **Etapa 1 (Texto, Comandos e Roteamento Multicanal — Concluída):**
+  - Webhook de updates do Telegram (`POST /webhook/telegram`) com validação opcional de secret token.
+  - Bloqueio estrito e sistemático de grupos no Telegram (`chat.type != "private"` é descartado).
+  - Roteador multicanal (`roteador_mensageiro`) selecionando `MensageiroPorta` por prefixo de `chat_id` (`tg:` vs WhatsApp) sem duplicar core ou handlers.
+  - Normalização de comandos com barra (`/start`, `/ajuda`, `/cego`, `/curto`, etc.) e suporte a menção do bot em comandos.
+  - Cobertura completa com testes automatizados de decodificação, roteamento e fluxo end-to-end.
+- [ ] **Etapa 2 (Fotos e Áudio/Voz):**
+  - Download assíncrono de fotos e áudios via Telegram Bot API (`getFile` + `baixar_arquivo`).
+  - Encaminhamento direto para as filas OTP existentes em `fila_midia.gleam`.
+- [ ] **Etapa 3 (Documentos, Vídeos até 20MB e Observabilidade):**
+  - Suporte a documentos (PDFs/texto) e vídeos respeitando o teto de 20MB da Bot API pública.
+  - Métricas de atendimento e auditoria de transações segmentadas por canal.
 
 ### P3 — Evolução de produto
 
