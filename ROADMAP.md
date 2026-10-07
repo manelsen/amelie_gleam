@@ -86,7 +86,7 @@ de integração entre os processos Gleam e Go.
 
 ## Validação atual
 
-- 135 testes Gleam passando.
+- 140 testes Gleam passando.
 - Testes, race detector, `go vet` e build do bridge Go passando.
 - Testes de regressão para HistorySync, estado de sessão, respostas HTTP de erro,
   migração de modelo, URLs com newline/tab, filas e handlers.
@@ -135,11 +135,13 @@ de integração entre os processos Gleam e Go.
   - Suporte a legendas (`caption`) em fotos e áudios integradas ao contexto da mensagem.
   - Encaminhamento direto para as filas OTP existentes em `fila_midia.gleam` e pipeline multimodal do Gemini.
   - Rejeição categórica de mídias recebidas em grupos do Telegram.
-- [ ] **Etapa 3 (Documentos, Vídeos até 20MB e Observabilidade):**
-  - [x] Suporte a vídeos (`video` e `video_note`) até 20MB via Bot API com download assíncrono e fila OTP de vídeo.
+- [x] **Etapa 3 (Documentos, Figurinhas, Vídeos até 20MB e Chat Actions — Concluída):**
+  - [x] Suporte a vídeos (`video`, `video_note`, `animation` e vídeos enviados como documentos) até 20MB via Bot API com download assíncrono e fila OTP de vídeo.
   - [x] Mapeamento compatível de reações (`⌛`/`⏳` -> `🤔` e `🆗` -> `👍`) com feedback visual imediato ao usuário.
-  - [ ] Suporte a documentos (PDFs/texto) até 20MB.
-  - [ ] Métricas de atendimento e auditoria de transações segmentadas por canal.
+  - [x] Suporte a documentos genéricos (PDFs, TXT, DOCX, etc.) até 20MB integrados à fila OTP de documentos e pipeline multimodal do Gemini.
+  - [x] Suporte a figurinhas/stickers estáticos e em vídeo (`image/webp` e `video/webm`) integrados à fila OTP de figurinhas e contexto de emoji associado.
+  - [x] Indicadores de presença em tempo real via Telegram Bot API (`sendChatAction` com `typing`, `upload_photo`, `upload_voice`, `upload_video`, `upload_document`, `choose_sticker`).
+  - [x] Rejeição categórica de qualquer mídia, documento ou figurinha recebido em grupos do Telegram.
 
 ### P3 — Evolução de produto
 
