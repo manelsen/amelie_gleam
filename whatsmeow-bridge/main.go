@@ -110,6 +110,23 @@ type SendRequest struct {
 	QuotedSender    string `json:"quoted_sender,omitempty"`
 }
 
+type APIError struct {
+	Code      string `json:"code"`
+	Message   string `json:"error"`
+	Timestamp string `json:"timestamp,omitempty"`
+}
+
+type ErrorResponse struct {
+	OK bool `json:"ok"`
+	APIError
+}
+
+type HealthResponse struct {
+	Status   string `json:"status"`
+	LoggedIn bool   `json:"logged_in"`
+	*APIError
+}
+
 // ---------------------------------------------------------------------------
 // Bridge
 // ---------------------------------------------------------------------------
@@ -125,6 +142,8 @@ var httpClient = &http.Client{
 type Bridge struct {
 	cfg                 Config
 	client              *whatsmeow.Client
+	connectionMu        sync.RWMutex
+	lastConnectionError *APIError
 	retryMu             sync.Mutex
 	pendingMediaRetries map[string]mediaRetryPending
 	mediaRetryAttempts  map[string]int
@@ -150,7 +169,7 @@ func NewBridge(cfg Config) (*Bridge, error) {
 		return nil, fmt.Errorf("obtendo device: %w", err)
 	}
 
-	clientLog := waLog.Stdout("Client", "WARN", true)
+	clientLog := waLog.Stdout("Client", "INFO", true)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 
 	b := &Bridge{
@@ -229,46 +248,130 @@ func (b *Bridge) handleEvent(rawEvt interface{}) {
 	switch evt := rawEvt.(type) {
 	case *events.Message:
 		b.processMessage(evt)
-	case *events.HistorySync:
-		b.processHistorySync(evt)
 	case *events.MediaRetry:
 		b.handleMediaRetry(evt)
+	case *events.Connected:
+		b.clearConnectionError()
+		log.Printf("[WhatsApp] Conectado e autenticado")
+	case *events.Disconnected:
+		b.setConnectionError(
+			"whatsapp_disconnected",
+			"websocket fechado pelo servidor; aguardando reconexão automática",
+		)
+	case *events.LoggedOut:
+		b.setConnectionError(
+			"whatsapp_logged_out",
+			fmt.Sprintf(
+				"sessão removida pelo WhatsApp (%s, ao_conectar=%t); novo pareamento necessário",
+				evt.Reason.String(),
+				evt.OnConnect,
+			),
+		)
+	case *events.StreamReplaced:
+		b.setConnectionError(
+			"whatsapp_stream_replaced",
+			"sessão substituída por outra conexão usando as mesmas credenciais",
+		)
+	case *events.ConnectFailure:
+		b.setConnectionError(
+			"whatsapp_connect_failure",
+			fmt.Sprintf("falha de conexão %s: %s", evt.Reason.String(), evt.Message),
+		)
+	case *events.StreamError:
+		b.setConnectionError(
+			"whatsapp_stream_error",
+			fmt.Sprintf("erro de stream não reconhecido (código %s)", evt.Code),
+		)
+	case *events.ClientOutdated:
+		b.setConnectionError(
+			"whatsapp_client_outdated",
+			"cliente whatsmeow rejeitado como desatualizado",
+		)
+	case *events.CATRefreshError:
+		b.setConnectionError(
+			"whatsapp_cat_refresh_failed",
+			fmt.Sprintf("falha ao renovar token de autenticação: %v", evt.Error),
+		)
+	case *events.TemporaryBan:
+		b.setConnectionError(
+			"whatsapp_temporarily_banned",
+			evt.String(),
+		)
+	case *events.PairError:
+		b.setConnectionError(
+			"whatsapp_pair_failed",
+			fmt.Sprintf("falha ao concluir pareamento: %v", evt.Error),
+		)
+	case *events.PairSuccess:
+		log.Printf("[WhatsApp] Pareamento concluído; aguardando conexão autenticada")
+	case *events.KeepAliveTimeout:
+		log.Printf(
+			"[WhatsApp] Keepalive expirou: erros=%d último_sucesso=%s",
+			evt.ErrorCount,
+			evt.LastSuccess.Format(time.RFC3339),
+		)
+	case *events.KeepAliveRestored:
+		log.Printf("[WhatsApp] Keepalive restabelecido")
+	case *events.NotifyAccountReachoutTimelock:
+		log.Printf(
+			"[WhatsApp] Restrição de alcance: ativa=%t tipo=%s término=%v",
+			evt.IsActive,
+			evt.EnforcementType,
+			evt.TimeEnforcementEnds,
+		)
 	}
 }
 
-func (b *Bridge) processHistorySync(evt *events.HistorySync) {
-	// Só encaminhar mensagens das últimas 48h — o history sync do WhatsApp
-	// reenvia o histórico completo ao reconectar, o que faria o bot responder
-	// mensagens já respondidas antes de um reinício ou recriação do banco.
-	cutoff := time.Now().Add(-48 * time.Hour)
+func (b *Bridge) setConnectionError(code, message string) {
+	connectionError := &APIError{
+		Code:      code,
+		Message:   message,
+		Timestamp: time.Now().Format(time.RFC3339),
+	}
+	b.connectionMu.Lock()
+	b.lastConnectionError = connectionError
+	b.connectionMu.Unlock()
+	log.Printf("[WhatsApp] INDISPONÍVEL [%s]: %s", code, message)
+}
 
-	data := evt.Data
-	convs := data.GetConversations()
-	for _, conv := range convs {
-		chatID := conv.GetID()
-		chatJID, err := types.ParseJID(chatID)
-		if err != nil {
-			log.Printf("[HistorySync] JID inválido %s: %v", chatID, err)
-			continue
-		}
+func (b *Bridge) clearConnectionError() {
+	b.connectionMu.Lock()
+	b.lastConnectionError = nil
+	b.connectionMu.Unlock()
+}
 
-		msgs := conv.GetMessages()
-		for _, syncMsg := range msgs {
-			webMsg := syncMsg.GetMessage()
-			if webMsg == nil {
-				continue
-			}
-			msgID := webMsg.GetKey().GetID()
-			parsed, err := b.client.ParseWebMessage(chatJID, webMsg)
-			if err != nil {
-				log.Printf("[HistorySync] Erro ao parsear mensagem %s: %v", msgID, err)
-				continue
-			}
-			if parsed.Info.Timestamp.Before(cutoff) {
-				continue
-			}
-			b.processMessage(parsed)
+func (b *Bridge) currentConnectionError() *APIError {
+	b.connectionMu.RLock()
+	defer b.connectionMu.RUnlock()
+	if b.lastConnectionError == nil {
+		return nil
+	}
+	copy := *b.lastConnectionError
+	return &copy
+}
+
+func (b *Bridge) availabilityError() *APIError {
+	if b.client != nil && b.client.IsLoggedIn() {
+		return nil
+	}
+	if connectionError := b.currentConnectionError(); connectionError != nil {
+		return connectionError
+	}
+	if b.client == nil || b.client.Store == nil {
+		return &APIError{
+			Code:    "whatsapp_client_unavailable",
+			Message: "cliente whatsmeow não inicializado",
 		}
+	}
+	if b.client.Store.ID == nil {
+		return &APIError{
+			Code:    "whatsapp_session_missing",
+			Message: "sessão WhatsApp ausente; novo pareamento necessário",
+		}
+	}
+	return &APIError{
+		Code:    "whatsapp_disconnected",
+		Message: "cliente WhatsApp desconectado ou ainda não autenticado",
 	}
 }
 
@@ -455,7 +558,11 @@ func (b *Bridge) downloadMediaBytes(
 	msg whatsmeow.DownloadableMessage,
 	applyDirectPath func(string),
 ) ([]byte, bool) {
-	data, err := b.client.Download(context.Background(), msg)
+	// Fail fast para domínios fantasmas do WhatsApp que causam delays de 15s
+	ctx, cancel := context.WithTimeout(context.Background(), mediaDownloadTimeout(kind))
+	defer cancel()
+
+	data, err := b.client.Download(ctx, msg)
 	if err == nil {
 		if len(data) == 0 {
 			log.Printf("%s vazio recebido do WhatsApp: chat=%s mime=%s arquivo=%q", kind, evt.Info.Chat.String(), mime, fileName)
@@ -468,12 +575,27 @@ func (b *Bridge) downloadMediaBytes(
 		if retryErr := b.requestMediaRetry(evt, kind, msg.GetMediaKey(), applyDirectPath); retryErr != nil {
 			log.Printf("Falha ao solicitar media retry para %s: chat=%s mime=%s arquivo=%q erro_download=%v erro_retry=%v", kind, evt.Info.Chat.String(), mime, fileName, err, retryErr)
 			b.clearMediaRetryState(evt.Info.Chat, evt.Info.ID)
+		} else {
+			log.Printf("Media retry solicitado para %s: chat=%s mime=%s arquivo=%q erro_download=%v", kind, evt.Info.Chat.String(), mime, fileName, err)
 		}
+		return nil, false
+	}
+
+	// Se for erro de conexão ou timeout curto, não insiste 15s
+	if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "context deadline exceeded") {
+		log.Printf("Download de %s abortado rapidamente: chat=%s mime=%s arquivo=%q erro=%v", kind, evt.Info.Chat.String(), mime, fileName, err)
 		return nil, false
 	}
 
 	log.Printf("Falha ao baixar %s do WhatsApp: chat=%s mime=%s arquivo=%q erro=%v", kind, evt.Info.Chat.String(), mime, fileName, err)
 	return nil, false
+}
+
+func mediaDownloadTimeout(kind string) time.Duration {
+	if kind == "figurinha" {
+		return 8 * time.Second
+	}
+	return 2 * time.Second
 }
 
 func (b *Bridge) requestMediaRetry(
@@ -565,6 +687,7 @@ func shouldRequestMediaRetry(err error) bool {
 	return errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith403) ||
 		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith404) ||
 		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith410) ||
+		errors.Is(err, context.DeadlineExceeded) ||
 		isDNSNotFound(err)
 }
 
@@ -917,19 +1040,32 @@ func (b *Bridge) postToGleam(payload IncomingWebhook) error {
 
 func (b *Bridge) handleSend(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIError(w, http.StatusMethodNotAllowed, APIError{
+			Code:    "method_not_allowed",
+			Message: "use POST em /send",
+		})
 		return
 	}
 
 	var req SendRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, APIError{
+			Code:    "invalid_json",
+			Message: fmt.Sprintf("corpo JSON inválido: %v", err),
+		})
 		return
 	}
 
 	jid, err := types.ParseJID(req.ChatID)
 	if err != nil {
-		http.Error(w, "invalid chat_id", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, APIError{
+			Code:    "invalid_chat_id",
+			Message: fmt.Sprintf("chat_id %q inválido: %v", req.ChatID, err),
+		})
+		return
+	}
+	if availabilityError := b.availabilityError(); availabilityError != nil {
+		writeAPIError(w, http.StatusServiceUnavailable, *availabilityError)
 		return
 	}
 
@@ -956,12 +1092,11 @@ func (b *Bridge) handleSend(w http.ResponseWriter, r *http.Request) {
 	_, err = b.sendMessageWithRetry(jid, msg)
 	if err != nil {
 		log.Printf("Erro ao enviar mensagem: %v\n", err)
-		http.Error(w, "send failed", http.StatusInternalServerError)
+		b.writeWhatsAppOperationError(w, "send", "falha ao enviar mensagem", err)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"ok":true}`))
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (b *Bridge) sendMessageWithRetry(jid types.JID, msg *waProto.Message) (any, error) {
@@ -987,19 +1122,32 @@ func (b *Bridge) sendMessageWithRetry(jid types.JID, msg *waProto.Message) (any,
 
 func (b *Bridge) handleReact(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIError(w, http.StatusMethodNotAllowed, APIError{
+			Code:    "method_not_allowed",
+			Message: "use POST em /react",
+		})
 		return
 	}
 
 	var req ReactRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, APIError{
+			Code:    "invalid_json",
+			Message: fmt.Sprintf("corpo JSON inválido: %v", err),
+		})
 		return
 	}
 
 	chatJID, err := types.ParseJID(req.ChatID)
 	if err != nil {
-		http.Error(w, "invalid chat_id", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, APIError{
+			Code:    "invalid_chat_id",
+			Message: fmt.Sprintf("chat_id %q inválido: %v", req.ChatID, err),
+		})
+		return
+	}
+	if availabilityError := b.availabilityError(); availabilityError != nil {
+		writeAPIError(w, http.StatusServiceUnavailable, *availabilityError)
 		return
 	}
 
@@ -1019,17 +1167,57 @@ func (b *Bridge) handleReact(w http.ResponseWriter, r *http.Request) {
 	_, err = b.sendMessageWithRetry(chatJID, msg)
 	if err != nil {
 		log.Printf("Erro ao enviar reação: %v\n", err)
-		http.Error(w, "react failed", http.StatusInternalServerError)
+		b.writeWhatsAppOperationError(w, "react", "falha ao enviar reação", err)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"ok":true}`))
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-func handleHealth(w http.ResponseWriter, r *http.Request) {
+func (b *Bridge) writeWhatsAppOperationError(
+	w http.ResponseWriter,
+	operationCode string,
+	operationMessage string,
+	err error,
+) {
+	if availabilityError := b.availabilityError(); availabilityError != nil {
+		writeAPIError(w, http.StatusServiceUnavailable, *availabilityError)
+		return
+	}
+	writeAPIError(w, http.StatusBadGateway, APIError{
+		Code:    "whatsapp_" + operationCode + "_failed",
+		Message: fmt.Sprintf("%s: %v", operationMessage, err),
+	})
+}
+
+func (b *Bridge) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	if availabilityError := b.availabilityError(); availabilityError != nil {
+		writeJSON(w, http.StatusServiceUnavailable, HealthResponse{
+			Status:   "unavailable",
+			LoggedIn: false,
+			APIError: availabilityError,
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, HealthResponse{
+		Status:   "ok",
+		LoggedIn: true,
+	})
+}
+
+func writeAPIError(w http.ResponseWriter, status int, apiError APIError) {
+	if apiError.Timestamp == "" {
+		apiError.Timestamp = time.Now().Format(time.RFC3339)
+	}
+	writeJSON(w, status, ErrorResponse{OK: false, APIError: apiError})
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"status":"ok"}`))
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		log.Printf("Erro ao escrever resposta JSON HTTP: %v", err)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -1052,7 +1240,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/send", bridge.handleSend)
 	mux.HandleFunc("/react", bridge.handleReact)
-	mux.HandleFunc("/health", handleHealth)
+	mux.HandleFunc("/health", bridge.handleHealth)
 
 	server := &http.Server{
 		Addr:    ":" + cfg.Port,

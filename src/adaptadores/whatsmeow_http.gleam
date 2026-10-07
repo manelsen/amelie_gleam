@@ -2,12 +2,14 @@
 // Implementa MensageiroPorta chamando o microserviço local.
 
 import dominio/erro.{type Erro}
+import gleam/dynamic/decode
 import gleam/http
 import gleam/http/request
 import gleam/httpc
 import gleam/int
 import gleam/json
 import gleam/result
+import gleam/string
 import portas/mensageiro_porta.{type MensageiroPorta, MensageiroPorta}
 
 pub fn criar(base_url: String) -> MensageiroPorta {
@@ -80,17 +82,11 @@ fn reagir(
     |> request.set_body(body)
   use resp <- result.try(
     httpc.send(req)
-    |> result.map_error(fn(_) {
-      erro.ErroComunicacao("falha ao contatar whatsmeow bridge")
+    |> result.map_error(fn(error) {
+      erro.ErroComunicacao(descrever_erro_transporte(error))
     }),
   )
-  case resp.status {
-    200 -> Ok(Nil)
-    status ->
-      Error(erro.ErroComunicacao(
-        "whatsmeow retornou status " <> int.to_string(status),
-      ))
-  }
+  interpretar_resposta(resp.status, resp.body)
 }
 
 fn post(base_url: String, body: String) -> Result(Nil, Erro) {
@@ -107,16 +103,57 @@ fn post(base_url: String, body: String) -> Result(Nil, Erro) {
 
   use resp <- result.try(
     httpc.send(req)
-    |> result.map_error(fn(_) {
-      erro.ErroComunicacao("falha ao contatar whatsmeow bridge")
+    |> result.map_error(fn(error) {
+      erro.ErroComunicacao(descrever_erro_transporte(error))
     }),
   )
 
-  case resp.status {
+  interpretar_resposta(resp.status, resp.body)
+}
+
+fn interpretar_resposta(status: Int, body: String) -> Result(Nil, Erro) {
+  case status {
     200 -> Ok(Nil)
-    status ->
-      Error(erro.ErroComunicacao(
-        "whatsmeow retornou status " <> int.to_string(status),
-      ))
+    status -> Error(erro.ErroComunicacao(descrever_erro_http(status, body)))
+  }
+}
+
+pub fn descrever_erro_http(status: Int, body: String) -> String {
+  let prefixo = "whatsmeow retornou status " <> int.to_string(status)
+  let decoder = {
+    use codigo <- decode.then(decode.at(["code"], decode.string))
+    use mensagem <- decode.then(decode.at(["error"], decode.string))
+    decode.success(#(codigo, mensagem))
+  }
+
+  case json.parse(body, decoder) {
+    Ok(#(codigo, mensagem)) -> prefixo <> " [" <> codigo <> "]: " <> mensagem
+    Error(_) ->
+      case string.trim(body) {
+        "" -> prefixo
+        detalhes -> prefixo <> ": " <> detalhes
+      }
+  }
+}
+
+pub fn descrever_erro_transporte(error: httpc.HttpError) -> String {
+  case error {
+    httpc.InvalidUtf8Response ->
+      "resposta do whatsmeow bridge contém texto UTF-8 inválido"
+    httpc.ResponseTimeout -> "timeout aguardando resposta do whatsmeow bridge"
+    httpc.FailedToConnect(ipv4, ipv6) ->
+      "falha ao conectar ao whatsmeow bridge (IPv4: "
+      <> descrever_erro_conexao(ipv4)
+      <> "; IPv6: "
+      <> descrever_erro_conexao(ipv6)
+      <> ")"
+  }
+}
+
+fn descrever_erro_conexao(error: httpc.ConnectError) -> String {
+  case error {
+    httpc.Posix(codigo) -> "POSIX " <> codigo
+    httpc.TlsAlert(codigo, detalhes) ->
+      "TLS " <> codigo <> " (" <> detalhes <> ")"
   }
 }

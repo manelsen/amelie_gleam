@@ -1,15 +1,92 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
+	"go.mau.fi/whatsmeow/store"
+	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
 )
+
+func TestHealthUnavailableWithoutSession(t *testing.T) {
+	bridge := bridgeWithoutSession()
+	recorder := httptest.NewRecorder()
+
+	bridge.handleHealth(recorder, httptest.NewRequest(http.MethodGet, "/health", nil))
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusServiceUnavailable)
+	}
+	var response HealthResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Status != "unavailable" || response.LoggedIn {
+		t.Fatalf("unexpected health response: %#v", response)
+	}
+	if response.APIError == nil || response.Code != "whatsapp_session_missing" {
+		t.Fatalf("error = %#v, want whatsapp_session_missing", response.APIError)
+	}
+}
+
+func TestLoggedOutReasonReachesHealth(t *testing.T) {
+	bridge := bridgeWithoutSession()
+	bridge.handleEvent(&events.LoggedOut{
+		Reason: events.ConnectFailureLoggedOut,
+	})
+	recorder := httptest.NewRecorder()
+
+	bridge.handleHealth(recorder, httptest.NewRequest(http.MethodGet, "/health", nil))
+
+	var response HealthResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.APIError == nil || response.Code != "whatsapp_logged_out" {
+		t.Fatalf("error = %#v, want whatsapp_logged_out", response.APIError)
+	}
+	if !strings.Contains(response.Message, "401") || !strings.Contains(response.Message, "novo pareamento") {
+		t.Fatalf("error message = %q, want logout reason and recovery action", response.Message)
+	}
+}
+
+func TestHandleSendReturnsExplicitSessionFailure(t *testing.T) {
+	bridge := bridgeWithoutSession()
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/send",
+		strings.NewReader(`{"chat_id":"5511999999999@s.whatsapp.net","text":"oi"}`),
+	)
+
+	bridge.handleSend(recorder, request)
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusServiceUnavailable)
+	}
+	var response ErrorResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.OK || response.Code != "whatsapp_session_missing" {
+		t.Fatalf("unexpected error response: %#v", response)
+	}
+}
+
+func bridgeWithoutSession() *Bridge {
+	return &Bridge{
+		client: &whatsmeow.Client{Store: &store.Device{}},
+	}
+}
 
 func TestClassifyDocumentMedia(t *testing.T) {
 	tests := []struct {
@@ -129,6 +206,11 @@ func TestShouldRequestMediaRetry(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "download timeout",
+			err:  context.DeadlineExceeded,
+			want: true,
+		},
+		{
 			name: "unrelated error",
 			err:  fmt.Errorf("connection reset by peer"),
 			want: false,
@@ -142,6 +224,12 @@ func TestShouldRequestMediaRetry(t *testing.T) {
 				t.Fatalf("shouldRequestMediaRetry() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestMediaDownloadTimeout(t *testing.T) {
+	if mediaDownloadTimeout("figurinha") <= mediaDownloadTimeout("imagem") {
+		t.Fatalf("sticker timeout should be longer than image timeout")
 	}
 }
 
