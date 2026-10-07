@@ -133,6 +133,8 @@ pub fn despachar_evento(
   case evento {
     telegram_webhook.EventoMensagemPronta(_, msg) -> {
       spawn_fn(fn() {
+        let _ =
+          telegram_http.enviar_chat_action(bot_token, msg.chat_id, "typing")
         let _ = handler_mensagem.handle(msg, portas)
         Nil
       })
@@ -140,6 +142,12 @@ pub fn despachar_evento(
     telegram_webhook.EventoFotoParaBaixar(_, base, file_id) -> {
       spawn_fn(fn() {
         reagir_se_possivel(base, portas)
+        let _ =
+          telegram_http.enviar_chat_action(
+            bot_token,
+            base.chat_id,
+            "upload_photo",
+          )
         case telegram_http.baixar_arquivo(bot_token, file_id) {
           Ok(bytes) -> {
             let msg =
@@ -168,6 +176,12 @@ pub fn despachar_evento(
     telegram_webhook.EventoAudioParaBaixar(_, base, file_id, mime) -> {
       spawn_fn(fn() {
         reagir_se_possivel(base, portas)
+        let _ =
+          telegram_http.enviar_chat_action(
+            bot_token,
+            base.chat_id,
+            "upload_voice",
+          )
         case telegram_http.baixar_arquivo(bot_token, file_id) {
           Ok(bytes) -> {
             let msg = Mensagem(..base, corpo: mensagem.Audio(mime, bytes))
@@ -195,6 +209,12 @@ pub fn despachar_evento(
     telegram_webhook.EventoVideoParaBaixar(_, base, file_id, mime) -> {
       spawn_fn(fn() {
         reagir_se_possivel(base, portas)
+        let _ =
+          telegram_http.enviar_chat_action(
+            bot_token,
+            base.chat_id,
+            "upload_video",
+          )
         case telegram_http.baixar_arquivo(bot_token, file_id) {
           Ok(bytes) -> {
             let caminho =
@@ -240,6 +260,90 @@ pub fn despachar_evento(
               portas.mensageiro.enviar(
                 base.chat_id,
                 "Não consegui baixar o vídeo do Telegram. O limite suportado pelo bot é de 20MB.",
+              )
+            Nil
+          }
+        }
+      })
+    }
+    telegram_webhook.EventoDocumentoParaBaixar(
+      _,
+      base,
+      file_id,
+      mime,
+      file_name,
+    ) -> {
+      spawn_fn(fn() {
+        reagir_se_possivel(base, portas)
+        let _ =
+          telegram_http.enviar_chat_action(
+            bot_token,
+            base.chat_id,
+            "upload_document",
+          )
+        case telegram_http.baixar_arquivo(bot_token, file_id) {
+          Ok(bytes) -> {
+            let msg =
+              Mensagem(
+                ..base,
+                corpo: mensagem.Documento(
+                  mime: mime,
+                  dados: bytes,
+                  nome: file_name,
+                ),
+              )
+            let _ = handler_mensagem.handle(msg, portas)
+            Nil
+          }
+          Error(e) -> {
+            logging.log(
+              logging.Warning,
+              "Telegram poller: falha ao baixar documento ("
+                <> file_id
+                <> "): "
+                <> string.inspect(e),
+            )
+            let _ =
+              portas.mensageiro.enviar(
+                base.chat_id,
+                "Não consegui baixar o documento do Telegram. O limite suportado pelo bot é de 20MB.",
+              )
+            Nil
+          }
+        }
+      })
+    }
+    telegram_webhook.EventoStickerParaBaixar(_, base, file_id, mime) -> {
+      spawn_fn(fn() {
+        reagir_se_possivel(base, portas)
+        let _ =
+          telegram_http.enviar_chat_action(
+            bot_token,
+            base.chat_id,
+            "choose_sticker",
+          )
+        case telegram_http.baixar_arquivo(bot_token, file_id) {
+          Ok(bytes) -> {
+            let msg =
+              Mensagem(
+                ..base,
+                corpo: mensagem.Sticker(mime: mime, dados: bytes),
+              )
+            let _ = handler_mensagem.handle(msg, portas)
+            Nil
+          }
+          Error(e) -> {
+            logging.log(
+              logging.Warning,
+              "Telegram poller: falha ao baixar figurinha ("
+                <> file_id
+                <> "): "
+                <> string.inspect(e),
+            )
+            let _ =
+              portas.mensageiro.enviar(
+                base.chat_id,
+                "Não consegui baixar a figurinha do Telegram. Tente enviar novamente.",
               )
             Nil
           }

@@ -348,3 +348,87 @@ pub fn parsear_evento_document_como_video_test() {
     _ -> should.fail()
   }
 }
+
+pub fn parsear_evento_documento_generico_test() {
+  let json =
+    "{\"update_id\":5001,\"message\":{\"message_id\":90,\"date\":1700000000,\"chat\":{\"id\":998877,\"type\":\"private\"},\"document\":{\"file_id\":\"doc_pdf_123\",\"file_name\":\"relatorio.pdf\",\"mime_type\":\"application/pdf\"}}}"
+    |> bit_array.from_string
+
+  let assert Ok(evento) = telegram_webhook.parsear_evento(json)
+  case evento {
+    telegram_webhook.EventoDocumentoParaBaixar(
+      update_id,
+      base,
+      file_id,
+      mime,
+      file_name,
+    ) -> {
+      update_id |> should.equal(5001)
+      file_id |> should.equal("doc_pdf_123")
+      mime |> should.equal("application/pdf")
+      file_name |> should.equal("relatorio.pdf")
+      base.chat_id |> should.equal("tg:998877")
+    }
+    _ -> should.fail()
+  }
+}
+
+pub fn parsear_evento_sticker_estatico_test() {
+  let json =
+    "{\"update_id\":5002,\"message\":{\"message_id\":91,\"date\":1700000000,\"chat\":{\"id\":998877,\"type\":\"private\"},\"sticker\":{\"file_id\":\"stk_webp_123\",\"emoji\":\"🎉\",\"is_video\":false}}}"
+    |> bit_array.from_string
+
+  let assert Ok(evento) = telegram_webhook.parsear_evento(json)
+  case evento {
+    telegram_webhook.EventoStickerParaBaixar(update_id, base, file_id, mime) -> {
+      update_id |> should.equal(5002)
+      file_id |> should.equal("stk_webp_123")
+      mime |> should.equal("image/webp")
+      base.chat_id |> should.equal("tg:998877")
+      base.legenda |> should.equal(Some("🎉"))
+    }
+    _ -> should.fail()
+  }
+}
+
+pub fn parsear_evento_sticker_video_test() {
+  let json =
+    "{\"update_id\":5003,\"message\":{\"message_id\":92,\"date\":1700000000,\"chat\":{\"id\":998877,\"type\":\"private\"},\"sticker\":{\"file_id\":\"stk_webm_456\",\"is_video\":true}}}"
+    |> bit_array.from_string
+
+  let assert Ok(evento) = telegram_webhook.parsear_evento(json)
+  case evento {
+    telegram_webhook.EventoStickerParaBaixar(update_id, base, file_id, mime) -> {
+      update_id |> should.equal(5003)
+      file_id |> should.equal("stk_webm_456")
+      mime |> should.equal("video/webm")
+      base.chat_id |> should.equal("tg:998877")
+      base.legenda |> should.be_none
+    }
+    _ -> should.fail()
+  }
+}
+
+pub fn parsear_evento_documento_em_grupo_rejeitado_test() {
+  let json =
+    "{\"update_id\":5004,\"message\":{\"message_id\":93,\"date\":1700000000,\"chat\":{\"id\":-1002345,\"type\":\"group\"},\"document\":{\"file_id\":\"doc_grupo\",\"file_name\":\"ata.pdf\",\"mime_type\":\"application/pdf\"}}}"
+    |> bit_array.from_string
+
+  let assert Ok(evento) = telegram_webhook.parsear_evento(json)
+  case evento {
+    telegram_webhook.EventoIgnorado(id) -> id |> should.equal(5004)
+    _ -> should.fail()
+  }
+}
+
+pub fn parsear_evento_sticker_em_grupo_rejeitado_test() {
+  let json =
+    "{\"update_id\":5005,\"message\":{\"message_id\":94,\"date\":1700000000,\"chat\":{\"id\":-1002345,\"type\":\"supergroup\"},\"sticker\":{\"file_id\":\"stk_grupo\",\"is_video\":false}}}"
+    |> bit_array.from_string
+
+  let assert Ok(evento) = telegram_webhook.parsear_evento(json)
+  case evento {
+    telegram_webhook.EventoIgnorado(id) -> id |> should.equal(5005)
+    _ -> should.fail()
+  }
+}

@@ -72,6 +72,21 @@ pub fn normalizar_id(id: String) -> String {
   }
 }
 
+pub fn enviar_chat_action(
+  bot_token: String,
+  chat_id: String,
+  action: String,
+) -> Result(Nil, Erro) {
+  let target_id = normalizar_id(chat_id)
+  let body =
+    json.object([
+      #("chat_id", json.string(target_id)),
+      #("action", json.string(action)),
+    ])
+    |> json.to_string
+  post(bot_token, "/sendChatAction", body)
+}
+
 fn enviar_mensagem(
   bot_token: String,
   chat_id: String,

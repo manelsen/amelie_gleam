@@ -34,6 +34,7 @@ pub type TelegramMessage {
     video_note: Option(#(String, String)),
     animation: Option(#(String, String)),
     document: Option(#(String, String, String)),
+    sticker: Option(#(String, String, Option(String))),
   )
 }
 
@@ -52,6 +53,19 @@ pub type EventoUpdate {
     file_id: String,
     mime: String,
   )
+  EventoDocumentoParaBaixar(
+    update_id: Int,
+    base: Mensagem,
+    file_id: String,
+    mime: String,
+    file_name: String,
+  )
+  EventoStickerParaBaixar(
+    update_id: Int,
+    base: Mensagem,
+    file_id: String,
+    mime: String,
+  )
   EventoIgnorado(update_id: Int)
 }
 
@@ -61,6 +75,8 @@ pub fn obter_update_id(evento: EventoUpdate) -> Int {
     EventoFotoParaBaixar(id, _, _) -> id
     EventoAudioParaBaixar(id, _, _, _) -> id
     EventoVideoParaBaixar(id, _, _, _) -> id
+    EventoDocumentoParaBaixar(id, _, _, _, _) -> id
+    EventoStickerParaBaixar(id, _, _, _) -> id
     EventoIgnorado(id) -> id
   }
 }
@@ -187,20 +203,46 @@ pub fn converter_update_em_evento(update: TelegramUpdate) -> EventoUpdate {
                                             mime,
                                           )
                                         False ->
-                                          EventoIgnorado(update.update_id)
+                                          EventoDocumentoParaBaixar(
+                                            update.update_id,
+                                            base,
+                                            file_id,
+                                            mime,
+                                            file_name,
+                                          )
                                       }
                                     }
                                     None -> {
-                                      case msg.text {
-                                        Some(raw_text) -> {
-                                          let corpo =
-                                            parsear_texto_ou_comando(raw_text)
-                                          EventoMensagemPronta(
+                                      case msg.sticker {
+                                        Some(#(file_id, mime, emoji)) -> {
+                                          let base_com_legenda = case emoji {
+                                            Some(e) ->
+                                              Mensagem(..base, legenda: Some(e))
+                                            None -> base
+                                          }
+                                          EventoStickerParaBaixar(
                                             update.update_id,
-                                            Mensagem(..base, corpo: corpo),
+                                            base_com_legenda,
+                                            file_id,
+                                            mime,
                                           )
                                         }
-                                        None -> EventoIgnorado(update.update_id)
+                                        None -> {
+                                          case msg.text {
+                                            Some(raw_text) -> {
+                                              let corpo =
+                                                parsear_texto_ou_comando(
+                                                  raw_text,
+                                                )
+                                              EventoMensagemPronta(
+                                                update.update_id,
+                                                Mensagem(..base, corpo: corpo),
+                                              )
+                                            }
+                                            None ->
+                                              EventoIgnorado(update.update_id)
+                                          }
+                                        }
                                       }
                                     }
                                   }
@@ -316,6 +358,21 @@ fn document_decoder() -> decode.Decoder(#(String, String, String)) {
   decode.success(#(file_id, mime, file_name))
 }
 
+fn sticker_decoder() -> decode.Decoder(#(String, String, Option(String))) {
+  use file_id <- decode.then(decode.at(["file_id"], decode.string))
+  use is_video <- decode.optional_field("is_video", False, decode.bool)
+  use emoji <- decode.optional_field(
+    "emoji",
+    None,
+    decode.string |> decode.map(Some),
+  )
+  let mime = case is_video {
+    True -> "video/webm"
+    False -> "image/webp"
+  }
+  decode.success(#(file_id, mime, emoji))
+}
+
 fn telegram_message_decoder() -> decode.Decoder(TelegramMessage) {
   use message_id <- decode.field("message_id", decode.int)
   use date <- decode.field("date", decode.int)
@@ -371,6 +428,11 @@ fn telegram_message_decoder() -> decode.Decoder(TelegramMessage) {
     None,
     document_decoder() |> decode.map(Some),
   )
+  use sticker <- decode.optional_field(
+    "sticker",
+    None,
+    sticker_decoder() |> decode.map(Some),
+  )
   decode.success(TelegramMessage(
     message_id: message_id,
     date: date,
@@ -386,6 +448,7 @@ fn telegram_message_decoder() -> decode.Decoder(TelegramMessage) {
     video_note: video_note,
     animation: animation,
     document: document,
+    sticker: sticker,
   ))
 }
 
