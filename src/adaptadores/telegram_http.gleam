@@ -65,14 +65,22 @@ pub fn baixar_arquivo(
 // Internos
 // ---------------------------------------------------------------------------
 
+pub fn normalizar_id(id: String) -> String {
+  case string.starts_with(id, "tg:") {
+    True -> string.drop_start(id, 3)
+    False -> id
+  }
+}
+
 fn enviar_mensagem(
   bot_token: String,
   chat_id: String,
   texto: String,
 ) -> Result(Nil, Erro) {
+  let target_id = normalizar_id(chat_id)
   let body =
     json.object([
-      #("chat_id", json.string(chat_id)),
+      #("chat_id", json.string(target_id)),
       #("text", json.string(texto)),
       #("parse_mode", json.string("Markdown")),
     ])
@@ -86,11 +94,11 @@ fn enviar_citando(
   quoted_id: String,
   texto: String,
 ) -> Result(Nil, Erro) {
-  // quoted_id vem como string; Telegram espera inteiro
-  let reply_id = int.parse(quoted_id) |> result.unwrap(0)
+  let target_id = normalizar_id(chat_id)
+  let reply_id = int.parse(normalizar_id(quoted_id)) |> result.unwrap(0)
   let body =
     json.object([
-      #("chat_id", json.string(chat_id)),
+      #("chat_id", json.string(target_id)),
       #("text", json.string(texto)),
       #("parse_mode", json.string("Markdown")),
       #("reply_to_message_id", json.int(reply_id)),
@@ -105,10 +113,11 @@ fn reagir(
   message_id: String,
   emoji: String,
 ) -> Result(Nil, Erro) {
-  let msg_id = int.parse(message_id) |> result.unwrap(0)
+  let target_id = normalizar_id(chat_id)
+  let msg_id = int.parse(normalizar_id(message_id)) |> result.unwrap(0)
   let body =
     json.object([
-      #("chat_id", json.string(chat_id)),
+      #("chat_id", json.string(target_id)),
       #("message_id", json.int(msg_id)),
       #(
         "reaction",
