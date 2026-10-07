@@ -25,7 +25,7 @@ pub fn validar_texto(body: String) -> Result(String, Erro) {
 }
 
 const comandos_conhecidos = [
-  "ajuda", "reset", "audio", "imagem", "video", "doc", "legenda", "longo",
+  "ajuda", "start", "reset", "audio", "imagem", "video", "doc", "legenda", "longo",
   "curto", "cego", "modelo",
 ]
 

@@ -12,7 +12,7 @@ pub fn executar(
   config: Config,
 ) -> Result(List(Acao), Erro) {
   case nome {
-    "ajuda" -> Ok(ajuda(config))
+    "ajuda" | "start" -> Ok(ajuda(config))
     "reset" -> Ok(reset(config))
     "audio" -> toggle("audio", args, config)
     "imagem" -> toggle("imagem", args, config)
