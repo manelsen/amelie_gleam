@@ -78,7 +78,7 @@ Funcionalidades migradas e ativas no `amelie_gleam`:
 - [x] Rotina periódica de limpeza de transações antigas (+7 dias) — `shell/manutencao.gleam`.
 - [x] Telemetria de memória e processos do runtime BEAM — `metricas.formatar`.
 - [x] Limpeza automática de arquivos temporários de mídia órfãos no bridge Go (`cleanupOrphanMediaFiles`).
-- [ ] Exposição de métricas e status operacional via endpoint HTTP autenticado.
+- [x] Exposição de métricas e status operacional via comando administrativo com RBAC (`/status` no Telegram) e healthcheck consolidado (`GET /health`).
 
 ---
 
@@ -95,7 +95,14 @@ Funcionalidades migradas e ativas no `amelie_gleam`:
 - Provedor configurável (`.modelo`) e migração para `gemini-3.8-flash`.
 - Circuit Breaker, Cache de IA e telemetria BEAM.
 
-### P2 — Melhorias Operacionais Futuras
-- [ ] Tornar estado da sessão do WhatsApp visível no healthcheck raiz da aplicação Gleam.
-- [ ] Expor endpoints administrativos/telemetria com autenticação.
-- [ ] Canal de entrada Telegram (integração de updates via webhook no mesmo pipeline de domínio).
+### P2 — Multicanal e Operação — Concluído ✅
+- [x] Canal de entrada Telegram com paridade multimodal total (Texto, Fotos, Voz/Áudio, Vídeos até 20MB, Documentos até 20MB, Stickers WebP/WebM, Chat Actions e Reações compatíveis).
+- [x] Estado de sessão do WhatsApp e telemetria BEAM visíveis no healthcheck consolidado (`GET /health`) da aplicação Gleam.
+- [x] Comandos remotos com RBAC via Telegram (`/status`, `/reset_whatsapp`, `/parear <numero>`) restritos a `TELEGRAM_ADMIN_CHAT_ID` e com entrega automática do pairing code.
+- [x] Resiliência de ponta a ponta no Whatsmeow Bridge (supervisor no `entrypoint.sh`, recriação de device limpo com `container.NewDevice()`, servidor HTTP antes do dial e retry assíncrono de eventos).
+
+### P3 — Próximos Passos de Engenharia
+- [ ] Corrigir contenção de chamadas concorrentes no estado SemiAberto do Circuit Breaker.
+- [ ] Propagação de identificador de correlação (Trace ID / Request ID) de ponta a ponta.
+- [ ] Exposição de comandos para prompts nomeados persistidos no SQLite.
+- [ ] Melhorias de robustez e segurança no scraper de URLs.

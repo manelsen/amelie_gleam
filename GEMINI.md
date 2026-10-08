@@ -79,7 +79,7 @@ test/                 # Test suite (mirrors src/ structure)
 ### Commands
 
 - **Build:** `gleam build`
-- **Test:** `gleam test` (107 tests passing)
+- **Test:** `gleam test` (152 tests passing)
 - **Bridge Tests:** `cd whatsmeow-bridge && go test -count=1 ./...`
 - **Run (Local):**
   ```bash
@@ -93,6 +93,9 @@ test/                 # Test suite (mirrors src/ structure)
 |---|---|---|
 | `GEMINI_API_KEY` | `""` | Google Gemini API key (primary) |
 | `OPENROUTER_API_KEY` | `""` | OpenRouter API key (alternative/fallback) |
+| `TELEGRAM_BOT_TOKEN` | `""` | Telegram Bot API token (enables Telegram channel) |
+| `TELEGRAM_SECRET_TOKEN` | `""` | Secret token to authenticate Telegram incoming webhook (optional) |
+| `TELEGRAM_ADMIN_CHAT_ID` | `""` | Admin Telegram Chat ID for RBAC `/status`, `/reset_whatsapp`, `/parear` |
 | `MOBILE_NUMBER` | `""` | Bot phone number for pairing code (optional) |
 | `WHATSMEOW_URL` | `http://localhost:8080` | URL of the whatsmeow-bridge |
 | `DB_PATH` | `/data/amelie.sqlite` | Path to the SQLite database |
@@ -107,6 +110,7 @@ test/                 # Test suite (mirrors src/ structure)
 ### Hexagonal Architecture Principles
 - **Pure Core:** Logic in `core/` and `dominio/` must remain pure. No side effects, no external network or file IO.
 - **Port-Based Dependency:** The shell and core interact with external systems exclusively through interfaces defined in `portas/`.
+- **Multichannel Routing:** Messages from WhatsApp and Telegram use unified domain logic; `adaptadores/roteador_mensageiro` routes output actions to the respective adapter by chat ID prefix (`tg:` vs WhatsApp JID).
 - **Acao Pattern:** The core never performs actions; it returns `List(Acao)` which prescribes what the shell should execute:
   - `GerarEEnviar(para, prompt)`: triggers AI generation and sends the response.
   - `EnviarResposta(para, corpo)`: sends canned or command output directly.
@@ -115,13 +119,21 @@ test/                 # Test suite (mirrors src/ structure)
   - `BaixarVideoUrlEDescrever(chat_id, url)`: processes YouTube, Instagram or TikTok videos via `yt-dlp`.
 
 ### Workflow & Reliability
-- **Non-blocking Webhooks:** The `/webhook` endpoint returns `202 Accepted` immediately. Message processing happens in an isolated process via `spawn_fn`.
-- **Media Offloading via Temp Files:** Large incoming media (images, audio, video, documents, stickers) is saved by the bridge to `/tmp/amelie_midia_*` and read/deleted by the Gleam application, eliminating Mist HTTP body overflow.
+- **Non-blocking Webhooks:** Both `/webhook` (WhatsApp) and `/webhook/telegram` return `202 Accepted` immediately. Processing happens in an isolated process via `spawn_fn`.
+- **Media Offloading via Temp Files:** Large incoming media (images, audio, video, documents, stickers) is saved by the bridge to `/tmp/amelie_midia_*` and read/deleted by the Gleam application, eliminating Mist HTTP body overflow. Telegram media is downloaded asynchronously using Bot API `getFile`.
 - **Deduplication & Transaction Audit:** Messages are tracked in the `transacoes` table to ensure at-most-once processing and retry tracking.
 - **Message Age Filter:** Messages older than 48 hours are ignored to prevent responding to old history on startup.
+- **Strict Telegram Privacy Filter:** Group chats in Telegram are categorically rejected (`chat.type != "private"`).
 - **Async Media Queues:** Media processing is handled by dedicated OTP actors in `shell/fila_midia.gleam` (`imagem`, `audio`, `video`, `documento`, `sticker`).
 - **Resilient AI Layer:** `shell/ia_resiliente.gleam` wraps provider calls with exponential backoff retry (up to 3 attempts), provider-specific circuit breaking (`shell/circuit_breaker.gleam`), and in-memory caching (`shell/cache_ia.gleam`).
-- **Bridge Reliability:** The Go bridge handles connection lifecycle events (`Connected`, `Disconnected`, `LoggedOut`, `StreamReplaced`, `TemporaryBan`), surfaces structured JSON errors on `/send`, `/react`, and `/health`, and maintains an internal retry queue.
+- **Bridge Reliability & Self-Healing:**
+  - HTTP server on `:8080` starts immediately before attempting WhatsApp connection, making `/health`, `/pair-phone` and `/reset-session` available even during disconnections.
+  - Resetting sessions (`POST /reset-session`) recreates devices via `container.NewDevice()` and instantiates a clean `whatsmeow.Client`, avoiding `ErrDeviceDeleted`.
+  - Pairing code timeout does not terminate the process (`log.Fatalf` removed).
+  - Supervisor loop in `entrypoint.sh` restarts bridge automatically if killed.
+  - Asynchronous retry with backoff (5 attempts) for event notifications to Gleam (`notifyGleamEvent`).
+- **Consolidated Healthcheck:** `GET /health` aggregates status from SQLite, the whatsmeow bridge, Telegram, and BEAM runtime metrics (memory and process count).
+- **Remote RBAC Administration:** Telegram admin (`TELEGRAM_ADMIN_CHAT_ID`) can query `/status` and manage session resets via `/reset_whatsapp` and `/parear <phone>`.
 
 ### Coding Style
 - **Gleam Patterns:** Prefer `use` for monadic operations (Result, Option, Decoder).
@@ -130,6 +142,6 @@ test/                 # Test suite (mirrors src/ structure)
 
 ## Key Logic Paths
 
-1. **Incoming Message:** `POST /webhook` -> Decodes to `Webhook` -> Reads/deletes temp media file -> Calls `handler_mensagem.handle`.
+1. **Incoming Message:** `POST /webhook` or `POST /webhook/telegram` -> Decodes to `Webhook` -> Reads/downloads media -> Calls `handler_mensagem.handle`.
 2. **Pure Decision:** `handler_mensagem` fetches `Config` and `Historico` -> Calls `core/processador.processar` (Pure) -> Receives `List(Acao)`.
-3. **Execution:** `handler_mensagem` iterates over `Acao` list and executes each via relevant ports (`ia_dispatcher`, `mensageiro`, `historico`, `transacoes`).
+3. **Execution:** `handler_mensagem` iterates over `Acao` list and executes each via relevant ports (`ia_dispatcher`, `roteador_mensageiro`, `historico`, `transacoes`).

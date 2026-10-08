@@ -1,14 +1,14 @@
-# Amélie: Assistente Acessível de Inteligência Artificial para WhatsApp
+# Amélie: Assistente Acessível de Inteligência Artificial para WhatsApp e Telegram
 
-A **Amélie** é uma assistente virtual de inteligência artificial que vive no WhatsApp, pensada desde o início para promover a autonomia, a inclusão e o acesso à informação de **pessoas com deficiência**.
+A **Amélie** é uma assistente virtual de inteligência artificial que vive no WhatsApp e no Telegram, pensada desde o início para promover a autonomia, a inclusão e o acesso à informação de **pessoas com deficiência**.
 
-Seja você uma pessoa cega, com baixa visão, surda, ensurdecida, neurodivergente ou com mobilidade reduzida, a Amélie transforma mídias visuais e auditivas em formatos acessíveis e fáceis de compreender diretamente no seu aplicativo de mensagens.
+Seja você uma pessoa cega, com baixa visão, surda, ensurdecida, neurodivergente ou com mobilidade reduzida, a Amélie transforma mídias visuais e auditivas em formatos acessíveis e fáceis de compreender diretamente no seu aplicativo de mensagens favorito.
 
 ---
 
 ## O que a Amélie faz por você
 
-A Amélie funciona como um contato comum na sua lista do WhatsApp. Você pode encaminhar mensagens, enviar fotos, áudios e vídeos, e ela responde em texto limpo e organizado.
+A Amélie funciona como um contato comum na sua lista do WhatsApp ou no Telegram. Você pode encaminhar mensagens, enviar fotos, áudios e vídeos, e ela responde em texto limpo e organizado.
 
 ### 1. Audiodescrição de fotos e imagens
 Ao receber uma foto, print ou imagem da galeria, a Amélie analisa a cena e descreve:
@@ -24,11 +24,11 @@ Para quem não pode ou não consegue ouvir mensagens de áudio, a Amélie ouve o
 Você pode enviar um arquivo de vídeo ou compartilhar links de plataformas como **YouTube**, **Instagram (Reels)** e **TikTok**. A Amélie assiste ao conteúdo e conta o que acontece visualmente, transcrevendo falas e explicando o contexto da cena.
 
 ### 4. Interpretação de figurinhas e memes (stickers)
-Figurinhas do WhatsApp costumam ser inacessíveis para leitores de tela. A Amélie:
+Figurinhas de aplicativos costumam ser inacessíveis para leitores de tela. A Amélie:
 - Descreve figurinhas estáticas, identificando personagens e transcrevendo textos.
 - Analisa figurinhas animadas quadro a quadro, explicando o movimento e a piada visual.
 - Explica o sentido cultural ou o humor do meme.
-- Caso a figurinha expire nos servidores, usa os dados declarados pelo WhatsApp para informar sobre o que se tratava.
+- Caso a figurinha expire nos servidores, usa os dados declarados para informar sobre o que se tratava.
 
 ### 5. Leitura e resumo de documentos
 Encaminhe arquivos em formato PDF ou texto. A Amélie lê o material e envia um resumo estruturado em tópicos, facilitando o estudo e o trabalho no celular.
@@ -40,39 +40,46 @@ A Amélie responde perguntas gerais, ajuda a redigir textos, tira dúvidas do di
 
 ## Recursos pensados para a sua acessibilidade
 
-- **Modo Audiodescrição Detalhada (`.cego`):** Configura a assistente com instruções estritas de audiodescrição para pessoas com deficiência visual, priorizando detalhes espaciais, descrições precisas de vestimentas, feições e elementos do ambiente.
-- **Controle de tamanho de resposta (`.curto` e `.longo`):** Quem usa leitores de tela muitas vezes prefere respostas rápidas e concisas (`.curto`), ou descrições ricas e completas (`.longo`). Você escolhe o tamanho ideal.
+- **Modo Audiodescrição Detalhada (`.cego` ou `/cego`):** Configura a assistente com instruções estritas de audiodescrição para pessoas com deficiência visual, priorizando detalhes espaciais, descrições precisas de vestimentas, feições e elementos do ambiente.
+- **Controle de tamanho de resposta (`.curto` / `/curto` e `.longo` / `/longo`):** Quem usa leitores de tela muitas vezes prefere respostas rápidas e concisas (`.curto`), ou descrições ricas e completas (`.longo`). Você escolhe o tamanho ideal.
 - **Formatação amigável a sintetizadores de voz:** Respostas sem decorações excessivas de caracteres, sem repetição desnecessária de emojis e organizadas com pontuação natural, garantindo uma leitura confortável no **TalkBack**, **VoiceOver**, **NVDA** e **JAWS**.
 - **Respostas citando a mensagem original:** Quando a Amélie responde, ela cita a mensagem correspondente para que você saiba com clareza a qual arquivo ou pergunta ela está se referindo.
 
 ---
 
-## Como usar no WhatsApp
+## Como usar no WhatsApp e Telegram
 
-Para usar a Amélie, basta adicioná-la aos seus contatos e enviar mensagens. Ela compreende comandos de texto simples iniciados por ponto (`.`).
+Para usar a Amélie, basta adicioná-la aos seus contatos e enviar mensagens. Ela compreende comandos de texto simples iniciados por ponto (`.`) ou barra (`/`).
 
 ### Comandos de ajuda e configuração
 
-- `.ajuda`: Envia uma mensagem com a lista de todos os comandos e suas funções.
-- `.cego`: Ativa o modo de acessibilidade com audiodescrição minuciosa de imagens.
-- `.curto`: Configura a assistente para enviar descrições diretas, objetivas e concisas.
-- `.longo`: Configura a assistente para enviar descrições detalhadas e aprofundadas.
-- `.reset`: Limpa o histórico da conversa e retorna as configurações para o padrão.
+- `.ajuda` ou `/ajuda`: Envia uma mensagem com a lista de todos os comandos e suas funções.
+- `.cego` ou `/cego`: Ativa o modo de acessibilidade com audiodescrição minuciosa de imagens.
+- `.curto` ou `/curto`: Configura a assistente para enviar descrições diretas, objetivas e concisas.
+- `.longo` ou `/longo`: Configura a assistente para enviar descrições detalhadas e aprofundadas.
+- `.reset` ou `/reset`: Limpa o histórico da conversa e retorna as configurações para o padrão.
 
 ### Comandos para alternar tipos de mídia
 
 Se você preferir ligar ou desligar o processamento de certos arquivos na conversa, basta enviar o comando (ele funciona como um interruptor liga/desliga):
 
-- `.audio`: Alterna o processamento e a transcrição de mensagens de voz.
-- `.imagem`: Alterna a audiodescrição de fotos e imagens.
-- `.video`: Alterna a audiodescrição e análise de vídeos.
-- `.doc`: Alterna a leitura e resumo de documentos.
-- `.legenda`: Alterna o modo de vídeo entre resumo visual e transcrição de falas.
+- `.audio` ou `/audio`: Alterna o processamento e a transcrição de mensagens de voz.
+- `.imagem` ou `/imagem`: Alterna a audiodescrição de fotos e imagens.
+- `.video` ou `/video`: Alterna a audiodescrição e análise de vídeos.
+- `.doc` ou `/doc`: Alterna a leitura e resumo de documentos.
+- `.legenda` ou `/legenda`: Alterna o modo de vídeo entre resumo visual e transcrição de falas.
 
 ### Comandos avançados de inteligência artificial
 
-- `.modelo`: Informa qual motor de inteligência artificial e modelo estão ativos na sua conversa.
+- `.modelo` ou `/modelo`: Informa qual motor de inteligência artificial e modelo estão ativos na sua conversa.
 - `.modelo provedor/modelo`: Troca o modelo utilizado (por exemplo: `.modelo gemini/gemini-2.5-pro` ou `.modelo gemini/gemini-3.8-flash`).
+
+### Comandos de administração remota (Telegram)
+
+Para o mantenedor configurado em `TELEGRAM_ADMIN_CHAT_ID`:
+- `/status`: Exibe a saúde das conexões (WhatsApp e Telegram), métricas do runtime BEAM (uso de RAM e contagem de processos) e total de mensagens processadas.
+- `/reset_whatsapp`: Reinicia e limpa com segurança a sessão do WhatsApp sem interromper o serviço.
+- `/parear <numero>`: Gera e envia um novo código de pareamento do WhatsApp diretamente no Telegram.
 
 ---
 
@@ -81,7 +88,7 @@ Se você preferir ligar ou desligar o processamento de certos arquivos na conver
 1. **Fotos de documentos:** Ao enviar fotos de contas, cartas ou embalagens, tire a foto com boa iluminação e envie. A Amélie lerá todos os textos visíveis, na ordem em que aparecem.
 2. **Identificação de objetos:** Se você tiver dúvida sobre uma roupa, cor ou objeto na sua casa, tire uma foto e pergunte: "Qual é a cor desta blusa?" ou "O que está escrito neste remédio?".
 3. **Áudios longos:** Se receber um áudio longo que não puder ouvir no momento, encaminhe para a Amélie para receber o texto pronto para leitura.
-4. **Grupos:** Se a Amélie for adicionada a um grupo, ela responderá apenas quando for mencionada com `@Amélie`, evitando poluir a conversa dos participantes.
+4. **Grupos:** Se a Amélie for adicionada a um grupo no WhatsApp, ela responderá apenas quando for mencionada com `@Amélie`. No Telegram, grupos são estritamente rejeitados para preservar a privacidade individual.
 
 ---
 
@@ -92,7 +99,7 @@ A Amélie é um software livre e de código aberto, projetado para operar com al
 ### Arquitetura do Sistema
 - **Linguagem e Runtime:** Construído em [Gleam](https://gleam.run/) sobre a máquina virtual **Erlang/OTP (BEAM)**, garantindo tolerância a falhas nativa, concorrência por atores e tratamento funcional puro de erros.
 - **Padrão Arquitetural:** Arquitetura Hexagonal rigorosa (*Ports & Adapters*) com *Functional Core* puro (camadas `dominio/`, `core/`, `portas/`, `adaptadores/` e `shell/`).
-- **Conectividade WhatsApp:** Microserviço em Go integrado via biblioteca [whatsmeow](https://github.com/tulir/whatsmeow), com banco SQLite local, fila persistente de entrega e repasse de mídias pesadas via arquivos temporários.
+- **Multicanal:** Roteamento unificado para WhatsApp (microserviço Go com whatsmeow) e Telegram (Bot API com chat actions e reações nativas).
 - **Provedores de IA:** Integração primária com a API do **Google Gemini** (usando Gemini File API para upload e processamento de vídeos pesados) e suporte alternativo via **OpenRouter**.
 - **Ferramentas de Mídia:** `ffmpeg`, Python PIL (para decomposição de WebP animado), `libwebp-tools` (`webpmux`/`dwebp`) e `yt-dlp`.
 

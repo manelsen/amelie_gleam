@@ -58,6 +58,9 @@ docker compose down
 |---|---|---|
 | `GEMINI_API_KEY` | `""` | Google Gemini API key (primary) |
 | `OPENROUTER_API_KEY` | `""` | OpenRouter API key (fallback/alternative) |
+| `TELEGRAM_BOT_TOKEN` | `""` | Telegram Bot API token (enables Telegram channel) |
+| `TELEGRAM_SECRET_TOKEN` | `""` | Secret token to authenticate Telegram incoming webhook (optional) |
+| `TELEGRAM_ADMIN_CHAT_ID` | `""` | Admin Telegram Chat ID for RBAC `/status`, `/reset_whatsapp`, `/parear` |
 | `MOBILE_NUMBER` | `""` | Bot phone number for WhatsApp Pairing Code (optional) |
 | `WHATSMEOW_URL` | `http://localhost:8080` | whatsmeow HTTP bridge URL |
 | `DB_PATH` | `/data/amelie.sqlite` | SQLite database path |
@@ -84,12 +87,12 @@ amelie_gleam.gleam — Entry point: wires adapters → ports → Mist HTTP serve
 
 ### Data Flow
 
-1. `POST /webhook` → `amelie_gleam.gleam` decodes payload into `Webhook(msg, arquivo)`.
-2. Large incoming media (images, audio, video, documents, stickers) is offloaded to `/tmp/amelie_midia_*` by the bridge. `amelie_gleam.gleam` reads the file via Erlang FFI into `BitArray`, then deletes the temporary file.
+1. `POST /webhook` (WhatsApp) or `POST /webhook/telegram` (Telegram) → `amelie_gleam.gleam` decodes payload into `Webhook(msg, arquivo)`.
+2. Large incoming media from WhatsApp is offloaded to `/tmp/amelie_midia_*` by the bridge. `amelie_gleam.gleam` reads the file via Erlang FFI into `BitArray`, then deletes the temporary file. Telegram media is fetched asynchronously via `getFile`.
 3. `shell/handler_mensagem.handle` fetches `Config` + `Historico` from ports, calls `core/processador.processar`.
 4. `core/processador` (pure) returns `List(Acao)` — never performs IO.
 5. Shell executes each `Acao`:
-   - `GerarEEnviar`: invokes AI provider via `ia_dispatcher` and sends reply via `entrega_auditada`.
+   - `GerarEEnviar`: invokes AI provider via `ia_dispatcher` and sends reply via `entrega_auditada` (routed by `roteador_mensageiro` according to `chat_id`).
    - `EnviarResposta`: directly sends text (commands, help, errors) without invoking AI.
    - `EnfileirarMidia`: dispatches to `shell/fila_midia` — dedicated OTP actors for `imagem`, `audio`, `video`, `documento`, and `sticker`.
    - `BuscarUrlEResponder`: scrapes web URL content and injects it into context.
@@ -116,10 +119,11 @@ amelie_gleam.gleam — Entry point: wires adapters → ports → Mist HTTP serve
 
 ### Adapters
 
-- `adaptadores/whatsmeow_http` → implements `MensageiroPorta` (calls Go bridge, parses structured `APIError` and network errors).
+- `adaptadores/whatsmeow_http` → implements `MensageiroPorta` for WhatsApp (calls Go bridge, parses structured `APIError` and network errors).
+- `adaptadores/telegram_http` → implements `MensageiroPorta` for Telegram (sends text, chat actions, reactions, downloads media).
+- `adaptadores/roteador_mensageiro` → routes calls to `whatsmeow_http` or `telegram_http` based on `chat_id` prefix (`tg:` vs WhatsApp JID).
 - `adaptadores/gemini_http` → implements `IAPorta` (Google Gemini REST & File API).
 - `adaptadores/openrouter_http` → implements `IAPorta` (OpenRouter API).
-- `adaptadores/telegram_http` → implements `MensageiroPorta` for Telegram.
 - `adaptadores/config_sqlite` → implements `ConfigPorta` (includes auto-migration to `gemini-3.8-flash`).
 - `adaptadores/historico_sqlite` → implements `HistoricoPorta`.
 - `adaptadores/transacao_sqlite` → implements `TransacaoPorta`.
@@ -127,14 +131,19 @@ amelie_gleam.gleam — Entry point: wires adapters → ports → Mist HTTP serve
 
 ### Commands
 
-Messages starting with `.` (or without point where supported) are parsed as bot commands:
-- `.ajuda` — help text.
-- `.reset` — reset chat configuration and conversation history.
+Messages starting with `.` or `/` (or without prefix where supported) are parsed as bot commands:
+- `.ajuda` / `/ajuda` — help text.
+- `.reset` / `/reset` — reset chat configuration and conversation history.
 - `.audio`, `.imagem`, `.video`, `.doc` — alternar processamento de mídia (toggle liga/desliga).
 - `.legenda` — toggle video transcription vs description.
 - `.longo` / `.curto` — toggle detailed vs concise image descriptions.
 - `.cego` — accessibility mode for visually impaired users.
 - `.modelo [provedor/modelo]` — display or switch active provider and model (e.g. `.modelo gemini/gemini-2.5-pro`).
+
+#### Admin Commands (Telegram only, restricted to `TELEGRAM_ADMIN_CHAT_ID`)
+- `/status` — real-time status of WhatsApp and Telegram channels, BEAM memory/process metrics, and message counters.
+- `/reset_whatsapp` — unlinks WhatsApp session, resets session database, recreates client device, and triggers pairing code generation.
+- `/parear <phone>` — generates a fresh WhatsApp pairing code for the specified phone number and delivers it directly to the admin in Telegram.
 
 ### FFI
 

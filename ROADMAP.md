@@ -1,6 +1,6 @@
 # ROADMAP: Amélie Gleam
 
-> Atualizado em 13 de setembro de 2026.
+> Atualizado em 8 de outubro de 2026.
 
 ## Visão geral
 
@@ -76,53 +76,45 @@ de integração entre os processos Gleam e Go.
   ou comando público de consulta.
 - Dockerfile multi-stage, Docker Compose, volumes persistentes e rotação de logs.
 
-### 5. Capacidades parcialmente conectadas 🟡
+### 5. Capacidades conectadas e multicanal ✅
 
-- Telegram conectado para texto e comandos 1-a-1 via webhook (/webhook/telegram) e roteador multicanal (Etapa 1 concluída). Mídias assíncronas do Telegram seguem nas Etapas 2 e 3.
-- Persistência e executores de prompts nomeados implementados, mas ainda não
-  expostos pelo dispatcher de comandos.
-- Ações para consultar métricas, usuários, grupos e executar snapshot existem no
-  shell, mas não são produzidas pelo core atual.
+- **Telegram 100% Integrado:** Paridade total com o WhatsApp (texto, comandos, fotos em alta resolução, áudio/mensagens de voz, vídeos até 20MB, documentos até 20MB, figurinhas WebP/WebM, chat actions e reações equivalentes), operando com roteamento multicanal sem duplicar lógica de domínio e com descarte rigoroso de grupos.
+- **Administração Remota via Telegram (RBAC):** Painel `/status` exibindo saúde de canais (WhatsApp e Telegram), métricas BEAM (memória e contagem de processos) e contadores de mensagens/erros. Comandos administrativos `/reset_whatsapp` e `/parear <numero>` restritos a `TELEGRAM_ADMIN_CHAT_ID`, com entrega automática e proativa do pairing code.
+- **Resiliência do Bridge Go:** Supervisor contínuo em `entrypoint.sh`, inicialização imediata do servidor HTTP (`:8080`), recriação de device limpo com `container.NewDevice()` em resets e retries assíncronos na notificação de eventos.
+- **Healthcheck Consolidado (`GET /health`):** Estado agregado em tempo real cobrindo SQLite, sessão e conectividade do WhatsApp, status do Telegram e telemetria BEAM.
+- Persistência e executores de prompts nomeados implementados no SQLite/shell, aguardando apenas exposição pelo dispatcher de comandos.
 
 ## Validação atual
 
-- 140 testes Gleam passando.
-- Testes, race detector, `go vet` e build do bridge Go passando.
-- Testes de regressão para HistorySync, estado de sessão, respostas HTTP de erro,
-  migração de modelo, URLs com newline/tab, filas e handlers.
+- 152 testes Gleam passando (`gleam test`).
+- Testes unitários, race detector, `go vet` e build do bridge Go passando (`go test ./...`).
+- Testes de regressão cobrindo Telegram (decodificação, mídias, mídias mudas, chat actions, RBAC), comandos de administração, healthcheck consolidado, HistorySync, estado de sessão e filas OTP.
 
 ## Próximas prioridades
 
-### P0 — Confiabilidade operacional
+### P0 — Confiabilidade operacional (Concluído ✅)
 
-- [ ] Tornar o estado de sessão visível no healthcheck da aplicação Gleam e no
-  healthcheck do container, não apenas no bridge.
-- [ ] Classificar erros da fila offline em transitórios e definitivos; logout,
-  sessão removida e payload inválido não devem consumir retries idênticos a uma
-  indisponibilidade temporária.
-- [ ] Cobrir reconexão automática, logout 401, novo pareamento e stream substituído
-  com testes de integração do ciclo de vida do bridge.
-- [ ] Adicionar teste end-to-end entre webhook, processamento, IA fake, auditoria e
-  envio pelo bridge fake.
-- [ ] Definir procedimento operacional documentado para backup, recuperação e novo
-  pareamento sem apagar dados não relacionados à sessão.
+- [x] Tornar o estado de sessão do WhatsApp visível no healthcheck da aplicação Gleam (`GET /health`) e no healthcheck do container.
+- [x] Resiliência de pareamento e reset de sessão:
+  - Inicialização do HTTP server antes do dial do WhatsApp para disponibilidade imediata de `/health`, `/pair-phone` e `/reset-session`.
+  - Tratamento de `ErrDeviceDeleted` instanciando novo `whatsmeow.Client` após reset.
+  - Eliminação de `log.Fatalf` no timeout de pairing code (timeout gracioso preservando processo).
+  - Supervisor contínuo em loop dentro de `entrypoint.sh` para recuperação automática.
+  - Retry assíncrono com backoff para eventos notificados ao Gleam (`notifyGleamEvent`).
+- [x] Painel administrativo remoto e comando de pareamento proativo via Telegram (`/status`, `/reset_whatsapp`, `/parear`) com controle de acesso por ID.
+- [x] Procedimento operacional de backup, restauração e pareamento documentado em `DEPLOYMENT.md`.
+- [ ] Classificar erros da fila offline em transitórios e definitivos (descartar payloads inválidos ou sessões revogadas sem esgotar retries idênticos).
+- [ ] Adicionar teste end-to-end automatizado entre webhook, processamento, IA fake, auditoria e envio pelo bridge fake.
 
 ### P1 — Concorrência e observabilidade
 
-- [ ] Corrigir o estado semiaberto do circuit breaker para permitir uma única
-  chamada de prova; hoje chamadas concorrentes podem atravessá-lo juntas.
-- [ ] Avaliar a retirada de `process.call` síncrono do caminho quente do circuit
-  breaker ou medir sua contenção sob carga das filas de mídia.
-- [ ] Adicionar métricas de latência, retries, estado do circuit breaker, tamanho
-  das filas e motivo da indisponibilidade do WhatsApp.
-- [ ] Padronizar logs estruturados e incluir identificadores de mensagem,
-  transação e operação para correlação completa.
-- [ ] Definir timeouts por operação externa e propagar a causa original em todos
-  os adaptadores, seguindo o padrão já aplicado ao whatsmeow.
-- [ ] Expor de forma autenticada as métricas, consultas administrativas e snapshot
-  que já possuem executores no shell.
+- [ ] Corrigir o estado semiaberto do circuit breaker para permitir uma única chamada de prova (atualmente chamadas concorrentes podem atravessar juntas durante o probe).
+- [ ] Avaliar a retirada de `process.call` síncrono do caminho quente do circuit breaker ou medir sua contenção sob carga das filas de mídia.
+- [ ] Adicionar identificador de correlação (Request ID / Trace ID) propagado dos webhooks (WhatsApp/Telegram) para logs estruturados, transações e chamadas da Gemini API.
+- [ ] Adicionar métricas de latência e contadores de retry por provedor no coletor de métricas.
+- [ ] Definir timeouts por operação externa e propagar a causa original em todos os adaptadores.
 
-### P2 — Multi-canal
+### P2 — Multi-canal (Concluído ✅)
 
 - [x] **Etapa 1 (Texto, Comandos e Roteamento Multicanal — Concluída):**
   - Webhook de updates do Telegram (`POST /webhook/telegram`) com validação opcional de secret token.

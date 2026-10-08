@@ -66,7 +66,8 @@ docker compose exec amelie sh   # Acessar shell interno para depuração
 | `OPENROUTER_API_KEY` | — | Chave OpenRouter (opcional para modelos adicionais) |
 | `TELEGRAM_BOT_TOKEN` | — | Token da Telegram Bot API gerado via @BotFather (opcional) |
 | `TELEGRAM_SECRET_TOKEN` | — | Token secreto para validação do webhook do Telegram (opcional) |
-| `MOBILE_NUMBER` | — | Número de telefone para Pairing Code (ex: `5531999990000`) |
+| `TELEGRAM_ADMIN_CHAT_ID` | — | Chat ID do administrador no Telegram para alertas e comandos restritos (opcional) |
+| `MOBILE_NUMBER` | — | Número de telefone para Pairing Code (ex: `5531972344065`) |
 | `DB_PATH` | `/data/amelie.sqlite` | Caminho do SQLite da aplicação Gleam |
 | `BRIDGE_DB_PATH` | `/data/bridge/whatsapp.db` | Caminho do SQLite de sessão do WhatsApp |
 | `PORT` | `4000` | Porta HTTP da aplicação Gleam (exposta externamente como `4001`) |
@@ -76,6 +77,18 @@ docker compose exec amelie sh   # Acessar shell interno para depuração
 
 > [!NOTE]
 > `WHATSMEOW_URL` e `GLEAM_URL` são injetados automaticamente pelo script [`entrypoint.sh`](file:///home/micelio/git/amelie_gleam/entrypoint.sh) e não precisam ser declarados no `.env`.
+
+## Administração e Pareamento Remoto
+
+Quando o bot do Telegram estiver configurado com `TELEGRAM_ADMIN_CHAT_ID`, você pode gerenciar o estado da aplicação e do WhatsApp diretamente pelo Telegram, sem precisar abrir o terminal ou reiniciar os containers:
+
+- **`/status`:** Exibe um relatório em tempo real contendo:
+  - Estado da conexão do WhatsApp (conectado, desconectado, autenticado).
+  - Estado do canal Telegram (habilitado, pronto).
+  - Métricas do BEAM Erlang (memória total consumida e contagem de processos ativos).
+  - Total de mensagens recebidas, processadas e eventuais erros.
+- **`/reset_whatsapp`:** Desconecta e limpa a sessão local do WhatsApp com segurança (recriando o dispositivo no banco e reiniciando a rotina) e envia imediatamente um novo código de pareamento no seu chat do Telegram.
+- **`/parear <numero>`:** Solicita um novo Pairing Code sob demanda para o número especificado (formato com DDD e nono dígito: ex. `5531972344065`).
 
 ## Dados, Volumes e Backup
 
@@ -112,11 +125,24 @@ docker compose up -d
 ## Resolução de Problemas (Troubleshooting)
 
 1. **Sessão desconectada ou erro 401 (`whatsapp_logged_out`):**
-   O WhatsApp revogou o token do aparelho. Pare o container, remova `db/bridge/whatsapp.db` e inicie novamente para parear um novo QR Code ou Pairing Code.
+   O WhatsApp revogou o token do aparelho. Você pode enviar `/reset_whatsapp` diretamente pelo Telegram ou parar o container, remover `db/bridge/whatsapp.db` e subir o container novamente para parear.
 2. **Erro de DNS em downloads de mídia (`a.whatsapp.net`):**
    O `docker-compose.yml` já inclui `extra_hosts: ["a.whatsapp.net:57.144.249.32"]` para contornar falhas de resolução dos domínios MMS do WhatsApp em certas redes e provedores.
-3. **Verificação de Saúde (Healthcheck):**
-   - Aplicação Gleam: `curl http://localhost:4001/health` (retorna `{"status":"ok"}`).
-   - Bridge whatsmeow (via shell do container): `curl http://localhost:8080/health` (retorna status e detalhe da conexão WhatsApp).
+3. **Verificação de Saúde (Healthcheck Consolidado):**
+   - Acesse o endpoint unificado: `curl http://localhost:4001/health`
+   - O retorno consolida o estado do SQLite, WhatsApp Bridge (`connected`, `logged_in`), Telegram e métricas BEAM:
+     ```json
+     {
+       "status": "ok",
+       "sqlite": "ok",
+       "whatsapp_bridge": {
+         "connected": true,
+         "logged_in": true,
+         "jid": "553172344065:96@s.whatsapp.net"
+       },
+       "telegram": { "status": "enabled" },
+       "beam": { "memory_total_mb": 40.2, "process_count": 116 }
+     }
+     ```
 4. **Erros de download no Instagram / YouTube:**
    Para conteúdo que requer login ou restrição de idade, exporte os cookies do navegador em formato Netscape, salve em `./cookies/instagram.txt` e configure `YTDLP_COOKIES_PATH=/cookies/instagram.txt`.
