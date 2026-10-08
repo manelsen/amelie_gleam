@@ -27,6 +27,8 @@ pub type Acao {
   AlterarModelo(chat_id: String, provedor: String, modelo: String)
   // Manutenção
   SnapshotHistorico(chat_id: String)
+  // Administração / WhatsApp bridge
+  SolicitarPareamento(chat_id: String, args: String)
   NaoResponder
 }
 

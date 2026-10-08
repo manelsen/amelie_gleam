@@ -5,8 +5,8 @@ BRIDGE_PORT="${BRIDGE_PORT:-8080}"
 BRIDGE_DB_PATH="${BRIDGE_DB_PATH:-/data/bridge/whatsapp.db}"
 GLEAM_PORT="${PORT:-4000}"
 
-export WHATSMEOW_URL="http://localhost:${BRIDGE_PORT}"
-export GLEAM_URL="http://localhost:${GLEAM_PORT}/webhook"
+export WHATSMEOW_URL="http://127.0.0.1:${BRIDGE_PORT}"
+export GLEAM_URL="http://127.0.0.1:${GLEAM_PORT}/webhook"
 
 mkdir -p "$(dirname "$BRIDGE_DB_PATH")"
 

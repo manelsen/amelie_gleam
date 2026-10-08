@@ -279,6 +279,12 @@ func (b *Bridge) loginPairingCode() error {
 		return fmt.Errorf("falha ao gerar pairing code para %s: %w", phone, err)
 	}
 
+	b.notifyGleamEvent(map[string]interface{}{
+		"evento": "pairing_code",
+		"phone":  phone,
+		"code":   code,
+	})
+
 	log.Println("==================================================")
 	log.Printf("📱 PAIRING CODE GERADO PARA %s: %s\n", phone, code)
 	log.Println("👉 No WhatsApp do celular:")
@@ -334,7 +340,33 @@ func (b *Bridge) handleEvent(rawEvt interface{}) {
 				evt.OnConnect,
 			),
 		)
+		phone := b.cfg.BotPhone
+		if phone == "" && b.client.Store.ID != nil {
+			phone = b.client.Store.ID.User
+		}
 		b.deleteSessionStore()
+
+		if phone != "" {
+			go func(targetPhone string) {
+				time.Sleep(3 * time.Second)
+				log.Printf("[WhatsApp] Sessão caiu. Tentando gerar novo pairing code para %s...\n", targetPhone)
+				code, err := b.requestPairingCode(targetPhone)
+				if err != nil {
+					log.Printf("[WhatsApp] Erro ao gerar pairing code pós-logout: %v\n", err)
+					b.notifyGleamEvent(map[string]interface{}{
+						"evento": "whatsapp_down",
+						"motivo": fmt.Sprintf("Sessão desconectada. Falha ao gerar pairing code: %v", err),
+					})
+				} else {
+					log.Printf("[WhatsApp] Novo pairing code pós-logout gerado: %s\n", code)
+				}
+			}(phone)
+		} else {
+			b.notifyGleamEvent(map[string]interface{}{
+				"evento": "whatsapp_down",
+				"motivo": "Sessão removida pelo WhatsApp",
+			})
+		}
 	case *events.StreamReplaced:
 		b.setConnectionError(
 			"whatsapp_stream_replaced",
@@ -1761,6 +1793,12 @@ func (b *Bridge) requestPairingCode(phone string) (string, error) {
 		return "", err
 	}
 
+	b.notifyGleamEvent(map[string]interface{}{
+		"evento": "pairing_code",
+		"phone":  phone,
+		"code":   code,
+	})
+
 	log.Println("==================================================")
 	log.Printf("📱 PAIRING CODE GERADO PARA %s: %s\n", phone, code)
 	log.Println("👉 No WhatsApp do celular:")
@@ -1784,6 +1822,25 @@ func (b *Bridge) requestPairingCode(phone string) (string, error) {
 	}()
 
 	return code, nil
+}
+
+func (b *Bridge) notifyGleamEvent(payload map[string]interface{}) {
+	if b.cfg.GleamURL == "" {
+		return
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("[Bridge] Erro ao codificar evento para o Gleam: %v\n", err)
+		return
+	}
+	eventURL := strings.Replace(b.cfg.GleamURL, "/webhook", "/webhook/bridge-event", 1)
+	resp, err := httpClient.Post(eventURL, "application/json", bytes.NewReader(data))
+	if err != nil {
+		log.Printf("[Bridge] Falha ao notificar evento ao Gleam: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+	log.Printf("[Bridge] Evento '%v' notificado ao Gleam com sucesso\n", payload["evento"])
 }
 
 func writeAPIError(w http.ResponseWriter, status int, apiError APIError) {

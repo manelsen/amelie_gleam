@@ -484,3 +484,34 @@ func TestHandlePairPhoneMethodNotAllowed(t *testing.T) {
 	}
 }
 
+func TestNotifyGleamEvent(t *testing.T) {
+	receivedEvent := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/webhook/bridge-event" {
+			t.Errorf("path = %q, want /webhook/bridge-event", r.URL.Path)
+		}
+		var payload map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		if evt, ok := payload["evento"].(string); ok {
+			receivedEvent = evt
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	bridge := &Bridge{
+		cfg: Config{
+			GleamURL: server.URL + "/webhook",
+		},
+	}
+	bridge.notifyGleamEvent(map[string]interface{}{
+		"evento": "pairing_code",
+		"code":   "1234-5678",
+		"phone":  "5531999990000",
+	})
+
+	if receivedEvent != "pairing_code" {
+		t.Fatalf("receivedEvent = %q, want pairing_code", receivedEvent)
+	}
+}
+

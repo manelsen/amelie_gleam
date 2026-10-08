@@ -157,3 +157,65 @@ fn descrever_erro_conexao(error: httpc.ConnectError) -> String {
       "TLS " <> codigo <> " (" <> detalhes <> ")"
   }
 }
+
+pub type StatusBridge {
+  StatusBridge(conectado: Bool, logado: Bool)
+}
+
+pub fn checar_status(base_url: String) -> Result(StatusBridge, Erro) {
+  use req <- result.try(
+    request.to(base_url <> "/health")
+    |> result.map_error(fn(_) { erro.ErroComunicacao("url inválida") }),
+  )
+  let req = req |> request.set_method(http.Get)
+  use resp <- result.try(
+    httpc.send(req)
+    |> result.map_error(fn(err) {
+      erro.ErroComunicacao(descrever_erro_transporte(err))
+    }),
+  )
+  let decoder = {
+    use logged_in <- decode.optional_field("logged_in", False, decode.bool)
+    decode.success(StatusBridge(conectado: True, logado: logged_in))
+  }
+  json.parse(resp.body, decoder)
+  |> result.map_error(fn(_) {
+    erro.ErroComunicacao("resposta de health inválida")
+  })
+}
+
+pub fn pedir_pairing_code(
+  base_url: String,
+  phone: String,
+) -> Result(String, String) {
+  let body =
+    json.object([#("phone", json.string(phone))])
+    |> json.to_string
+  let req =
+    request.to(base_url <> "/pair-phone")
+    |> result.unwrap(request.new())
+    |> request.set_method(http.Post)
+    |> request.set_header("content-type", "application/json")
+    |> request.set_body(body)
+  case httpc.send(req) {
+    Error(err) -> Error(descrever_erro_transporte(err))
+    Ok(resp) -> {
+      let decoder_sucesso = {
+        use code <- decode.field("code", decode.string)
+        decode.success(code)
+      }
+      let decoder_erro = {
+        use err <- decode.field("error", decode.string)
+        decode.success(err)
+      }
+      case json.parse(resp.body, decoder_sucesso) {
+        Ok(code) -> Ok(code)
+        Error(_) ->
+          case json.parse(resp.body, decoder_erro) {
+            Ok(msg) -> Error(msg)
+            Error(_) -> Error("status " <> int.to_string(resp.status))
+          }
+      }
+    }
+  }
+}

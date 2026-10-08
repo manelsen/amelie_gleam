@@ -1,6 +1,7 @@
 // Shell — executa os efeitos prescritos pelo core.
 // Este módulo tem side effects: chama portas, grava histórico.
 
+import adaptadores/whatsmeow_http
 import core/ia_dispatcher
 import core/processador
 import core/prompt/builder
@@ -9,7 +10,7 @@ import dominio/acao.{
   ConsultarMetricas, EnfileirarMidia, EnviarReacao, EnviarResposta,
   ExcluirPrompt, GerarEEnviar, LimparHistorico, ListarGrupos, ListarPrompts,
   ListarUsuarios, MidiaVideo, NaoResponder, SalvarConfig, SalvarPrompt,
-  SnapshotHistorico,
+  SnapshotHistorico, SolicitarPareamento,
 }
 import dominio/config
 import dominio/erro.{type Erro}
@@ -42,6 +43,9 @@ fn now_ms() -> Int
 
 @external(erlang, "amelie_gleam_ffi", "spawn_fn")
 fn spawn_fn(f: fn() -> a) -> Nil
+
+@external(erlang, "amelie_gleam_ffi", "get_env")
+fn get_env(name: String) -> Result(String, Nil)
 
 pub type Portas {
   Portas(
@@ -495,6 +499,81 @@ fn executar_acao(
           }
         })
       Ok(Nil)
+    }
+
+    SolicitarPareamento(chat_id, args) -> {
+      let admin_id =
+        get_env("TELEGRAM_ADMIN_CHAT_ID")
+        |> result.unwrap(or: "924255495")
+      let eh_admin =
+        msg.remetente == "tg:" <> admin_id || msg.chat_id == "tg:" <> admin_id
+      case eh_admin {
+        False -> {
+          let _ =
+            portas.mensageiro.enviar(
+              chat_id,
+              "⛔ Comando restrito ao administrador.",
+            )
+          Ok(Nil)
+        }
+        True -> {
+          let bridge_url =
+            get_env("WHATSMEOW_URL")
+            |> result.unwrap(or: "http://localhost:8080")
+          case whatsmeow_http.checar_status(bridge_url) {
+            Ok(whatsmeow_http.StatusBridge(_, True)) -> {
+              let _ =
+                portas.mensageiro.enviar(
+                  chat_id,
+                  "✅ O WhatsApp já está conectado e funcionando perfeitamente!",
+                )
+              Ok(Nil)
+            }
+            _ -> {
+              let tel = case string.trim(args) {
+                "" ->
+                  get_env("MOBILE_NUMBER")
+                  |> result.unwrap(or: "")
+                outro -> outro
+              }
+              case tel {
+                "" -> {
+                  let _ =
+                    portas.mensageiro.enviar(
+                      chat_id,
+                      "⚠️ WhatsApp desconectado. Por favor, informe seu número com DDD.\nEx: `/parear 5531999990000`",
+                    )
+                  Ok(Nil)
+                }
+                numero -> {
+                  case whatsmeow_http.pedir_pairing_code(bridge_url, numero) {
+                    Ok(code) -> {
+                      let texto =
+                        "📱 *Código de pareamento gerado:*\n`"
+                        <> code
+                        <> "` (para +"
+                        <> numero
+                        <> ")\n\n"
+                        <> "👉 *No WhatsApp do seu celular:*\n"
+                        <> "Aparelhos conectados > Conectar com número de telefone > Digite o código."
+                      let _ = portas.mensageiro.enviar(chat_id, texto)
+                      Ok(Nil)
+                    }
+                    Error(motivo) -> {
+                      let _ =
+                        portas.mensageiro.enviar(
+                          chat_id,
+                          "❌ Falha ao gerar pairing code: " <> motivo,
+                        )
+                      Ok(Nil)
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
 
     NaoResponder -> Ok(Nil)

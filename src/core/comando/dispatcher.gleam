@@ -2,6 +2,7 @@
 
 import dominio/acao.{
   type Acao, AlterarModelo, EnviarResposta, LimparHistorico, SalvarConfig,
+  SolicitarPareamento,
 }
 import dominio/config.{type Config, Config, Curto, Longo}
 import dominio/erro.{type Erro}
@@ -25,6 +26,8 @@ pub fn executar(
     "curto" -> Ok(modo_descricao_cmd(Curto, config))
     "cego" -> Ok(cego_cmd(config))
     "modelo" -> Ok(modelo_cmd(args, config))
+    "parear" | "pair" | "whatsapp" ->
+      Ok([SolicitarPareamento(config.chat_id, args)])
     outro -> Error(erro.ErroComandoDesconhecido(outro))
   }
 }
@@ -43,7 +46,8 @@ fn ajuda(cfg: Config) -> List(Acao) {
     <> "`.curto` — usar descrição concisa\n"
     <> "`.cego` — modo acessibilidade para deficientes visuais\n"
     <> "`.modelo` — mostrar provedor/modelo atual\n"
-    <> "`.modelo provedor/modelo` — alterar provedor e modelo"
+    <> "`.modelo provedor/modelo` — alterar provedor e modelo\n"
+    <> "`.parear` — status ou pareamento do WhatsApp (admin)"
   [EnviarResposta(para: cfg.chat_id, corpo: texto)]
 }
 

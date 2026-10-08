@@ -81,6 +81,9 @@ pub fn main() {
   let telegram_secret_token =
     get_env("TELEGRAM_SECRET_TOKEN")
     |> result.unwrap(or: "")
+  let telegram_admin_chat_id =
+    get_env("TELEGRAM_ADMIN_CHAT_ID")
+    |> result.unwrap(or: "924255495")
 
   let bridge_url =
     get_env("WHATSMEOW_URL")
@@ -179,7 +182,13 @@ pub fn main() {
 
   let assert Ok(_) =
     mist.new(fn(req) {
-      handle_request(req, portas, telegram_secret_token, telegram_bot_token)
+      handle_request(
+        req,
+        portas,
+        telegram_secret_token,
+        telegram_bot_token,
+        telegram_admin_chat_id,
+      )
     })
     |> mist.port(port)
     |> mist.bind("0.0.0.0")
@@ -197,14 +206,101 @@ fn handle_request(
   portas: Portas,
   telegram_secret: String,
   telegram_bot_token: String,
+  telegram_admin_chat_id: String,
 ) -> response.Response(ResponseData) {
   case req.path {
     "/webhook" -> handle_webhook(req, portas)
     "/webhook/telegram" ->
       handle_telegram_webhook(req, portas, telegram_secret, telegram_bot_token)
+    "/webhook/bridge-event" ->
+      handle_bridge_event(req, telegram_bot_token, telegram_admin_chat_id)
     "/health" -> json_response(200, "{\"status\":\"ok\"}")
     _ -> json_response(404, "{\"error\":\"not found\"}")
   }
+}
+
+type BridgeEvento {
+  BridgePairingCode(phone: String, code: String)
+  BridgeWhatsappDown(motivo: String)
+}
+
+fn handle_bridge_event(
+  req: Request(Connection),
+  bot_token: String,
+  admin_chat_id: String,
+) -> response.Response(ResponseData) {
+  case mist.read_body(req, 1024 * 1024) {
+    Error(_) -> json_response(400, "{\"error\":\"failed to read body\"}")
+    Ok(req_with_body) -> {
+      case parse_bridge_event(req_with_body.body) {
+        Error(_) -> json_response(400, "{\"error\":\"invalid payload\"}")
+        Ok(evt) -> {
+          case bot_token {
+            "" -> Nil
+            _ -> {
+              case evt {
+                BridgePairingCode(phone, code) -> {
+                  let texto =
+                    "⚠️ *Alerta: WhatsApp desconectado!*\n\n"
+                    <> "📱 *Novo código de pareamento para* `+"
+                    <> phone
+                    <> "`:\n"
+                    <> "`"
+                    <> code
+                    <> "`\n\n"
+                    <> "👉 *No WhatsApp do seu celular:*\n"
+                    <> "Aparelhos conectados > Conectar com número de telefone > Digite o código acima."
+                  let _ =
+                    telegram_http.enviar_mensagem(
+                      bot_token,
+                      admin_chat_id,
+                      texto,
+                    )
+                  Nil
+                }
+                BridgeWhatsappDown(motivo) -> {
+                  let texto =
+                    "⚠️ *Alerta: A conexão do WhatsApp caiu!*\n\n"
+                    <> "Motivo: "
+                    <> motivo
+                    <> "\n\n"
+                    <> "Para gerar um novo código de pareamento, envie:\n"
+                    <> "`/parear <seu_numero>`"
+                  let _ =
+                    telegram_http.enviar_mensagem(
+                      bot_token,
+                      admin_chat_id,
+                      texto,
+                    )
+                  Nil
+                }
+              }
+            }
+          }
+          json_response(200, "{\"ok\":true}")
+        }
+      }
+    }
+  }
+}
+
+fn parse_bridge_event(body: BitArray) -> Result(BridgeEvento, Nil) {
+  use s <- result.try(
+    bit_array.to_string(body)
+    |> result.map_error(fn(_) { Nil }),
+  )
+  let decoder = {
+    use evento <- decode.field("evento", decode.string)
+    use phone <- decode.optional_field("phone", "", decode.string)
+    use code <- decode.optional_field("code", "", decode.string)
+    use motivo <- decode.optional_field("motivo", "Desconectado", decode.string)
+    case evento {
+      "pairing_code" -> decode.success(BridgePairingCode(phone, code))
+      _ -> decode.success(BridgeWhatsappDown(motivo))
+    }
+  }
+  json.parse(s, decoder)
+  |> result.map_error(fn(_) { Nil })
 }
 
 fn handle_telegram_webhook(

@@ -87,7 +87,7 @@ pub fn enviar_chat_action(
   post(bot_token, "/sendChatAction", body)
 }
 
-fn enviar_mensagem(
+pub fn enviar_mensagem(
   bot_token: String,
   chat_id: String,
   texto: String,

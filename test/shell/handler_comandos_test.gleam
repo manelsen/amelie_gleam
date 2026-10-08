@@ -2,7 +2,9 @@
 // Verificam que o handler executa corretamente SalvarConfig e LimparHistorico.
 
 import dominio/config
+import dominio/mensagem
 import gleam/erlang/process
+import gleam/string
 import gleeunit/should
 import helpers/fixtures
 import helpers/portas_fake
@@ -206,4 +208,35 @@ pub fn legenda_on_persiste_config_test() {
 
   let assert Ok(nova_cfg): Result(config.Config, _) = process.receive(ref, 1000)
   nova_cfg.legenda_ativo |> should.be_true
+}
+
+pub fn parear_bloqueado_para_nao_admin_test() {
+  let ref_envio = process.new_subject()
+  let portas =
+    Portas(
+      mensageiro: portas_fake.mensageiro_capturar(ref_envio),
+      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      config: portas_fake.config_ok(
+        config.Config(..fixtures.config_padrao(), chat_id: "tg:111222"),
+      ),
+      historico: portas_fake.historico_vazio(),
+      fila: fila(),
+      prompts: portas_fake.prompt_noop(),
+      metricas: met(),
+      usuarios: portas_fake.usuario_noop(),
+      grupos: portas_fake.grupo_noop(),
+      transacoes: portas_fake.transacao_noop(),
+      providers_config: portas_fake.providers_config_ok(),
+    )
+  let msg =
+    mensagem.Mensagem(
+      ..fixtures.mensagem_comando("parear", ""),
+      chat_id: "tg:111222",
+      remetente: "tg:111222",
+    )
+  handler_mensagem.handle(msg, portas) |> should.be_ok
+
+  let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 1000)
+  chat_id |> should.equal("tg:111222")
+  string.contains(texto, "restrito ao administrador") |> should.be_true
 }
