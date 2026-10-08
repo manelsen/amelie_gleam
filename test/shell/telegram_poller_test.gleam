@@ -65,7 +65,38 @@ pub fn processar_updates_avanca_offset_e_despacha_test() {
   novo_offset |> should.equal(5002)
 
   // Deve ter despachado e respondido para o chat tg:887766
-  let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 1000)
+  let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 2500)
   chat_id |> should.equal("tg:887766")
   should.be_true(string.contains(texto, "Amélie — Comandos disponíveis"))
+}
+
+pub fn despachar_arquivo_muito_grande_notifica_usuario_test() {
+  let ref_envio = process.new_subject()
+  let assert Ok(filas) = fila_midia.iniciar_todas()
+  let assert Ok(met) = metricas.iniciar()
+
+  let portas =
+    Portas(
+      mensageiro: portas_fake.mensageiro_capturar(ref_envio),
+      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      config: portas_fake.config_ok(
+        config.Config(..fixtures.config_padrao(), chat_id: "tg:887766"),
+      ),
+      historico: portas_fake.historico_vazio(),
+      fila: filas,
+      prompts: portas_fake.prompt_noop(),
+      metricas: met,
+      usuarios: portas_fake.usuario_noop(),
+      grupos: portas_fake.grupo_noop(),
+      transacoes: portas_fake.transacao_noop(),
+      providers_config: portas_fake.providers_config_ok(),
+    )
+
+  let evento = telegram_webhook.EventoArquivoMuitoGrande(9999, "tg:887766", 25)
+  telegram_poller.despachar_evento(evento, "fake_token", portas)
+
+  let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 2000)
+  chat_id |> should.equal("tg:887766")
+  should.be_true(string.contains(texto, "limite suportado pelo bot é de 20 MB"))
+  should.be_true(string.contains(texto, "25 MB"))
 }

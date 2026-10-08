@@ -28,12 +28,12 @@ pub type TelegramMessage {
     text: Option(String),
     caption: Option(String),
     photo_file_id: Option(String),
-    voice: Option(#(String, String)),
-    audio: Option(#(String, String)),
-    video: Option(#(String, String)),
-    video_note: Option(#(String, String)),
-    animation: Option(#(String, String)),
-    document: Option(#(String, String, String)),
+    voice: Option(#(String, String, Option(Int))),
+    audio: Option(#(String, String, Option(Int))),
+    video: Option(#(String, String, Option(Int))),
+    video_note: Option(#(String, String, Option(Int))),
+    animation: Option(#(String, String, Option(Int))),
+    document: Option(#(String, String, String, Option(Int))),
     sticker: Option(#(String, String, Option(String))),
   )
 }
@@ -66,6 +66,7 @@ pub type EventoUpdate {
     file_id: String,
     mime: String,
   )
+  EventoArquivoMuitoGrande(update_id: Int, chat_id: String, tamanho_mb: Int)
   EventoIgnorado(update_id: Int)
 }
 
@@ -77,6 +78,7 @@ pub fn obter_update_id(evento: EventoUpdate) -> Int {
     EventoVideoParaBaixar(id, _, _, _) -> id
     EventoDocumentoParaBaixar(id, _, _, _, _) -> id
     EventoStickerParaBaixar(id, _, _, _) -> id
+    EventoArquivoMuitoGrande(id, _, _) -> id
     EventoIgnorado(id) -> id
   }
 }
@@ -119,6 +121,25 @@ pub fn extrair_updates(json_str: String) -> Result(List(EventoUpdate), Erro) {
   Ok(list.map(updates, converter_update_em_evento))
 }
 
+pub const limite_download_bytes = 20_971_520
+
+fn tamanho_em_mb(bytes: Int) -> Int {
+  int.max(1, bytes / 1_048_576)
+}
+
+fn checar_tamanho_ou_despachar(
+  update_id: Int,
+  chat_id: String,
+  file_size: Option(Int),
+  ok_fn: fn() -> EventoUpdate,
+) -> EventoUpdate {
+  case file_size {
+    Some(size) if size > limite_download_bytes ->
+      EventoArquivoMuitoGrande(update_id, chat_id, tamanho_em_mb(size))
+    _ -> ok_fn()
+  }
+}
+
 pub fn converter_update_em_evento(update: TelegramUpdate) -> EventoUpdate {
   case update.message {
     None -> EventoIgnorado(update.update_id)
@@ -146,78 +167,131 @@ pub fn converter_update_em_evento(update: TelegramUpdate) -> EventoUpdate {
               EventoFotoParaBaixar(update.update_id, base, file_id)
             None -> {
               case msg.voice {
-                Some(#(file_id, mime)) ->
-                  EventoAudioParaBaixar(update.update_id, base, file_id, mime)
-                None -> {
-                  case msg.audio {
-                    Some(#(file_id, mime)) ->
+                Some(#(file_id, mime, file_size)) ->
+                  checar_tamanho_ou_despachar(
+                    update.update_id,
+                    base.chat_id,
+                    file_size,
+                    fn() {
                       EventoAudioParaBaixar(
                         update.update_id,
                         base,
                         file_id,
                         mime,
                       )
-                    None -> {
-                      case msg.video {
-                        Some(#(file_id, mime)) ->
-                          EventoVideoParaBaixar(
+                    },
+                  )
+                None -> {
+                  case msg.audio {
+                    Some(#(file_id, mime, file_size)) ->
+                      checar_tamanho_ou_despachar(
+                        update.update_id,
+                        base.chat_id,
+                        file_size,
+                        fn() {
+                          EventoAudioParaBaixar(
                             update.update_id,
                             base,
                             file_id,
                             mime,
                           )
-                        None -> {
-                          case msg.video_note {
-                            Some(#(file_id, mime)) ->
+                        },
+                      )
+                    None -> {
+                      case msg.video {
+                        Some(#(file_id, mime, file_size)) ->
+                          checar_tamanho_ou_despachar(
+                            update.update_id,
+                            base.chat_id,
+                            file_size,
+                            fn() {
                               EventoVideoParaBaixar(
                                 update.update_id,
                                 base,
                                 file_id,
                                 mime,
                               )
-                            None -> {
-                              case msg.animation {
-                                Some(#(file_id, mime)) -> {
-                                  let legenda_anim = case msg.caption {
-                                    Some(c) ->
-                                      Some("Animação/GIF sem áudio. " <> c)
-                                    None -> Some("Animação/GIF sem áudio")
-                                  }
+                            },
+                          )
+                        None -> {
+                          case msg.video_note {
+                            Some(#(file_id, mime, file_size)) ->
+                              checar_tamanho_ou_despachar(
+                                update.update_id,
+                                base.chat_id,
+                                file_size,
+                                fn() {
                                   EventoVideoParaBaixar(
                                     update.update_id,
-                                    Mensagem(..base, legenda: legenda_anim),
+                                    base,
                                     file_id,
                                     mime,
                                   )
-                                }
+                                },
+                              )
+                            None -> {
+                              case msg.animation {
+                                Some(#(file_id, mime, file_size)) ->
+                                  checar_tamanho_ou_despachar(
+                                    update.update_id,
+                                    base.chat_id,
+                                    file_size,
+                                    fn() {
+                                      EventoVideoParaBaixar(
+                                        update.update_id,
+                                        base,
+                                        file_id,
+                                        mime,
+                                      )
+                                    },
+                                  )
                                 None -> {
                                   case msg.document {
-                                    Some(#(file_id, mime, file_name)) -> {
-                                      let fn_lower = string.lowercase(file_name)
-                                      let e_video =
-                                        string.starts_with(mime, "video/")
-                                        || string.ends_with(fn_lower, ".mp4")
-                                        || string.ends_with(fn_lower, ".mov")
-                                        || string.ends_with(fn_lower, ".mkv")
-                                        || string.ends_with(fn_lower, ".webm")
-                                      case e_video {
-                                        True ->
-                                          EventoVideoParaBaixar(
-                                            update.update_id,
-                                            base,
-                                            file_id,
-                                            mime,
-                                          )
-                                        False ->
-                                          EventoDocumentoParaBaixar(
-                                            update.update_id,
-                                            base,
-                                            file_id,
-                                            mime,
-                                            file_name,
-                                          )
-                                      }
-                                    }
+                                    Some(#(file_id, mime, file_name, file_size)) ->
+                                      checar_tamanho_ou_despachar(
+                                        update.update_id,
+                                        base.chat_id,
+                                        file_size,
+                                        fn() {
+                                          let fn_lower =
+                                            string.lowercase(file_name)
+                                          let e_video =
+                                            string.starts_with(mime, "video/")
+                                            || string.ends_with(
+                                              fn_lower,
+                                              ".mp4",
+                                            )
+                                            || string.ends_with(
+                                              fn_lower,
+                                              ".mov",
+                                            )
+                                            || string.ends_with(
+                                              fn_lower,
+                                              ".mkv",
+                                            )
+                                            || string.ends_with(
+                                              fn_lower,
+                                              ".webm",
+                                            )
+                                          case e_video {
+                                            True ->
+                                              EventoVideoParaBaixar(
+                                                update.update_id,
+                                                base,
+                                                file_id,
+                                                mime,
+                                              )
+                                            False ->
+                                              EventoDocumentoParaBaixar(
+                                                update.update_id,
+                                                base,
+                                                file_id,
+                                                mime,
+                                                file_name,
+                                              )
+                                          }
+                                        },
+                                      )
                                     None -> {
                                       case msg.sticker {
                                         Some(#(file_id, mime, emoji)) -> {
@@ -313,47 +387,72 @@ fn safe_mime_decoder(padrao: String) -> decode.Decoder(String) {
   |> decode.map(fn(opt) { option.unwrap(opt, padrao) })
 }
 
-fn voice_decoder() -> decode.Decoder(#(String, String)) {
+fn voice_decoder() -> decode.Decoder(#(String, String, Option(Int))) {
   use file_id <- decode.then(decode.at(["file_id"], decode.string))
   use mime <- decode.optional_field(
     "mime_type",
     "audio/ogg",
     safe_mime_decoder("audio/ogg"),
   )
-  decode.success(#(file_id, mime))
+  use file_size <- decode.optional_field(
+    "file_size",
+    None,
+    decode.int |> decode.map(Some),
+  )
+  decode.success(#(file_id, mime, file_size))
 }
 
-fn audio_decoder() -> decode.Decoder(#(String, String)) {
+fn audio_decoder() -> decode.Decoder(#(String, String, Option(Int))) {
   use file_id <- decode.then(decode.at(["file_id"], decode.string))
   use mime <- decode.optional_field(
     "mime_type",
     "audio/mpeg",
     safe_mime_decoder("audio/mpeg"),
   )
-  decode.success(#(file_id, mime))
+  use file_size <- decode.optional_field(
+    "file_size",
+    None,
+    decode.int |> decode.map(Some),
+  )
+  decode.success(#(file_id, mime, file_size))
 }
 
-fn video_decoder() -> decode.Decoder(#(String, String)) {
+fn video_decoder() -> decode.Decoder(#(String, String, Option(Int))) {
   use file_id <- decode.then(decode.at(["file_id"], decode.string))
   use mime <- decode.optional_field(
     "mime_type",
     "video/mp4",
     safe_mime_decoder("video/mp4"),
   )
-  decode.success(#(file_id, mime))
+  use file_size <- decode.optional_field(
+    "file_size",
+    None,
+    decode.int |> decode.map(Some),
+  )
+  decode.success(#(file_id, mime, file_size))
 }
 
-fn video_note_decoder() -> decode.Decoder(#(String, String)) {
+fn video_note_decoder() -> decode.Decoder(#(String, String, Option(Int))) {
   use file_id <- decode.then(decode.at(["file_id"], decode.string))
-  decode.success(#(file_id, "video/mp4"))
+  use file_size <- decode.optional_field(
+    "file_size",
+    None,
+    decode.int |> decode.map(Some),
+  )
+  decode.success(#(file_id, "video/mp4", file_size))
 }
 
-fn animation_decoder() -> decode.Decoder(#(String, String)) {
+fn animation_decoder() -> decode.Decoder(#(String, String, Option(Int))) {
   use file_id <- decode.then(decode.at(["file_id"], decode.string))
-  decode.success(#(file_id, "video/mp4"))
+  use file_size <- decode.optional_field(
+    "file_size",
+    None,
+    decode.int |> decode.map(Some),
+  )
+  decode.success(#(file_id, "video/mp4", file_size))
 }
 
-fn document_decoder() -> decode.Decoder(#(String, String, String)) {
+fn document_decoder() -> decode.Decoder(#(String, String, String, Option(Int))) {
   use file_id <- decode.then(decode.at(["file_id"], decode.string))
   use file_name <- decode.optional_field("file_name", "", decode.string)
   use mime <- decode.optional_field(
@@ -361,7 +460,12 @@ fn document_decoder() -> decode.Decoder(#(String, String, String)) {
     "application/octet-stream",
     safe_mime_decoder("application/octet-stream"),
   )
-  decode.success(#(file_id, mime, file_name))
+  use file_size <- decode.optional_field(
+    "file_size",
+    None,
+    decode.int |> decode.map(Some),
+  )
+  decode.success(#(file_id, mime, file_name, file_size))
 }
 
 fn sticker_decoder() -> decode.Decoder(#(String, String, Option(String))) {

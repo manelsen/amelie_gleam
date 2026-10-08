@@ -327,7 +327,39 @@ pub fn parsear_evento_animation_test() {
       file_id |> should.equal("anim_gif123")
       mime |> should.equal("video/mp4")
       base.chat_id |> should.equal("tg:998877")
-      base.legenda |> should.equal(Some("Animação/GIF sem áudio"))
+      base.legenda |> should.be_none
+    }
+    _ -> should.fail()
+  }
+}
+
+pub fn parsear_evento_video_muito_grande_rejeitado_test() {
+  let json =
+    "{\"update_id\":4007,\"message\":{\"message_id\":86,\"date\":1700000000,\"chat\":{\"id\":998877,\"type\":\"private\"},\"video\":{\"file_id\":\"vid_huge\",\"file_size\":25000000,\"mime_type\":\"video/mp4\"}}}"
+    |> bit_array.from_string
+
+  let assert Ok(evento) = telegram_webhook.parsear_evento(json)
+  case evento {
+    telegram_webhook.EventoArquivoMuitoGrande(update_id, chat_id, tamanho_mb) -> {
+      update_id |> should.equal(4007)
+      chat_id |> should.equal("tg:998877")
+      tamanho_mb |> should.equal(23)
+    }
+    _ -> should.fail()
+  }
+}
+
+pub fn parsear_evento_documento_muito_grande_rejeitado_test() {
+  let json =
+    "{\"update_id\":4008,\"message\":{\"message_id\":87,\"date\":1700000000,\"chat\":{\"id\":998877,\"type\":\"private\"},\"document\":{\"file_id\":\"doc_huge\",\"file_name\":\"grande.zip\",\"file_size\":31457280,\"mime_type\":\"application/zip\"}}}"
+    |> bit_array.from_string
+
+  let assert Ok(evento) = telegram_webhook.parsear_evento(json)
+  case evento {
+    telegram_webhook.EventoArquivoMuitoGrande(update_id, chat_id, tamanho_mb) -> {
+      update_id |> should.equal(4008)
+      chat_id |> should.equal("tg:998877")
+      tamanho_mb |> should.equal(30)
     }
     _ -> should.fail()
   }

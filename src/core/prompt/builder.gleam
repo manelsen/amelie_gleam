@@ -152,7 +152,7 @@ pub fn montar_para_video_com_audio(
   }
   let regra_audio = case tem_audio {
     False ->
-      "\n- ATENÇÃO CRÍTICA AO ÁUDIO: Este vídeo é MUDO ou uma animação/GIF SEM ÁUDIO. NÃO invente, não deduza e não alucine falas, músicas, gritos, sons ou ruídos com base na ação visual. Não descreva áudio inexistente."
+      "\n- ATENÇÃO AO ÁUDIO: Este vídeo é MUDO ou uma animação/GIF SEM ÁUDIO. NÃO invente, não deduza e não alucine falas, músicas, gritos, sons ou ruídos com base na ação visual. Não faça NENHUMA menção a som, silêncio, áudio ou fala na sua resposta. Descreva exclusivamente as ações e elementos visuais observáveis."
     True ->
       "\n- Incorpore o que é dito ou narrado no áudio apenas se for audível na gravação, integrando fala e descrição visual. NUNCA deduza ou invente falas ou sons baseando-se apenas em gestos ou instrumentos visíveis."
   }

@@ -135,6 +135,9 @@ pub fn despachar_evento(
       spawn_fn(fn() {
         let _ =
           telegram_http.enviar_chat_action(bot_token, msg.chat_id, "typing")
+        Nil
+      })
+      spawn_fn(fn() {
         let _ = handler_mensagem.handle(msg, portas)
         Nil
       })
@@ -350,6 +353,16 @@ pub fn despachar_evento(
         }
       })
     }
+    telegram_webhook.EventoArquivoMuitoGrande(_, chat_id, tamanho_mb) -> {
+      spawn_fn(fn() {
+        let msg_aviso =
+          "Não consegui baixar o arquivo do Telegram. O limite suportado pelo bot é de 20 MB (este arquivo possui cerca de "
+          <> int.to_string(tamanho_mb)
+          <> " MB). Se possível, envie uma versão menor ou mais curta."
+        let _ = portas.mensageiro.enviar(chat_id, msg_aviso)
+        Nil
+      })
+    }
     telegram_webhook.EventoIgnorado(_) -> Nil
   }
 }
@@ -357,7 +370,7 @@ pub fn despachar_evento(
 fn reagir_se_possivel(msg: Mensagem, portas: Portas) -> Nil {
   case msg.message_id {
     Some(mid) -> {
-      let _ = portas.mensageiro.reagir(msg.chat_id, mid, msg.remetente, "⌛")
+      let _ = portas.mensageiro.reagir(msg.chat_id, mid, msg.remetente, "🤔")
       Nil
     }
     None -> Nil

@@ -80,6 +80,8 @@ pub fn montar_para_video_sem_audio_test() {
   |> should.be_true
   string.contains(prompt, "NÃO invente, não deduza e não alucine falas")
   |> should.be_true
+  string.contains(prompt, "Não faça NENHUMA menção a som")
+  |> should.be_true
 }
 
 pub fn montar_para_documento_sem_prompt_personalizado_test() {
