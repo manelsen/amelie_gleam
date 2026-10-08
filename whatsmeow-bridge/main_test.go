@@ -433,3 +433,54 @@ func TestCleanupOrphanMediaFiles(t *testing.T) {
 		t.Fatalf("arquivo sem prefixo deveria permanecer: %v", err)
 	}
 }
+
+func TestCleanPhoneNumber(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"+55 (31) 98888-0000", "5531988880000"},
+		{"31988880000", "5531988880000"},
+		{"5531988880000", "5531988880000"},
+		{"031988880000", "5531988880000"},
+		{"(11) 97777-6666", "5511977776666"},
+		{"(21) 3333-4444", "552133334444"},
+		{"12025550123", "5512025550123"}, // 12 é DDD SP
+	}
+	for _, tc := range tests {
+		got := cleanPhoneNumber(tc.input)
+		if got != tc.want {
+			t.Errorf("cleanPhoneNumber(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestHandlePairPhoneRequiresPhone(t *testing.T) {
+	bridge := &Bridge{}
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/pair-phone", strings.NewReader(`{}`))
+	bridge.handlePairPhone(recorder, req)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
+	}
+	var resp PairPhoneResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.OK || !strings.Contains(resp.Error, "não informado") {
+		t.Fatalf("unexpected resp: %#v", resp)
+	}
+}
+
+func TestHandlePairPhoneMethodNotAllowed(t *testing.T) {
+	bridge := &Bridge{}
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/pair-phone", nil)
+	bridge.handlePairPhone(recorder, req)
+
+	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusMethodNotAllowed)
+	}
+}
+

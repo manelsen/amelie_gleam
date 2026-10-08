@@ -74,6 +74,28 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
+// cleanPhoneNumber sanitiza o número de telefone para o formato internacional exigido pelo WhatsApp.
+// Remove caracteres não-numéricos, zeros à esquerda e adiciona DDI 55 para números brasileiros de 10/11 dígitos.
+func cleanPhoneNumber(phone string) string {
+	var sb strings.Builder
+	for _, r := range phone {
+		if r >= '0' && r <= '9' {
+			sb.WriteRune(r)
+		}
+	}
+	cleaned := strings.TrimLeft(sb.String(), "0")
+	if !strings.HasPrefix(cleaned, "55") && (len(cleaned) == 10 || len(cleaned) == 11) {
+		ddd := 0
+		if len(cleaned) >= 2 {
+			ddd = int(cleaned[0]-'0')*10 + int(cleaned[1]-'0')
+		}
+		if ddd >= 11 && ddd <= 99 {
+			cleaned = "55" + cleaned
+		}
+	}
+	return cleaned
+}
+
 // ---------------------------------------------------------------------------
 // Payload
 // ---------------------------------------------------------------------------
@@ -190,9 +212,15 @@ func (b *Bridge) Start() error {
 	b.client.AddEventHandler(b.handleEvent)
 	b.startQueueWorker()
 
+	phone := cleanPhoneNumber(b.cfg.BotPhone)
+	if phone != "" && b.client.Store.ID != nil && b.client.Store.ID.User != phone {
+		log.Printf("[WhatsApp] MOBILE_NUMBER (%s) difere da sessão salva (%s). Limpando sessão anterior para novo pareamento.", phone, b.client.Store.ID.User)
+		b.deleteSessionStore()
+	}
+
 	if b.client.Store.ID == nil {
 		// Não autenticado — QR ou Pairing Code
-		if b.cfg.BotPhone != "" {
+		if phone != "" {
 			return b.loginPairingCode()
 		}
 		return b.loginQR()
@@ -222,14 +250,53 @@ func (b *Bridge) loginQR() error {
 }
 
 func (b *Bridge) loginPairingCode() error {
+	phone := cleanPhoneNumber(b.cfg.BotPhone)
+	if phone == "" {
+		return fmt.Errorf("MOBILE_NUMBER não configurado ou inválido para pairing code")
+	}
+
+	qrChan, _ := b.client.GetQRChannel(context.Background())
 	if err := b.client.Connect(); err != nil {
-		return err
+		return fmt.Errorf("falha ao conectar websocket para pairing code: %w", err)
 	}
-	code, err := b.client.PairPhone(context.Background(), b.cfg.BotPhone, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
+
+	// Aguarda o primeiro evento do canal para garantir que a conexão websocket está pronta
+	select {
+	case evt, ok := <-qrChan:
+		if !ok {
+			return fmt.Errorf("canal de autenticação fechou antes do pareamento")
+		}
+		if evt.Event == "success" {
+			log.Println("[WhatsApp] Já autenticado com sucesso!")
+			return nil
+		}
+	case <-time.After(5 * time.Second):
+		// Timeout de segurança caso o evento demore
+	}
+
+	code, err := b.client.PairPhone(context.Background(), phone, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
 	if err != nil {
-		return fmt.Errorf("pairing code: %w", err)
+		return fmt.Errorf("falha ao gerar pairing code para %s: %w", phone, err)
 	}
-	log.Printf("Pairing Code: %s\n", code)
+
+	log.Println("==================================================")
+	log.Printf("📱 PAIRING CODE GERADO PARA %s: %s\n", phone, code)
+	log.Println("👉 No WhatsApp do celular:")
+	log.Println("   Aparelhos conectados > Conectar com número de telefone")
+	log.Printf("   e digite o código: %s\n", code)
+	log.Println("==================================================")
+
+	for evt := range qrChan {
+		switch evt.Event {
+		case "success":
+			log.Printf("[WhatsApp] Autenticação via Pairing Code realizada com sucesso!")
+			return nil
+		case "timeout":
+			return fmt.Errorf("pairing code expirou sem ser confirmado no celular — reinicie para gerar novo")
+		default:
+			log.Printf("[WhatsApp] Evento de autenticação: %s\n", evt.Event)
+		}
+	}
 	return nil
 }
 
@@ -267,6 +334,7 @@ func (b *Bridge) handleEvent(rawEvt interface{}) {
 				evt.OnConnect,
 			),
 		)
+		b.deleteSessionStore()
 	case *events.StreamReplaced:
 		b.setConnectionError(
 			"whatsapp_stream_replaced",
@@ -1587,6 +1655,137 @@ func (b *Bridge) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
+type PairPhoneRequest struct {
+	Phone string `json:"phone"`
+}
+
+type PairPhoneResponse struct {
+	OK    bool   `json:"ok"`
+	Code  string `json:"code,omitempty"`
+	Phone string `json:"phone,omitempty"`
+	Error string `json:"error,omitempty"`
+}
+
+func (b *Bridge) handlePairPhone(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, ErrorResponse{
+			OK: false,
+			APIError: APIError{
+				Code:    "method_not_allowed",
+				Message: "método não permitido; use POST ou GET",
+			},
+		})
+		return
+	}
+
+	phone := ""
+	if r.Method == http.MethodPost && r.Body != nil {
+		var req PairPhoneRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		phone = req.Phone
+	}
+	if phone == "" {
+		phone = r.URL.Query().Get("phone")
+	}
+	if phone == "" {
+		phone = b.cfg.BotPhone
+	}
+
+	phone = cleanPhoneNumber(phone)
+	if phone == "" {
+		writeJSON(w, http.StatusBadRequest, PairPhoneResponse{
+			OK:    false,
+			Error: "número de telefone não informado (defina 'phone' ou MOBILE_NUMBER)",
+		})
+		return
+	}
+
+	if b.client.IsLoggedIn() {
+		writeJSON(w, http.StatusConflict, PairPhoneResponse{
+			OK:    false,
+			Error: "WhatsApp já está conectado e autenticado nesta sessão",
+		})
+		return
+	}
+
+	code, err := b.requestPairingCode(phone)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, PairPhoneResponse{
+			OK:    false,
+			Error: fmt.Sprintf("falha ao gerar pairing code: %v", err),
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, PairPhoneResponse{
+		OK:    true,
+		Code:  code,
+		Phone: phone,
+	})
+}
+
+func (b *Bridge) deleteSessionStore() {
+	if b.client != nil && b.client.Store != nil {
+		if b.client.Store.Container != nil {
+			_ = b.client.Store.Delete(context.Background())
+		}
+		b.client.Store.ID = nil
+	}
+}
+
+func (b *Bridge) requestPairingCode(phone string) (string, error) {
+	if b.client.Store.ID != nil && !b.client.IsLoggedIn() {
+		b.deleteSessionStore()
+	}
+
+	qrChan, _ := b.client.GetQRChannel(context.Background())
+	if !b.client.IsConnected() {
+		if err := b.client.Connect(); err != nil {
+			return "", fmt.Errorf("conectar websocket: %w", err)
+		}
+	}
+
+	select {
+	case evt, ok := <-qrChan:
+		if !ok {
+			return "", fmt.Errorf("canal de autenticação fechou antes do pareamento")
+		}
+		if evt.Event == "success" {
+			return "", fmt.Errorf("já autenticado")
+		}
+	case <-time.After(5 * time.Second):
+	}
+
+	code, err := b.client.PairPhone(context.Background(), phone, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
+	if err != nil {
+		return "", err
+	}
+
+	log.Println("==================================================")
+	log.Printf("📱 PAIRING CODE GERADO PARA %s: %s\n", phone, code)
+	log.Println("👉 No WhatsApp do celular:")
+	log.Println("   Aparelhos conectados > Conectar com número de telefone")
+	log.Printf("   e digite o código: %s\n", code)
+	log.Println("==================================================")
+
+	go func() {
+		for evt := range qrChan {
+			switch evt.Event {
+			case "success":
+				log.Printf("[WhatsApp] Autenticação via Pairing Code realizada com sucesso!")
+				return
+			case "timeout":
+				log.Printf("[WhatsApp] Pairing code expirou sem ser confirmado.")
+				return
+			default:
+				log.Printf("[WhatsApp] Evento de autenticação: %s\n", evt.Event)
+			}
+		}
+	}()
+
+	return code, nil
+}
+
 func writeAPIError(w http.ResponseWriter, status int, apiError APIError) {
 	if apiError.Timestamp == "" {
 		apiError.Timestamp = time.Now().Format(time.RFC3339)
@@ -1623,6 +1822,7 @@ func main() {
 	mux.HandleFunc("/send", bridge.handleSend)
 	mux.HandleFunc("/react", bridge.handleReact)
 	mux.HandleFunc("/health", bridge.handleHealth)
+	mux.HandleFunc("/pair-phone", bridge.handlePairPhone)
 
 	server := &http.Server{
 		Addr:    ":" + cfg.Port,
