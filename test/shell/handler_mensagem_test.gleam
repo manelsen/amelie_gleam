@@ -1,5 +1,8 @@
 import dominio/erro
+import dominio/mensagem.{Mensagem}
 import gleam/erlang/process
+import gleam/int
+import gleam/option
 import gleeunit/should
 import helpers/fixtures
 import helpers/portas_fake
@@ -166,4 +169,16 @@ pub fn handle_imagem_desativada_retorna_ok_test() {
   let portas = portas_fake.portas_ok(fixtures.config_midia_off(), "ok")
   let result = handler_mensagem.handle(msg, portas)
   result |> should.be_ok
+}
+
+pub fn extrair_trace_id_test() {
+  let msg_com_id = fixtures.mensagem_texto("com id")
+  handler_mensagem.extrair_trace_id(msg_com_id)
+  |> should.equal("MSG001")
+
+  let msg_sem_id = Mensagem(..msg_com_id, message_id: option.None)
+  handler_mensagem.extrair_trace_id(msg_sem_id)
+  |> should.equal(
+    "req_" <> int.to_string(msg_sem_id.timestamp) <> "_" <> msg_sem_id.remetente,
+  )
 }

@@ -133,6 +133,13 @@ fn processar(
   }
 }
 
+fn tag_trace(msg: Mensagem) -> String {
+  case msg.message_id {
+    option.Some(id) if id != "" -> " [trace:" <> id <> "]"
+    _ -> ""
+  }
+}
+
 fn processar_imagem(
   chat_id: String,
   msg: Mensagem,
@@ -145,7 +152,10 @@ fn processar_imagem(
     Imagem(mime: mime, dados: dados) -> {
       logging.log(
         logging.Info,
-        "[Imagem] Iniciando processamento para " <> chat_id,
+        "[Imagem]"
+          <> tag_trace(msg)
+          <> " Iniciando processamento para "
+          <> chat_id,
       )
       reagir(msg, "⌛", mensageiro)
       let prompt = builder.montar_para_imagem(cfg, msg.legenda)
@@ -155,7 +165,10 @@ fn processar_imagem(
         prompt,
         cfg.modelo,
       ))
-      logging.log(logging.Info, "[Imagem] Concluído para " <> chat_id)
+      logging.log(
+        logging.Info,
+        "[Imagem]" <> tag_trace(msg) <> " Concluído para " <> chat_id,
+      )
       reagir(msg, "🆗", mensageiro)
       entregar(chat_id, "imagem", resposta, msg, mensageiro, transacoes)
     }
@@ -175,7 +188,10 @@ fn processar_audio(
     Audio(mime: mime, dados: dados) -> {
       logging.log(
         logging.Info,
-        "[Áudio] Iniciando processamento para " <> chat_id,
+        "[Áudio]"
+          <> tag_trace(msg)
+          <> " Iniciando processamento para "
+          <> chat_id,
       )
       reagir(msg, "⌛", mensageiro)
       let prompt = builder.montar_para_audio(cfg)
@@ -186,7 +202,10 @@ fn processar_audio(
         cfg.modelo,
       ))
       let resposta = limpar_timestamps(resposta)
-      logging.log(logging.Info, "[Áudio] Concluído para " <> chat_id)
+      logging.log(
+        logging.Info,
+        "[Áudio]" <> tag_trace(msg) <> " Concluído para " <> chat_id,
+      )
       reagir(msg, "🆗", mensageiro)
       entregar(chat_id, "audio", resposta, msg, mensageiro, transacoes)
     }
@@ -206,7 +225,10 @@ fn processar_video(
     Video(caminho_temp: caminho, mime: mime) -> {
       logging.log(
         logging.Info,
-        "[Vídeo] Iniciando upload e processamento para " <> chat_id,
+        "[Vídeo]"
+          <> tag_trace(msg)
+          <> " Iniciando upload e processamento para "
+          <> chat_id,
       )
       reagir(msg, "⌛", mensageiro)
       let eh_sticker_animado =
@@ -241,7 +263,10 @@ fn processar_video(
           let _ = ia.deletar_arquivo(uri)
           let _ = simplifile_delete(caminho)
           use resposta <- result.try(processamento)
-          logging.log(logging.Info, "[Vídeo] Concluído para " <> chat_id)
+          logging.log(
+            logging.Info,
+            "[Vídeo]" <> tag_trace(msg) <> " Concluído para " <> chat_id,
+          )
           reagir(msg, "🆗", mensageiro)
           entregar(chat_id, "video", resposta, msg, mensageiro, transacoes)
         }
@@ -263,7 +288,7 @@ fn processar_documento(
     Documento(mime: mime, dados: dados, nome: _nome) -> {
       logging.log(
         logging.Info,
-        "[Doc] Iniciando processamento para " <> chat_id,
+        "[Doc]" <> tag_trace(msg) <> " Iniciando processamento para " <> chat_id,
       )
       reagir(msg, "⌛", mensageiro)
       let prompt = builder.montar_para_documento(cfg, msg.legenda)
@@ -273,7 +298,10 @@ fn processar_documento(
         prompt,
         cfg.modelo,
       ))
-      logging.log(logging.Info, "[Doc] Concluído para " <> chat_id)
+      logging.log(
+        logging.Info,
+        "[Doc]" <> tag_trace(msg) <> " Concluído para " <> chat_id,
+      )
       reagir(msg, "🆗", mensageiro)
       entregar(chat_id, "documento", resposta, msg, mensageiro, transacoes)
     }
@@ -293,7 +321,10 @@ fn processar_sticker(
     mensagem.Sticker(mime: mime, dados: dados) -> {
       logging.log(
         logging.Info,
-        "[Sticker] Iniciando processamento para " <> chat_id,
+        "[Sticker]"
+          <> tag_trace(msg)
+          <> " Iniciando processamento para "
+          <> chat_id,
       )
       reagir(msg, "⌛", mensageiro)
       let prompt = builder.montar_para_sticker(cfg, msg.legenda)
@@ -304,7 +335,10 @@ fn processar_sticker(
         prompt,
         cfg.modelo,
       ))
-      logging.log(logging.Info, "[Sticker] Concluído para " <> chat_id)
+      logging.log(
+        logging.Info,
+        "[Sticker]" <> tag_trace(msg) <> " Concluído para " <> chat_id,
+      )
       reagir(msg, "🆗", mensageiro)
       entregar(chat_id, "sticker", resposta, msg, mensageiro, transacoes)
     }

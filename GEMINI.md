@@ -79,7 +79,7 @@ test/                 # Test suite (mirrors src/ structure)
 ### Commands
 
 - **Build:** `gleam build`
-- **Test:** `gleam test` (152 tests passing)
+- **Test:** `gleam test` (161 tests passing)
 - **Bridge Tests:** `cd whatsmeow-bridge && go test -count=1 ./...`
 - **Run (Local):**
   ```bash

@@ -63,10 +63,20 @@ pub type Portas {
   )
 }
 
+pub fn extrair_trace_id(msg: Mensagem) -> String {
+  case msg.message_id {
+    option.Some(id) if id != "" -> id
+    _ -> "req_" <> int.to_string(msg.timestamp) <> "_" <> msg.remetente
+  }
+}
+
 pub fn handle(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
+  let trace_id = extrair_trace_id(msg)
   logging.log(
     logging.Info,
-    "Mensagem recebida do chat "
+    "[trace:"
+      <> trace_id
+      <> "] Mensagem recebida do chat "
       <> msg.chat_id
       <> " (remetente: "
       <> msg.remetente
@@ -82,7 +92,9 @@ pub fn handle(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
     True -> {
       logging.log(
         logging.Info,
-        "Mensagem ignorada por ser muito antiga (ts="
+        "[trace:"
+          <> trace_id
+          <> "] Mensagem ignorada por ser muito antiga (ts="
           <> int.to_string(msg.timestamp)
           <> "): "
           <> msg.chat_id,
@@ -98,7 +110,10 @@ pub fn handle(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
             Ok(True) -> {
               logging.log(
                 logging.Info,
-                "Mensagem ja processada, ignorando: " <> msg_id,
+                "[trace:"
+                  <> trace_id
+                  <> "] Mensagem ja processada, ignorando: "
+                  <> msg_id,
               )
               Ok(Nil)
             }
@@ -115,7 +130,11 @@ pub fn handle(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
 }
 
 fn processar_mensagem(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
-  logging.log(logging.Info, "Processando mensagem: " <> msg.chat_id)
+  let trace_id = extrair_trace_id(msg)
+  logging.log(
+    logging.Info,
+    "[trace:" <> trace_id <> "] Processando mensagem: " <> msg.chat_id,
+  )
 
   let _ = portas.usuarios.registrar(msg.chat_id)
 
@@ -136,7 +155,9 @@ fn processar_mensagem(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
       // Log do erro no servidor
       logging.log(
         logging.Warning,
-        "Erro ao processar mensagem de "
+        "[trace:"
+          <> trace_id
+          <> "] Erro ao processar mensagem de "
           <> msg.remetente
           <> ": "
           <> erro.descricao(e),
@@ -171,7 +192,11 @@ fn executar_acao(
 ) -> Result(Nil, Erro) {
   case acao {
     GerarEEnviar(para, prompt) -> {
-      logging.log(logging.Info, "Enviando texto gerado pela IA para " <> para)
+      let trace_id = extrair_trace_id(msg)
+      logging.log(
+        logging.Info,
+        "[trace:" <> trace_id <> "] Enviando texto gerado pela IA para " <> para,
+      )
       use resposta <- result.try(ia_dispatcher.gerar_texto(
         portas.ia_dispatcher,
         prompt,

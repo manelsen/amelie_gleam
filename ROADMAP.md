@@ -86,9 +86,9 @@ de integração entre os processos Gleam e Go.
 
 ## Validação atual
 
-- 152 testes Gleam passando (`gleam test`).
+- 161 testes Gleam passando (`gleam test`).
 - Testes unitários, race detector, `go vet` e build do bridge Go passando (`go test ./...`).
-- Testes de regressão cobrindo Telegram (decodificação, mídias, mídias mudas, chat actions, RBAC), comandos de administração, healthcheck consolidado, HistorySync, estado de sessão e filas OTP.
+- Testes de regressão cobrindo Circuit Breaker (estados Fechado/Aberto e contenção única em SemiAberto), classificação e descarte seletivo da fila offline, Telegram (decodificação, mídias, mídias mudas, chat actions, RBAC), comandos de administração, healthcheck consolidado, HistorySync e filas OTP.
 
 ## Próximas prioridades
 
@@ -103,14 +103,14 @@ de integração entre os processos Gleam e Go.
   - Retry assíncrono com backoff para eventos notificados ao Gleam (`notifyGleamEvent`).
 - [x] Painel administrativo remoto e comando de pareamento proativo via Telegram (`/status`, `/reset_whatsapp`, `/parear`) com controle de acesso por ID.
 - [x] Procedimento operacional de backup, restauração e pareamento documentado em `DEPLOYMENT.md`.
-- [ ] Classificar erros da fila offline em transitórios e definitivos (descartar payloads inválidos ou sessões revogadas sem esgotar retries idênticos).
+- [x] Classificar erros da fila offline em transitórios e definitivos (descarte imediato de `invalid_chat_id`, payloads malformados e sessões revogadas sem esgotar retries desnecessários).
 - [ ] Adicionar teste end-to-end automatizado entre webhook, processamento, IA fake, auditoria e envio pelo bridge fake.
 
 ### P1 — Concorrência e observabilidade
 
-- [ ] Corrigir o estado semiaberto do circuit breaker para permitir uma única chamada de prova (atualmente chamadas concorrentes podem atravessar juntas durante o probe).
+- [x] Corrigir o estado semiaberto do circuit breaker para permitir uma única chamada de prova (`SemiAberto(probe_em_voo: True)` com contenção estrita de requisições concorrentes).
+- [x] Adicionar identificadores de correlação (`[trace:id]`) propagados em todos os logs do handler de mensagens e workers das filas de mídia.
 - [ ] Avaliar a retirada de `process.call` síncrono do caminho quente do circuit breaker ou medir sua contenção sob carga das filas de mídia.
-- [ ] Adicionar identificador de correlação (Request ID / Trace ID) propagado dos webhooks (WhatsApp/Telegram) para logs estruturados, transações e chamadas da Gemini API.
 - [ ] Adicionar métricas de latência e contadores de retry por provedor no coletor de métricas.
 - [ ] Definir timeouts por operação externa e propagar a causa original em todos os adaptadores.
 

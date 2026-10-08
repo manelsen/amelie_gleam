@@ -2,8 +2,10 @@ import dominio/erro.{type Erro}
 import dominio/transacao
 import gleam/option
 import gleam/result
+import logging
 import portas/mensageiro_porta.{type MensageiroPorta}
 import portas/transacao_porta.{type TransacaoPorta}
+import shell/fila_offline
 
 pub fn enviar(
   chat_id: String,
@@ -69,8 +71,29 @@ fn marcar_falha(
   e: Erro,
 ) -> Result(Nil, Erro) {
   case tx.id {
-    option.Some(id) ->
-      transacoes.atualizar_erro(id, erro.descricao(e), tx.tentativas + 1)
+    option.Some(id) -> {
+      case fila_offline.e_erro_definitivo(e) {
+        True -> {
+          let _ =
+            transacoes.atualizar_erro(
+              id,
+              erro.descricao(e) <> " (descarte definitivo)",
+              tx.tentativas + 1,
+            )
+          let _ = transacoes.atualizar_status(id, transacao.Descartada)
+          logging.log(
+            logging.Warning,
+            "EntregaAuditada: transação "
+              <> option.unwrap(tx.id |> option.map(fn(_) { "" }), "")
+              <> " descartada imediatamente por erro definitivo: "
+              <> erro.descricao(e),
+          )
+          Ok(Nil)
+        }
+        False ->
+          transacoes.atualizar_erro(id, erro.descricao(e), tx.tentativas + 1)
+      }
+    }
     option.None -> Ok(Nil)
   }
 }

@@ -6,6 +6,7 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/otp/actor
 import gleam/result
+import gleam/string
 import logging
 import portas/mensageiro_porta.{type MensageiroPorta}
 import portas/transacao_porta.{type TransacaoPorta}
@@ -24,6 +25,29 @@ pub type State {
     mensageiro: MensageiroPorta,
     tentativas_max: Int,
   )
+}
+
+/// Identifica se um erro é permanente (não deve ser retentado).
+pub fn e_erro_definitivo(e: erro.Erro) -> Bool {
+  case e {
+    erro.ErroValidacao(..) -> True
+    erro.ErroNaoAutorizado -> True
+    erro.ErroComandoDesconhecido(..) -> True
+    erro.ErroComunicacao(desc) -> {
+      let desc_baixa = string.lowercase(desc)
+      string.contains(desc_baixa, "invalid_chat_id")
+      || string.contains(desc_baixa, "invalid_json")
+      || string.contains(desc_baixa, "chat not found")
+      || string.contains(desc_baixa, "bot was blocked")
+      || string.contains(desc_baixa, "user is deactivated")
+      || string.contains(desc_baixa, "whatsapp_logged_out")
+      || string.contains(desc_baixa, "whatsapp_session_deleted")
+      || string.contains(desc_baixa, "status 400")
+      || string.contains(desc_baixa, "status 403")
+      || string.contains(desc_baixa, "status 404")
+    }
+    _ -> False
+  }
 }
 
 pub fn iniciar(
@@ -112,19 +136,39 @@ fn retry_transacao(state: State, tx: t.Transacao) -> Nil {
               )
             }
             Error(e) -> {
-              let _ =
-                state.transacoes.atualizar_erro(
-                  id,
-                  erro.descricao(e),
-                  tx.tentativas + 1,
-                )
-              logging.log(
-                logging.Warning,
-                "FilaOffline: falha ao enviar transação "
-                  <> int.to_string(id)
-                  <> ": "
-                  <> erro.descricao(e),
-              )
+              case e_erro_definitivo(e) {
+                True -> {
+                  let _ =
+                    state.transacoes.atualizar_erro(
+                      id,
+                      erro.descricao(e) <> " (descarte definitivo)",
+                      tx.tentativas + 1,
+                    )
+                  let _ = state.transacoes.atualizar_status(id, t.Descartada)
+                  logging.log(
+                    logging.Warning,
+                    "FilaOffline: transação "
+                      <> int.to_string(id)
+                      <> " descartada imediatamente por erro definitivo: "
+                      <> erro.descricao(e),
+                  )
+                }
+                False -> {
+                  let _ =
+                    state.transacoes.atualizar_erro(
+                      id,
+                      erro.descricao(e),
+                      tx.tentativas + 1,
+                    )
+                  logging.log(
+                    logging.Warning,
+                    "FilaOffline: falha ao enviar transação "
+                      <> int.to_string(id)
+                      <> ": "
+                      <> erro.descricao(e),
+                  )
+                }
+              }
             }
           }
         }

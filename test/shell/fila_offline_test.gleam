@@ -216,3 +216,77 @@ pub fn tx_sem_id_e_ignorada_test() {
 
   process.receive(ref_enviou, 50) |> should.be_error
 }
+
+// ---------------------------------------------------------------------------
+// Classificação de erro definitivo e descarte imediato
+// ---------------------------------------------------------------------------
+
+pub fn classificacao_erro_definitivo_test() {
+  // Transitórios (não definitivos)
+  fila_offline.e_erro_definitivo(erro.ErroComunicacao("offline"))
+  |> should.be_false
+  fila_offline.e_erro_definitivo(erro.ErroTimeout("chamada http"))
+  |> should.be_false
+  fila_offline.e_erro_definitivo(erro.ErroBancoDados("locked"))
+  |> should.be_false
+  fila_offline.e_erro_definitivo(erro.ErroIA("503 indisponível"))
+  |> should.be_false
+
+  // Definitivos (devem ser descartados)
+  fila_offline.e_erro_definitivo(erro.ErroValidacao("campo", "invalido"))
+  |> should.be_true
+  fila_offline.e_erro_definitivo(erro.ErroNaoAutorizado)
+  |> should.be_true
+  fila_offline.e_erro_definitivo(erro.ErroComunicacao(
+    "whatsmeow retornou status 400 [invalid_chat_id]",
+  ))
+  |> should.be_true
+  fila_offline.e_erro_definitivo(erro.ErroComunicacao(
+    "whatsmeow retornou status 401 [whatsapp_logged_out]",
+  ))
+  |> should.be_true
+  fila_offline.e_erro_definitivo(erro.ErroComunicacao(
+    "Telegram: 403 Forbidden: bot was blocked by the user",
+  ))
+  |> should.be_true
+}
+
+pub fn retry_descarta_imediatamente_em_erro_definitivo_test() {
+  let ref_status = process.new_subject()
+  let transacoes =
+    TransacaoPorta(
+      registrar: fn(tx) { Ok(tx) },
+      atualizar_status: fn(id, status) {
+        process.send(ref_status, #(id, status))
+        Ok(Nil)
+      },
+      atualizar_erro: fn(_, _, _) { Ok(Nil) },
+      obter_pendentes: fn() { Ok([tx_pendente(7, 1)]) },
+      obter_por_chat: fn(_) { Ok([]) },
+      marcar_entregue: fn(_) { Ok(Nil) },
+      limpar_antigas: fn() { Ok(Nil) },
+      foi_recebida: fn(_) { Ok(False) },
+      marcar_recebida: fn(_) { Ok(Nil) },
+    )
+  let mensageiro =
+    MensageiroPorta(
+      enviar: fn(_, _) {
+        Error(erro.ErroComunicacao(
+          "whatsmeow: [invalid_chat_id] destinatario inexistente",
+        ))
+      },
+      enviar_citando: fn(_, _, _, _) {
+        Error(erro.ErroComunicacao("whatsmeow: [invalid_chat_id]"))
+      },
+      reagir: fn(_, _, _, _) { Ok(Nil) },
+    )
+
+  // tentativas_max é 5, mas deve descartar NA PRIMEIRA tentativa pois o erro é definitivo!
+  let assert Ok(fila) = fila_offline.iniciar(transacoes, mensageiro, 5)
+  process.send(fila, fila_offline.ProcessarPendentes)
+  process.sleep(50)
+
+  let assert Ok(#(id, status)) = process.receive(ref_status, 100)
+  id |> should.equal(7)
+  status |> should.equal(t.Descartada)
+}
