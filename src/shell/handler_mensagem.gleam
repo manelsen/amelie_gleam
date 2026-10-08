@@ -504,7 +504,7 @@ fn executar_acao(
               let _ =
                 portas.mensageiro.enviar(
                   chat_id,
-                  "❌ Não foi possível baixar o vídeo.",
+                  "O download de links de vídeo está desativado. Envie o arquivo de vídeo diretamente.",
                 )
               Nil
             }
@@ -538,9 +538,12 @@ fn executar_acao(
     SolicitarPareamento(chat_id, args) -> {
       let admin_id =
         get_env("TELEGRAM_ADMIN_CHAT_ID")
-        |> result.unwrap(or: "924255495")
+        |> result.unwrap(or: "")
       let eh_admin =
-        msg.remetente == "tg:" <> admin_id || msg.chat_id == "tg:" <> admin_id
+        admin_id != ""
+        && !msg.em_grupo
+        && msg.remetente == "tg:" <> admin_id
+        && msg.chat_id == "tg:" <> admin_id
       case eh_admin {
         False -> {
           let _ =
@@ -613,9 +616,12 @@ fn executar_acao(
     ConsultarStatus(chat_id) -> {
       let admin_id =
         get_env("TELEGRAM_ADMIN_CHAT_ID")
-        |> result.unwrap(or: "924255495")
+        |> result.unwrap(or: "")
       let eh_admin =
-        msg.remetente == "tg:" <> admin_id || msg.chat_id == "tg:" <> admin_id
+        admin_id != ""
+        && !msg.em_grupo
+        && msg.remetente == "tg:" <> admin_id
+        && msg.chat_id == "tg:" <> admin_id
       case eh_admin {
         False -> {
           let _ =
@@ -682,9 +688,12 @@ fn executar_acao(
     ResetarWhatsApp(chat_id, args) -> {
       let admin_id =
         get_env("TELEGRAM_ADMIN_CHAT_ID")
-        |> result.unwrap(or: "924255495")
+        |> result.unwrap(or: "")
       let eh_admin =
-        msg.remetente == "tg:" <> admin_id || msg.chat_id == "tg:" <> admin_id
+        admin_id != ""
+        && !msg.em_grupo
+        && msg.remetente == "tg:" <> admin_id
+        && msg.chat_id == "tg:" <> admin_id
       case eh_admin {
         False -> {
           let _ =

@@ -1,7 +1,8 @@
 // Cache de respostas de IA com TTL.
 // Evita chamadas repetidas para prompts idênticos no mesmo contexto.
-// Chave: SHA256(prompt + "|" + modelo). TTL: 1h. Máximo: 500 entradas.
+// Chave: SHA256 dos argumentos completos serializados. TTL: 1h. Máximo: 500 entradas.
 
+import dominio/mensagem.{type Turno}
 import gleam/dict.{type Dict}
 import gleam/erlang/process.{type Subject}
 import gleam/list
@@ -79,10 +80,9 @@ fn evict(estado: Estado) -> Estado {
   }
 }
 
-/// Gera chave de cache: SHA256(prompt + "|" + modelo).
-pub fn chave(prompt: String, modelo: String) -> String {
-  sha256_hex(prompt <> "|" <> modelo)
-}
+/// Inclui o histórico completo e seus papéis, sem colisões por delimitadores.
+@external(erlang, "amelie_gleam_ffi", "cache_key")
+pub fn chave(prompt: String, historico: List(Turno), modelo: String) -> String
 
 pub fn obter(cache: CacheIA, k: String) -> Option(String) {
   process.call(cache, 1000, fn(reply) { Obter(k, reply) })
@@ -94,6 +94,3 @@ pub fn guardar(cache: CacheIA, k: String, valor: String) -> Nil {
 
 @external(erlang, "amelie_gleam_ffi", "now_ms")
 fn now_ms() -> Int
-
-@external(erlang, "amelie_gleam_ffi", "sha256_hex")
-fn sha256_hex(data: String) -> String

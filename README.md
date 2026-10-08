@@ -21,7 +21,7 @@ Ao receber uma foto, print ou imagem da galeria, a Amélie analisa a cena e desc
 Para quem não pode ou não consegue ouvir mensagens de áudio, a Amélie ouve o áudio enviado e responde com a transcrição completa do conteúdo em texto, removendo marcações desnecessárias para facilitar a leitura.
 
 ### 3. Audiodescrição de vídeos e redes sociais
-Você pode enviar um arquivo de vídeo ou compartilhar links de plataformas como **YouTube**, **Instagram (Reels)** e **TikTok**. A Amélie assiste ao conteúdo e conta o que acontece visualmente, transcrevendo falas e explicando o contexto da cena.
+Você pode enviar um arquivo de vídeo. A Amélie assiste ao conteúdo e conta o que acontece visualmente, transcrevendo falas e explicando o contexto da cena. Downloads de links de redes sociais estão desativados até que os extratores possam operar em um serviço com restrições de rede próprias.
 
 ### 4. Interpretação de figurinhas e memes (stickers)
 Figurinhas de aplicativos costumam ser inacessíveis para leitores de tela. A Amélie:
@@ -101,7 +101,7 @@ A Amélie é um software livre e de código aberto, projetado para operar com al
 - **Padrão Arquitetural:** Arquitetura Hexagonal rigorosa (*Ports & Adapters*) com *Functional Core* puro (camadas `dominio/`, `core/`, `portas/`, `adaptadores/` e `shell/`).
 - **Multicanal:** Roteamento unificado para WhatsApp (microserviço Go com whatsmeow) e Telegram (Bot API com chat actions e reações nativas).
 - **Provedores de IA:** Integração primária com a API do **Google Gemini** (usando Gemini File API para upload e processamento de vídeos pesados) e suporte alternativo via **OpenRouter**.
-- **Ferramentas de Mídia:** `ffmpeg`, Python PIL (para decomposição de WebP animado), `libwebp-tools` (`webpmux`/`dwebp`) e `yt-dlp`.
+- **Ferramentas de Mídia:** `ffmpeg`, Python PIL (para decomposição de WebP animado) e `libwebp-tools` (`webpmux`/`dwebp`).
 
 ### Como rodar em ambiente próprio
 

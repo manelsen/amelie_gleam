@@ -492,6 +492,9 @@ func TestNotifyGleamEvent(t *testing.T) {
 		if r.URL.Path != "/webhook/bridge-event" {
 			t.Errorf("path = %q, want /webhook/bridge-event", r.URL.Path)
 		}
+		if r.Header.Get(bridgeTokenHeader) != testBridgeToken {
+			t.Error("evento sem autenticação")
+		}
 		var payload map[string]interface{}
 		_ = json.NewDecoder(r.Body).Decode(&payload)
 		if evt, ok := payload["evento"].(string); ok {
@@ -504,6 +507,7 @@ func TestNotifyGleamEvent(t *testing.T) {
 	bridge := &Bridge{
 		cfg: Config{
 			GleamURL: server.URL + "/webhook",
+			Token:    testBridgeToken,
 		},
 	}
 	bridge.notifyGleamEvent(map[string]interface{}{
@@ -583,4 +587,3 @@ func TestDeleteSessionStoreRecreatesDevice(t *testing.T) {
 		t.Fatalf("store ID should be nil")
 	}
 }
-

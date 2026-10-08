@@ -11,6 +11,7 @@ import gleam/json
 import gleam/result
 import gleam/string
 import portas/mensageiro_porta.{type MensageiroPorta, MensageiroPorta}
+import shell/seguranca_http
 
 pub fn criar(base_url: String) -> MensageiroPorta {
   MensageiroPorta(
@@ -81,7 +82,7 @@ fn reagir(
     |> request.set_header("content-type", "application/json")
     |> request.set_body(body)
   use resp <- result.try(
-    httpc.send(req)
+    httpc.send(seguranca_http.autenticar_bridge(req))
     |> result.map_error(fn(error) {
       erro.ErroComunicacao(descrever_erro_transporte(error))
     }),
@@ -102,7 +103,7 @@ fn post(base_url: String, body: String) -> Result(Nil, Erro) {
     |> request.set_body(body)
 
   use resp <- result.try(
-    httpc.send(req)
+    httpc.send(seguranca_http.autenticar_bridge(req))
     |> result.map_error(fn(error) {
       erro.ErroComunicacao(descrever_erro_transporte(error))
     }),
@@ -169,7 +170,7 @@ pub fn checar_status(base_url: String) -> Result(StatusBridge, Erro) {
   )
   let req = req |> request.set_method(http.Get)
   use resp <- result.try(
-    httpc.send(req)
+    httpc.send(seguranca_http.autenticar_bridge(req))
     |> result.map_error(fn(err) {
       erro.ErroComunicacao(descrever_erro_transporte(err))
     }),
@@ -197,7 +198,7 @@ pub fn pedir_pairing_code(
     |> request.set_method(http.Post)
     |> request.set_header("content-type", "application/json")
     |> request.set_body(body)
-  case httpc.send(req) {
+  case httpc.send(seguranca_http.autenticar_bridge(req)) {
     Error(err) -> Error(descrever_erro_transporte(err))
     Ok(resp) -> {
       let decoder_sucesso = {
@@ -233,7 +234,7 @@ pub fn resetar_sessao(base_url: String, phone: String) -> Result(Nil, String) {
     |> request.set_method(http.Post)
     |> request.set_header("content-type", "application/json")
     |> request.set_body(body)
-  case httpc.send(req) {
+  case httpc.send(seguranca_http.autenticar_bridge(req)) {
     Error(err) -> Error(descrever_erro_transporte(err))
     Ok(resp) -> {
       case resp.status {
@@ -241,5 +242,32 @@ pub fn resetar_sessao(base_url: String, phone: String) -> Result(Nil, String) {
         status -> Error("status " <> int.to_string(status))
       }
     }
+  }
+}
+
+/// O bridge resolve e fixa o IP público de cada conexão e redirecionamento.
+pub fn buscar_pagina(base_url: String, url: String) -> Result(String, Erro) {
+  use req <- result.try(
+    request.to(base_url <> "/fetch")
+    |> result.map_error(fn(_) { erro.ErroComunicacao("URL do bridge inválida") }),
+  )
+  let req =
+    req
+    |> request.set_method(http.Post)
+    |> request.set_header("content-type", "application/json")
+    |> request.set_body(
+      json.object([#("url", json.string(url))]) |> json.to_string,
+    )
+    |> seguranca_http.autenticar_bridge
+  use resp <- result.try(
+    httpc.send(req)
+    |> result.map_error(fn(err) {
+      erro.ErroComunicacao(descrever_erro_transporte(err))
+    }),
+  )
+  case resp.status {
+    200 -> Ok(resp.body)
+    _ ->
+      Error(erro.ErroComunicacao("Não foi possível buscar a página pública."))
   }
 }

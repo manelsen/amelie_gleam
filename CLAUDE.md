@@ -37,7 +37,7 @@ cd whatsmeow-bridge && go test -count=1 ./...
 cd whatsmeow-bridge && go build .
 
 # Run the Gleam app only (requires bridge running separately)
-GEMINI_API_KEY=... WHATSMEOW_URL=http://localhost:8080 DB_PATH=./db/amelie.sqlite PORT=4000 gleam run
+BRIDGE_TOKEN=... GEMINI_API_KEY=... WHATSMEOW_URL=http://localhost:8080 DB_PATH=./db/amelie.sqlite PORT=4000 gleam run
 ```
 
 ### Production (Docker Compose)
@@ -59,7 +59,7 @@ docker compose down
 | `GEMINI_API_KEY` | `""` | Google Gemini API key (primary) |
 | `OPENROUTER_API_KEY` | `""` | OpenRouter API key (fallback/alternative) |
 | `TELEGRAM_BOT_TOKEN` | `""` | Telegram Bot API token (enables Telegram channel) |
-| `TELEGRAM_SECRET_TOKEN` | `""` | Secret token to authenticate Telegram incoming webhook (optional) |
+| `TELEGRAM_SECRET_TOKEN` | `""` | Required for incoming webhook; empty disables the endpoint (polling still works) |
 | `TELEGRAM_ADMIN_CHAT_ID` | `""` | Admin Telegram Chat ID for RBAC `/status`, `/reset_whatsapp`, `/parear` |
 | `MOBILE_NUMBER` | `""` | Bot phone number for WhatsApp Pairing Code (optional) |
 | `WHATSMEOW_URL` | `http://localhost:8080` | whatsmeow HTTP bridge URL |
@@ -68,7 +68,9 @@ docker compose down
 | `PORT` | `4000` | HTTP server port (Mist) |
 | `BRIDGE_PORT` | `8080` | Internal bridge HTTP port |
 | `OFFLINE_RETRY_INTERVAL_MS`| `30000` | Interval for retrying offline messages |
-| `YTDLP_COOKIES_PATH` | `""` | Path to Netscape cookies file for Instagram/Stories (optional) |
+| `BRIDGE_TOKEN` | `""` | Required shared random secret, at least 32 characters |
+| `BRIDGE_HOST` | `127.0.0.1` | Private bridge listener |
+| `MEDIA_TEMP_DIR` | `/tmp/amelie-media` | Private 0700 spool shared by Gleam and bridge |
 
 `WHATSMEOW_URL` and `GLEAM_URL` are configured automatically by `entrypoint.sh` inside Docker.
 
@@ -88,15 +90,15 @@ amelie_gleam.gleam — Entry point: wires adapters → ports → Mist HTTP serve
 ### Data Flow
 
 1. `POST /webhook` (WhatsApp) or `POST /webhook/telegram` (Telegram) → `amelie_gleam.gleam` decodes payload into `Webhook(msg, arquivo)`.
-2. Large incoming media from WhatsApp is offloaded to `/tmp/amelie_midia_*` by the bridge. `amelie_gleam.gleam` reads the file via Erlang FFI into `BitArray`, then deletes the temporary file. Telegram media is fetched asynchronously via `getFile`.
+2. Large incoming media from WhatsApp is offloaded to `MEDIA_TEMP_DIR/amelie_midia_*` by the bridge. `amelie_gleam.gleam` reads the file via Erlang FFI into `BitArray`, then deletes the temporary file. Telegram media is fetched asynchronously via `getFile`.
 3. `shell/handler_mensagem.handle` fetches `Config` + `Historico` from ports, calls `core/processador.processar`.
 4. `core/processador` (pure) returns `List(Acao)` — never performs IO.
 5. Shell executes each `Acao`:
    - `GerarEEnviar`: invokes AI provider via `ia_dispatcher` and sends reply via `entrega_auditada` (routed by `roteador_mensageiro` according to `chat_id`).
    - `EnviarResposta`: directly sends text (commands, help, errors) without invoking AI.
    - `EnfileirarMidia`: dispatches to `shell/fila_midia` — dedicated OTP actors for `imagem`, `audio`, `video`, `documento`, and `sticker`.
-   - `BuscarUrlEResponder`: scrapes web URL content and injects it into context.
-   - `BaixarVideoUrlEDescrever`: downloads video via `yt-dlp` and processes it via Gemini video pipeline.
+   - `BuscarUrlEResponder`: fetches public web content through the bridge’s authenticated `/fetch` endpoint, with DNS pinning, redirect checks, time and size limits.
+   - `BaixarVideoUrlEDescrever`: returns an explicit disabled-feature message; downloading external video links is disabled for SSRF protection.
 
 ### Key Types
 

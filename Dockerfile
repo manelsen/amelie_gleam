@@ -32,10 +32,7 @@ RUN --mount=type=cache,target=/root/.cache/ccache \
 # Stage 3: Imagem final — mesma base Erlang do builder (evita mismatch de OTP)
 FROM ghcr.io/gleam-lang/gleam:v1.15.0-erlang-alpine
 
-ARG YTDLP_VERSION=2026.06.09
-
-RUN apk add --no-cache sqlite-libs ca-certificates python3 py3-pip py3-pillow ffmpeg nodejs libwebp-tools && \
-    pip3 install --no-cache-dir --break-system-packages "yt-dlp==${YTDLP_VERSION}"
+RUN apk add --no-cache sqlite-libs ca-certificates python3 py3-pillow ffmpeg libwebp-tools
 
 WORKDIR /app
 

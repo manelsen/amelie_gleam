@@ -20,6 +20,7 @@ import portas/ia_porta.{type IAPorta}
 import portas/mensageiro_porta.{type MensageiroPorta}
 import portas/transacao_porta.{type TransacaoPorta}
 import shell/entrega_auditada
+import simplifile
 
 pub type FilaMidia =
   Subject(MensagemFila)
@@ -248,7 +249,7 @@ fn processar_video(
       }
       case ia.fazer_upload_video(caminho, mime) {
         Error(e) -> {
-          let _ = simplifile_delete(caminho)
+          let _ = simplifile.delete_file(caminho)
           Error(e)
         }
         Ok(uri) -> {
@@ -262,7 +263,7 @@ fn processar_video(
             Ok(resposta)
           }
           let _ = ia.deletar_arquivo(uri)
-          let _ = simplifile_delete(caminho)
+          let _ = simplifile.delete_file(caminho)
           use resposta <- result.try(processamento)
           logging.log(
             logging.Info,
@@ -412,8 +413,3 @@ fn strip_timestamps_ffi(texto: String) -> String
 
 @external(erlang, "amelie_gleam_ffi", "video_tem_audio")
 fn video_tem_audio(caminho: String) -> Bool
-
-@external(erlang, "file", "delete")
-fn simplifile_delete(path: String) -> Result(Nil, ErlFileError)
-
-type ErlFileError

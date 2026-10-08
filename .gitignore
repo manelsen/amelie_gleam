@@ -1,8 +1,7 @@
 # Gleam build output
 build/
 
-# Dependency lock (regenerado por gleam deps download)
-manifest.toml
+# manifest.toml é versionado para builds reproduzíveis da aplicação.
 
 # Banco de dados local
 *.sqlite
