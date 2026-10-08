@@ -163,6 +163,8 @@ var httpClient = &http.Client{
 
 type Bridge struct {
 	cfg                 Config
+	container           *sqlstore.Container
+	clientLog           waLog.Logger
 	client              *whatsmeow.Client
 	connectionMu        sync.RWMutex
 	lastConnectionError *APIError
@@ -196,6 +198,8 @@ func NewBridge(cfg Config) (*Bridge, error) {
 
 	b := &Bridge{
 		cfg:                 cfg,
+		container:           container,
+		clientLog:           clientLog,
 		client:              client,
 		pendingMediaRetries: make(map[string]mediaRetryPending),
 		mediaRetryAttempts:  make(map[string]int),
@@ -451,9 +455,6 @@ func (b *Bridge) currentConnectionError() *APIError {
 }
 
 func (b *Bridge) availabilityError() *APIError {
-	if b.client != nil && b.client.IsLoggedIn() {
-		return nil
-	}
 	if connectionError := b.currentConnectionError(); connectionError != nil {
 		return connectionError
 	}
@@ -469,10 +470,19 @@ func (b *Bridge) availabilityError() *APIError {
 			Message: "sessão WhatsApp ausente; novo pareamento necessário",
 		}
 	}
-	return &APIError{
-		Code:    "whatsapp_disconnected",
-		Message: "cliente WhatsApp desconectado ou ainda não autenticado",
+	if !b.client.IsConnected() {
+		return &APIError{
+			Code:    "whatsapp_disconnected",
+			Message: "cliente WhatsApp desconectado ou ainda não autenticado",
+		}
 	}
+	if !b.client.IsLoggedIn() {
+		return &APIError{
+			Code:    "whatsapp_unauthenticated",
+			Message: "cliente WhatsApp conectado mas não autenticado",
+		}
+	}
+	return nil
 }
 
 func (b *Bridge) processMessage(evt *events.Message) {
@@ -1732,7 +1742,7 @@ func (b *Bridge) handlePairPhone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if b.client.IsLoggedIn() {
+	if b.client != nil && b.client.IsConnected() && b.client.IsLoggedIn() {
 		writeJSON(w, http.StatusConflict, PairPhoneResponse{
 			OK:    false,
 			Error: "WhatsApp já está conectado e autenticado nesta sessão",
@@ -1826,10 +1836,19 @@ func (b *Bridge) handleResetSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *Bridge) deleteSessionStore() {
-	if b.client != nil && b.client.Store != nil {
-		if b.client.Store.Container != nil {
+	if b.client != nil {
+		if b.client.IsConnected() {
+			b.client.Disconnect()
+		}
+		if b.client.Store != nil && b.client.Store.Container != nil {
 			_ = b.client.Store.Delete(context.Background())
 		}
+	}
+	if b.container != nil {
+		newDevice := b.container.NewDevice()
+		b.client = whatsmeow.NewClient(newDevice, b.clientLog)
+		b.client.AddEventHandler(b.handleEvent)
+	} else if b.client != nil && b.client.Store != nil {
 		b.client.Store.ID = nil
 	}
 }
@@ -1903,13 +1922,19 @@ func (b *Bridge) notifyGleamEvent(payload map[string]interface{}) {
 		return
 	}
 	eventURL := strings.Replace(b.cfg.GleamURL, "/webhook", "/webhook/bridge-event", 1)
-	resp, err := httpClient.Post(eventURL, "application/json", bytes.NewReader(data))
-	if err != nil {
-		log.Printf("[Bridge] Falha ao notificar evento ao Gleam: %v\n", err)
-		return
-	}
-	defer resp.Body.Close()
-	log.Printf("[Bridge] Evento '%v' notificado ao Gleam com sucesso\n", payload["evento"])
+
+	go func() {
+		for attempt := 1; attempt <= 5; attempt++ {
+			resp, err := httpClient.Post(eventURL, "application/json", bytes.NewReader(data))
+			if err == nil {
+				_ = resp.Body.Close()
+				log.Printf("[Bridge] Evento '%v' notificado ao Gleam com sucesso\n", payload["evento"])
+				return
+			}
+			log.Printf("[Bridge] Falha ao notificar evento ao Gleam (tentativa %d/5): %v\n", attempt, err)
+			time.Sleep(1 * time.Second)
+		}
+	}()
 }
 
 func writeAPIError(w http.ResponseWriter, status int, apiError APIError) {

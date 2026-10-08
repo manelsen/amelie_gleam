@@ -16,7 +16,9 @@ import (
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"go.mau.fi/whatsmeow/store"
+	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types/events"
+	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -485,7 +487,7 @@ func TestHandlePairPhoneMethodNotAllowed(t *testing.T) {
 }
 
 func TestNotifyGleamEvent(t *testing.T) {
-	receivedEvent := ""
+	received := make(chan string, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/webhook/bridge-event" {
 			t.Errorf("path = %q, want /webhook/bridge-event", r.URL.Path)
@@ -493,7 +495,7 @@ func TestNotifyGleamEvent(t *testing.T) {
 		var payload map[string]interface{}
 		_ = json.NewDecoder(r.Body).Decode(&payload)
 		if evt, ok := payload["evento"].(string); ok {
-			receivedEvent = evt
+			received <- evt
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -510,8 +512,13 @@ func TestNotifyGleamEvent(t *testing.T) {
 		"phone":  "5531999990000",
 	})
 
-	if receivedEvent != "pairing_code" {
-		t.Fatalf("receivedEvent = %q, want pairing_code", receivedEvent)
+	select {
+	case evt := <-received:
+		if evt != "pairing_code" {
+			t.Fatalf("received = %q, want pairing_code", evt)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timeout esperando evento")
 	}
 }
 
@@ -541,6 +548,39 @@ func TestHandleResetSessionSuccess(t *testing.T) {
 	}
 	if !resp.OK || resp.Status != "session_reset_initiated" {
 		t.Fatalf("unexpected resp: %#v", resp)
+	}
+}
+
+func TestDeleteSessionStoreRecreatesDevice(t *testing.T) {
+	dbLog := waLog.Stdout("Database", "WARN", true)
+	container, err := sqlstore.New(context.Background(), "sqlite3", "file::memory:?_pragma=foreign_keys(1)", dbLog)
+	if err != nil {
+		t.Fatalf("new container: %v", err)
+	}
+	defer container.Close()
+
+	device, err := container.GetFirstDevice(context.Background())
+	if err != nil {
+		t.Fatalf("first device: %v", err)
+	}
+
+	clientLog := waLog.Stdout("Client", "INFO", true)
+	bridge := &Bridge{
+		container: container,
+		clientLog: clientLog,
+		client:    whatsmeow.NewClient(device, clientLog),
+	}
+
+	bridge.deleteSessionStore()
+
+	if bridge.client == nil || bridge.client.Store == nil {
+		t.Fatalf("client or store is nil after deleteSessionStore")
+	}
+	if bridge.client.Store.Deleted {
+		t.Fatalf("store is still marked deleted")
+	}
+	if bridge.client.Store.ID != nil {
+		t.Fatalf("store ID should be nil")
 	}
 }
 
