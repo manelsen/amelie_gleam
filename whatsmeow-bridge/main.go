@@ -302,7 +302,9 @@ func (b *Bridge) loginPairingCode() error {
 			log.Printf("[WhatsApp] Autenticação via Pairing Code realizada com sucesso!")
 			return nil
 		case "timeout":
-			return fmt.Errorf("pairing code expirou sem ser confirmado no celular — reinicie para gerar novo")
+			log.Printf("[WhatsApp] Pairing code expirou sem ser confirmado no celular. Aguardando nova solicitação via /parear...")
+			b.setConnectionError("pairing_timeout", "pairing code expirou sem confirmação no celular")
+			return nil
 		default:
 			log.Printf("[WhatsApp] Evento de autenticação: %s\n", evt.Event)
 		}
@@ -1964,11 +1966,6 @@ func main() {
 		log.Fatalf("Falha ao criar bridge: %v\n", err)
 	}
 
-	if err := bridge.Start(); err != nil {
-		log.Fatalf("Falha ao iniciar conexão WhatsApp: %v\n", err)
-	}
-	defer bridge.Stop()
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("/send", bridge.handleSend)
 	mux.HandleFunc("/react", bridge.handleReact)
@@ -1985,6 +1982,12 @@ func main() {
 		log.Printf("Bridge HTTP escutando na porta %s\n", cfg.Port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Servidor HTTP falhou: %v\n", err)
+		}
+	}()
+
+	go func() {
+		if err := bridge.Start(); err != nil {
+			log.Printf("[WhatsApp] Aviso na inicialização do WhatsApp: %v\n", err)
 		}
 	}()
 

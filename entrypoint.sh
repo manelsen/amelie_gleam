@@ -10,9 +10,14 @@ export GLEAM_URL="http://127.0.0.1:${GLEAM_PORT}/webhook"
 
 mkdir -p "$(dirname "$BRIDGE_DB_PATH")"
 
-echo "[amelie] Iniciando bridge (porta ${BRIDGE_PORT})..."
-/usr/local/bin/amelie-bridge &
-BRIDGE_PID=$!
+echo "[amelie] Iniciando supervisor do bridge (porta ${BRIDGE_PORT})..."
+(
+  while true; do
+    /usr/local/bin/amelie-bridge
+    echo "[amelie] Bridge terminou com código $?. Reiniciando em 2s..."
+    sleep 2
+  done
+) &
 
 echo "[amelie] Iniciando app (porta ${GLEAM_PORT})..."
 exec erl \
