@@ -185,6 +185,8 @@ pub fn main() {
       handle_request(
         req,
         portas,
+        conn,
+        bridge_url,
         telegram_secret_token,
         telegram_bot_token,
         telegram_admin_chat_id,
@@ -204,6 +206,8 @@ pub fn main() {
 fn handle_request(
   req: Request(Connection),
   portas: Portas,
+  conn: sqlight.Connection,
+  bridge_url: String,
   telegram_secret: String,
   telegram_bot_token: String,
   telegram_admin_chat_id: String,
@@ -214,9 +218,90 @@ fn handle_request(
       handle_telegram_webhook(req, portas, telegram_secret, telegram_bot_token)
     "/webhook/bridge-event" ->
       handle_bridge_event(req, telegram_bot_token, telegram_admin_chat_id)
-    "/health" -> json_response(200, "{\"status\":\"ok\"}")
+    "/health" -> handle_health(conn, bridge_url, telegram_bot_token)
     _ -> json_response(404, "{\"error\":\"not found\"}")
   }
+}
+
+pub fn handle_health(
+  conn: sqlight.Connection,
+  bridge_url: String,
+  telegram_bot_token: String,
+) -> response.Response(ResponseData) {
+  let #(sqlite_status, sqlite_ok) = case sqlight.exec("SELECT 1;", conn) {
+    Ok(_) -> #("ok", True)
+    Error(err) -> #(err.message, False)
+  }
+
+  let #(wa_status, wa_connected, wa_logged_in) = case
+    whatsmeow_http.checar_status(bridge_url)
+  {
+    Ok(whatsmeow_http.StatusBridge(conectado, logado)) -> {
+      let st = case logado {
+        True -> "ok"
+        False -> "unauthenticated"
+      }
+      #(st, conectado, logado)
+    }
+    Error(_) -> #("unreachable", False, False)
+  }
+
+  let telegram_enabled = telegram_bot_token != ""
+  let mem_total = metricas.memoria_total_mb()
+  let mem_proc = metricas.memoria_processos_mb()
+  let proc_count = metricas.contagem_processos()
+
+  let overall_status = case sqlite_ok {
+    False -> "error"
+    True ->
+      case wa_logged_in {
+        True -> "ok"
+        False -> "degraded"
+      }
+  }
+
+  let http_code = case sqlite_ok {
+    True -> 200
+    False -> 503
+  }
+
+  let body =
+    json.object([
+      #("status", json.string(overall_status)),
+      #(
+        "sqlite",
+        json.object([
+          #("status", json.string(sqlite_status)),
+          #("ok", json.bool(sqlite_ok)),
+        ]),
+      ),
+      #(
+        "whatsapp_bridge",
+        json.object([
+          #("status", json.string(wa_status)),
+          #("connected", json.bool(wa_connected)),
+          #("logged_in", json.bool(wa_logged_in)),
+        ]),
+      ),
+      #(
+        "telegram",
+        json.object([
+          #("status", json.string("ok")),
+          #("enabled", json.bool(telegram_enabled)),
+        ]),
+      ),
+      #(
+        "beam",
+        json.object([
+          #("memoria_total_mb", json.int(mem_total)),
+          #("memoria_processos_mb", json.int(mem_proc)),
+          #("contagem_processos", json.int(proc_count)),
+        ]),
+      ),
+    ])
+    |> json.to_string
+
+  json_response(http_code, body)
 }
 
 type BridgeEvento {

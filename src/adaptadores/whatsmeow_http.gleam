@@ -219,3 +219,27 @@ pub fn pedir_pairing_code(
     }
   }
 }
+
+pub fn resetar_sessao(base_url: String, phone: String) -> Result(Nil, String) {
+  let body = case phone {
+    "" -> "{}"
+    p ->
+      json.object([#("phone", json.string(p))])
+      |> json.to_string
+  }
+  let req =
+    request.to(base_url <> "/reset-session")
+    |> result.unwrap(request.new())
+    |> request.set_method(http.Post)
+    |> request.set_header("content-type", "application/json")
+    |> request.set_body(body)
+  case httpc.send(req) {
+    Error(err) -> Error(descrever_erro_transporte(err))
+    Ok(resp) -> {
+      case resp.status {
+        200 -> Ok(Nil)
+        status -> Error("status " <> int.to_string(status))
+      }
+    }
+  }
+}

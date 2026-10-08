@@ -26,12 +26,12 @@ pub fn validar_texto(body: String) -> Result(String, Erro) {
 
 const comandos_conhecidos = [
   "ajuda", "start", "reset", "audio", "imagem", "video", "doc", "legenda",
-  "longo", "curto", "cego", "modelo",
+  "longo", "curto", "cego", "modelo", "parear", "status", "reset_whatsapp",
 ]
 
 pub fn parsear_comando(body: String) -> Result(#(String, String), Erro) {
   case string.trim(body) {
-    "." <> rest -> {
+    "." <> rest | "/" <> rest -> {
       let rest = string.trim(rest)
       case string.split_once(rest, " ") {
         Ok(#(nome, args)) ->

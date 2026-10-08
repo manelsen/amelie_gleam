@@ -7,10 +7,10 @@ import core/processador
 import core/prompt/builder
 import dominio/acao.{
   AlterarModelo, AtivarPrompt, BaixarVideoUrlEDescrever, BuscarUrlEResponder,
-  ConsultarMetricas, EnfileirarMidia, EnviarReacao, EnviarResposta,
-  ExcluirPrompt, GerarEEnviar, LimparHistorico, ListarGrupos, ListarPrompts,
-  ListarUsuarios, MidiaVideo, NaoResponder, SalvarConfig, SalvarPrompt,
-  SnapshotHistorico, SolicitarPareamento,
+  ConsultarMetricas, ConsultarStatus, EnfileirarMidia, EnviarReacao,
+  EnviarResposta, ExcluirPrompt, GerarEEnviar, LimparHistorico, ListarGrupos,
+  ListarPrompts, ListarUsuarios, MidiaVideo, NaoResponder, ResetarWhatsApp,
+  SalvarConfig, SalvarPrompt, SnapshotHistorico, SolicitarPareamento,
 }
 import dominio/config
 import dominio/erro.{type Erro}
@@ -570,6 +570,126 @@ fn executar_acao(
                   }
                 }
               }
+            }
+          }
+        }
+      }
+    }
+
+    ConsultarStatus(chat_id) -> {
+      let admin_id =
+        get_env("TELEGRAM_ADMIN_CHAT_ID")
+        |> result.unwrap(or: "924255495")
+      let eh_admin =
+        msg.remetente == "tg:" <> admin_id || msg.chat_id == "tg:" <> admin_id
+      case eh_admin {
+        False -> {
+          let _ =
+            portas.mensageiro.enviar(
+              chat_id,
+              "⛔ Comando restrito ao administrador.",
+            )
+          Ok(Nil)
+        }
+        True -> {
+          let bridge_url =
+            get_env("WHATSMEOW_URL")
+            |> result.unwrap(or: "http://localhost:8080")
+          let status_wa = case whatsmeow_http.checar_status(bridge_url) {
+            Ok(whatsmeow_http.StatusBridge(_, True)) -> "🟢 Conectado"
+            Ok(whatsmeow_http.StatusBridge(_, False)) ->
+              "🟡 Desconectado (aguardando login)"
+            Error(_) -> "🔴 Inacessível"
+          }
+          let mem_total = metricas.memoria_total_mb()
+          let mem_proc = metricas.memoria_processos_mb()
+          let proc_count = metricas.contagem_processos()
+          let estado_metricas = metricas.consultar(portas.metricas)
+          let total_midias =
+            estado_metricas.imagens
+            + estado_metricas.audios
+            + estado_metricas.videos
+            + estado_metricas.documentos
+            + estado_metricas.stickers
+
+          let corpo =
+            "📊 *Painel Administrativo — Amélie*\n\n"
+            <> "*Canais de Mensageria:*\n"
+            <> "• *WhatsApp:* "
+            <> status_wa
+            <> "\n"
+            <> "• *Telegram:* 🟢 Ativo (Poller operacional)\n\n"
+            <> "*Métricas BEAM:*\n"
+            <> "• Memória total: `"
+            <> int.to_string(mem_total)
+            <> " MB`\n"
+            <> "• Memória processos: `"
+            <> int.to_string(mem_proc)
+            <> " MB`\n"
+            <> "• Processos OTP: `"
+            <> int.to_string(proc_count)
+            <> "`\n\n"
+            <> "*Mensagens & Mídia:*\n"
+            <> "• Mensagens processadas: `"
+            <> int.to_string(estado_metricas.mensagens)
+            <> "`\n"
+            <> "• Erros registrados: `"
+            <> int.to_string(estado_metricas.erros)
+            <> "`\n"
+            <> "• Mídias processadas: `"
+            <> int.to_string(total_midias)
+            <> "`"
+          let _ = portas.mensageiro.enviar(chat_id, corpo)
+          Ok(Nil)
+        }
+      }
+    }
+
+    ResetarWhatsApp(chat_id, args) -> {
+      let admin_id =
+        get_env("TELEGRAM_ADMIN_CHAT_ID")
+        |> result.unwrap(or: "924255495")
+      let eh_admin =
+        msg.remetente == "tg:" <> admin_id || msg.chat_id == "tg:" <> admin_id
+      case eh_admin {
+        False -> {
+          let _ =
+            portas.mensageiro.enviar(
+              chat_id,
+              "⛔ Comando restrito ao administrador.",
+            )
+          Ok(Nil)
+        }
+        True -> {
+          let bridge_url =
+            get_env("WHATSMEOW_URL")
+            |> result.unwrap(or: "http://localhost:8080")
+          let tel = case string.trim(args) {
+            "" ->
+              get_env("MOBILE_NUMBER")
+              |> result.unwrap(or: "")
+            outro -> outro
+          }
+          case whatsmeow_http.resetar_sessao(bridge_url, tel) {
+            Ok(Nil) -> {
+              let msg_ret = case tel {
+                "" ->
+                  "🔄 *Reset do WhatsApp iniciado!*\n\nSessão anterior desconectada e dados locais limpos.\nPara parear um novo celular, execute: `/parear <telefone>`"
+                num ->
+                  "🔄 *Reset do WhatsApp iniciado!*\n\nSessão anterior desconectada e dados locais limpos para o número `+"
+                  <> num
+                  <> "`.\nUm novo código de pareamento será enviado aqui em instantes."
+              }
+              let _ = portas.mensageiro.enviar(chat_id, msg_ret)
+              Ok(Nil)
+            }
+            Error(motivo) -> {
+              let _ =
+                portas.mensageiro.enviar(
+                  chat_id,
+                  "❌ Falha ao solicitar reset do WhatsApp: " <> motivo,
+                )
+              Ok(Nil)
             }
           }
         }

@@ -515,3 +515,32 @@ func TestNotifyGleamEvent(t *testing.T) {
 	}
 }
 
+func TestHandleResetSessionMethodNotAllowed(t *testing.T) {
+	bridge := &Bridge{}
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/reset-session", nil)
+	bridge.handleResetSession(recorder, req)
+
+	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestHandleResetSessionSuccess(t *testing.T) {
+	bridge := bridgeWithoutSession()
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/reset-session", strings.NewReader(`{"phone":"5531999990000"}`))
+	bridge.handleResetSession(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	var resp ResetSessionResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !resp.OK || resp.Status != "session_reset_initiated" {
+		t.Fatalf("unexpected resp: %#v", resp)
+	}
+}
+

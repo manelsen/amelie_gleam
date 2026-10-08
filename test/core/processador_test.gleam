@@ -1,7 +1,8 @@
 import core/processador
 import dominio/acao.{
-  BaixarVideoUrlEDescrever, BuscarUrlEResponder, EnfileirarMidia, EnviarResposta,
-  GerarEEnviar, MidiaAudio, MidiaImagem, MidiaSticker, MidiaVideo, NaoResponder,
+  BaixarVideoUrlEDescrever, BuscarUrlEResponder, ConsultarStatus,
+  EnfileirarMidia, EnviarResposta, GerarEEnviar, MidiaAudio, MidiaImagem,
+  MidiaSticker, MidiaVideo, NaoResponder, ResetarWhatsApp,
 }
 import dominio/erro
 import dominio/mensagem
@@ -269,4 +270,23 @@ pub fn processar_grupo_comando_sem_mencao_passa_test() {
   let result = processador.processar(msg, cfg, [])
   result |> should.be_ok
   let assert Ok([acao.EnviarResposta(_, _)]) = result
+}
+
+pub fn processar_comando_status_test() {
+  let msg = fixtures.mensagem_texto("/status")
+  let cfg = fixtures.config_padrao()
+  let result = processador.processar(msg, cfg, [])
+  result |> should.be_ok
+  let assert Ok([ConsultarStatus(chat_id)]) = result
+  chat_id |> should.equal(cfg.chat_id)
+}
+
+pub fn processar_comando_reset_whatsapp_test() {
+  let msg = fixtures.mensagem_texto("/reset_whatsapp 5531999990000")
+  let cfg = fixtures.config_padrao()
+  let result = processador.processar(msg, cfg, [])
+  result |> should.be_ok
+  let assert Ok([ResetarWhatsApp(chat_id, args)]) = result
+  chat_id |> should.equal(cfg.chat_id)
+  args |> should.equal("5531999990000")
 }

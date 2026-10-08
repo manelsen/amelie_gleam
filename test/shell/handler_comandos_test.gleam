@@ -240,3 +240,134 @@ pub fn parear_bloqueado_para_nao_admin_test() {
   chat_id |> should.equal("tg:111222")
   string.contains(texto, "restrito ao administrador") |> should.be_true
 }
+
+pub fn status_bloqueado_para_nao_admin_test() {
+  let ref_envio = process.new_subject()
+  let portas =
+    Portas(
+      mensageiro: portas_fake.mensageiro_capturar(ref_envio),
+      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      config: portas_fake.config_ok(
+        config.Config(..fixtures.config_padrao(), chat_id: "tg:111222"),
+      ),
+      historico: portas_fake.historico_vazio(),
+      fila: fila(),
+      prompts: portas_fake.prompt_noop(),
+      metricas: met(),
+      usuarios: portas_fake.usuario_noop(),
+      grupos: portas_fake.grupo_noop(),
+      transacoes: portas_fake.transacao_noop(),
+      providers_config: portas_fake.providers_config_ok(),
+    )
+  let msg =
+    mensagem.Mensagem(
+      ..fixtures.mensagem_comando("status", ""),
+      chat_id: "tg:111222",
+      remetente: "tg:111222",
+    )
+  handler_mensagem.handle(msg, portas) |> should.be_ok
+
+  let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 1000)
+  chat_id |> should.equal("tg:111222")
+  string.contains(texto, "restrito ao administrador") |> should.be_true
+}
+
+pub fn status_permitido_para_admin_test() {
+  let ref_envio = process.new_subject()
+  let portas =
+    Portas(
+      mensageiro: portas_fake.mensageiro_capturar(ref_envio),
+      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      config: portas_fake.config_ok(
+        config.Config(..fixtures.config_padrao(), chat_id: "tg:924255495"),
+      ),
+      historico: portas_fake.historico_vazio(),
+      fila: fila(),
+      prompts: portas_fake.prompt_noop(),
+      metricas: met(),
+      usuarios: portas_fake.usuario_noop(),
+      grupos: portas_fake.grupo_noop(),
+      transacoes: portas_fake.transacao_noop(),
+      providers_config: portas_fake.providers_config_ok(),
+    )
+  let msg =
+    mensagem.Mensagem(
+      ..fixtures.mensagem_comando("status", ""),
+      chat_id: "tg:924255495",
+      remetente: "tg:924255495",
+    )
+  handler_mensagem.handle(msg, portas) |> should.be_ok
+
+  let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 1000)
+  chat_id |> should.equal("tg:924255495")
+  string.contains(texto, "Painel Administrativo") |> should.be_true
+  string.contains(texto, "BEAM") |> should.be_true
+}
+
+pub fn reset_whatsapp_bloqueado_para_nao_admin_test() {
+  let ref_envio = process.new_subject()
+  let portas =
+    Portas(
+      mensageiro: portas_fake.mensageiro_capturar(ref_envio),
+      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      config: portas_fake.config_ok(
+        config.Config(..fixtures.config_padrao(), chat_id: "tg:111222"),
+      ),
+      historico: portas_fake.historico_vazio(),
+      fila: fila(),
+      prompts: portas_fake.prompt_noop(),
+      metricas: met(),
+      usuarios: portas_fake.usuario_noop(),
+      grupos: portas_fake.grupo_noop(),
+      transacoes: portas_fake.transacao_noop(),
+      providers_config: portas_fake.providers_config_ok(),
+    )
+  let msg =
+    mensagem.Mensagem(
+      ..fixtures.mensagem_comando("reset_whatsapp", ""),
+      chat_id: "tg:111222",
+      remetente: "tg:111222",
+    )
+  handler_mensagem.handle(msg, portas) |> should.be_ok
+
+  let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 1000)
+  chat_id |> should.equal("tg:111222")
+  string.contains(texto, "restrito ao administrador") |> should.be_true
+}
+
+pub fn reset_whatsapp_permitido_para_admin_test() {
+  let ref_envio = process.new_subject()
+  let portas =
+    Portas(
+      mensageiro: portas_fake.mensageiro_capturar(ref_envio),
+      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      config: portas_fake.config_ok(
+        config.Config(..fixtures.config_padrao(), chat_id: "tg:924255495"),
+      ),
+      historico: portas_fake.historico_vazio(),
+      fila: fila(),
+      prompts: portas_fake.prompt_noop(),
+      metricas: met(),
+      usuarios: portas_fake.usuario_noop(),
+      grupos: portas_fake.grupo_noop(),
+      transacoes: portas_fake.transacao_noop(),
+      providers_config: portas_fake.providers_config_ok(),
+    )
+  let msg =
+    mensagem.Mensagem(
+      ..fixtures.mensagem_comando("reset_whatsapp", "5531999990000"),
+      chat_id: "tg:924255495",
+      remetente: "tg:924255495",
+    )
+  handler_mensagem.handle(msg, portas) |> should.be_ok
+
+  let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 1000)
+  chat_id |> should.equal("tg:924255495")
+  // Como o bridge local não está rodando nesta porta nos testes unitários,
+  // ou responde que falhou a conexão ou responde iniciado
+  {
+    string.contains(texto, "Reset do WhatsApp iniciado")
+    || string.contains(texto, "Falha ao solicitar reset")
+  }
+  |> should.be_true
+}

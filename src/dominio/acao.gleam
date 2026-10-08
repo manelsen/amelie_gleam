@@ -29,6 +29,8 @@ pub type Acao {
   SnapshotHistorico(chat_id: String)
   // Administração / WhatsApp bridge
   SolicitarPareamento(chat_id: String, args: String)
+  ConsultarStatus(chat_id: String)
+  ResetarWhatsApp(chat_id: String, args: String)
   NaoResponder
 }
 

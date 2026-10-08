@@ -1756,6 +1756,75 @@ func (b *Bridge) handlePairPhone(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type ResetSessionRequest struct {
+	Phone string `json:"phone,omitempty"`
+}
+
+type ResetSessionResponse struct {
+	OK     bool   `json:"ok"`
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+}
+
+func (b *Bridge) handleResetSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, ErrorResponse{
+			OK: false,
+			APIError: APIError{
+				Code:    "method_not_allowed",
+				Message: "método não permitido; use POST",
+			},
+		})
+		return
+	}
+
+	phone := ""
+	if r.Body != nil {
+		var req ResetSessionRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		phone = req.Phone
+	}
+	if phone == "" {
+		phone = r.URL.Query().Get("phone")
+	}
+	if phone == "" {
+		phone = b.cfg.BotPhone
+	}
+	if phone == "" && b.client != nil && b.client.Store != nil && b.client.Store.ID != nil {
+		phone = b.client.Store.ID.User
+	}
+	phone = cleanPhoneNumber(phone)
+
+	log.Printf("[WhatsApp] Reset de sessão solicitado. Desconectando e limpando dados...")
+	if b.client != nil && b.client.IsConnected() {
+		b.client.Disconnect()
+	}
+	b.setConnectionError("session_reset", "sessão reiniciada manualmente pelo administrador")
+	b.deleteSessionStore()
+
+	if phone != "" {
+		go func(targetPhone string) {
+			time.Sleep(2 * time.Second)
+			log.Printf("[WhatsApp] Gerando novo pairing code pós-reset para %s...\n", targetPhone)
+			code, err := b.requestPairingCode(targetPhone)
+			if err != nil {
+				log.Printf("[WhatsApp] Erro ao gerar pairing code pós-reset: %v\n", err)
+				b.notifyGleamEvent(map[string]interface{}{
+					"evento": "whatsapp_down",
+					"motivo": fmt.Sprintf("Reset executado. Falha ao gerar pairing code: %v", err),
+				})
+			} else {
+				log.Printf("[WhatsApp] Novo pairing code pós-reset gerado com sucesso: %s\n", code)
+			}
+		}(phone)
+	}
+
+	writeJSON(w, http.StatusOK, ResetSessionResponse{
+		OK:     true,
+		Status: "session_reset_initiated",
+	})
+}
+
 func (b *Bridge) deleteSessionStore() {
 	if b.client != nil && b.client.Store != nil {
 		if b.client.Store.Container != nil {
@@ -1880,6 +1949,7 @@ func main() {
 	mux.HandleFunc("/react", bridge.handleReact)
 	mux.HandleFunc("/health", bridge.handleHealth)
 	mux.HandleFunc("/pair-phone", bridge.handlePairPhone)
+	mux.HandleFunc("/reset-session", bridge.handleResetSession)
 
 	server := &http.Server{
 		Addr:    ":" + cfg.Port,

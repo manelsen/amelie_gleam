@@ -1,8 +1,8 @@
 // Despacha comandos. Puro — retorna Acao, não executa efeitos.
 
 import dominio/acao.{
-  type Acao, AlterarModelo, EnviarResposta, LimparHistorico, SalvarConfig,
-  SolicitarPareamento,
+  type Acao, AlterarModelo, ConsultarStatus, EnviarResposta, LimparHistorico,
+  ResetarWhatsApp, SalvarConfig, SolicitarPareamento,
 }
 import dominio/config.{type Config, Config, Curto, Longo}
 import dominio/erro.{type Erro}
@@ -28,6 +28,9 @@ pub fn executar(
     "modelo" -> Ok(modelo_cmd(args, config))
     "parear" | "pair" | "whatsapp" ->
       Ok([SolicitarPareamento(config.chat_id, args)])
+    "status" -> Ok([ConsultarStatus(config.chat_id)])
+    "reset_whatsapp" | "reset-whatsapp" ->
+      Ok([ResetarWhatsApp(config.chat_id, args)])
     outro -> Error(erro.ErroComandoDesconhecido(outro))
   }
 }
@@ -47,7 +50,9 @@ fn ajuda(cfg: Config) -> List(Acao) {
     <> "`.cego` — modo acessibilidade para deficientes visuais\n"
     <> "`.modelo` — mostrar provedor/modelo atual\n"
     <> "`.modelo provedor/modelo` — alterar provedor e modelo\n"
-    <> "`.parear` — status ou pareamento do WhatsApp (admin)"
+    <> "`.parear` — status ou pareamento do WhatsApp (admin)\n"
+    <> "`.status` — painel de status e métricas do sistema (admin)\n"
+    <> "`.reset_whatsapp` — resetar sessão do WhatsApp (admin)"
   [EnviarResposta(para: cfg.chat_id, corpo: texto)]
 }
 
