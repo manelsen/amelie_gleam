@@ -1,6 +1,7 @@
 // Fila de mídia — executa processamento assíncrono de imagem, áudio, vídeo e documento.
 // Shell: tem side effects (chama IA, envia mensagens).
 
+import core/acessibilidade
 import core/prompt/builder
 import dominio/acao.{
   type TipoMidia, MidiaAudio, MidiaDocumento, MidiaImagem, MidiaSticker,
@@ -366,13 +367,14 @@ fn entregar(
   mensageiro: MensageiroPorta,
   transacoes: TransacaoPorta,
 ) -> Result(Nil, Erro) {
+  let resposta_sanitizada = acessibilidade.sanitizar_saida_voz(resposta)
   case msg.message_id {
     option.Some(mid) ->
       entrega_auditada.enviar_citando(
         chat_id,
         "amelie",
         tipo,
-        resposta,
+        resposta_sanitizada,
         mid,
         msg.remetente,
         mensageiro,
@@ -383,7 +385,7 @@ fn entregar(
         chat_id,
         "amelie",
         tipo,
-        resposta,
+        resposta_sanitizada,
         mensageiro,
         transacoes,
       )

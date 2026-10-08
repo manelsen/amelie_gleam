@@ -371,3 +371,53 @@ pub fn reset_whatsapp_permitido_para_admin_test() {
   }
   |> should.be_true
 }
+
+pub fn resumo_historico_curto_avisa_usuario_test() {
+  let ref_envio = process.new_subject()
+  let portas =
+    Portas(
+      mensageiro: portas_fake.mensageiro_capturar(ref_envio),
+      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      config: portas_fake.config_ok(fixtures.config_padrao()),
+      historico: portas_fake.historico_vazio(),
+      fila: fila(),
+      prompts: portas_fake.prompt_noop(),
+      metricas: met(),
+      usuarios: portas_fake.usuario_noop(),
+      grupos: portas_fake.grupo_noop(),
+      transacoes: portas_fake.transacao_noop(),
+      providers_config: portas_fake.providers_config_ok(),
+    )
+  let msg = fixtures.mensagem_comando("resumo", "")
+  handler_mensagem.handle(msg, portas) |> should.be_ok
+
+  let assert Ok(#(_chat_id, texto)) = process.receive(ref_envio, 1000)
+  string.contains(texto, "Ainda não há mensagens suficientes") |> should.be_true
+}
+
+pub fn resumo_historico_com_turnos_gera_resumo_test() {
+  let ref_envio = process.new_subject()
+  let portas =
+    Portas(
+      mensageiro: portas_fake.mensageiro_capturar(ref_envio),
+      ia_dispatcher: portas_fake.ia_dispatcher_ok(
+        "Discussão sobre tarefas e decisões.",
+      ),
+      config: portas_fake.config_ok(fixtures.config_padrao()),
+      historico: portas_fake.historico_com(fixtures.historico_com_turnos()),
+      fila: fila(),
+      prompts: portas_fake.prompt_noop(),
+      metricas: met(),
+      usuarios: portas_fake.usuario_noop(),
+      grupos: portas_fake.grupo_noop(),
+      transacoes: portas_fake.transacao_noop(),
+      providers_config: portas_fake.providers_config_ok(),
+    )
+  let msg = fixtures.mensagem_comando("resumo", "")
+  handler_mensagem.handle(msg, portas) |> should.be_ok
+
+  let assert Ok(#(_chat_id, texto)) = process.receive(ref_envio, 1000)
+  string.contains(texto, "Resumo da conversa:") |> should.be_true
+  string.contains(texto, "Discussão sobre tarefas e decisões.")
+  |> should.be_true
+}

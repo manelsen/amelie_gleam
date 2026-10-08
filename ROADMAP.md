@@ -86,9 +86,10 @@ de integração entre os processos Gleam e Go.
 
 ## Validação atual
 
-- 161 testes Gleam passando (`gleam test`).
+- 175 testes Gleam passando (`gleam test`).
 - Testes unitários, race detector, `go vet` e build do bridge Go passando (`go test ./...`).
 - Testes de regressão cobrindo Circuit Breaker (estados Fechado/Aberto e contenção única em SemiAberto), classificação e descarte seletivo da fila offline, Telegram (decodificação, mídias, mídias mudas, chat actions, RBAC), comandos de administração, healthcheck consolidado, HistorySync e filas OTP.
+- Cobertura de acessibilidade e síntese de voz (TTS): scraper de artigos limpo, sanitização de saídas textuais, audiodescrição estruturada de documentos/boletos/contas/contratos e compactação inteligente de histórico com `.resumo`.
 
 ## Próximas prioridades
 
@@ -135,13 +136,15 @@ de integração entre os processos Gleam e Go.
   - [x] Indicadores de presença em tempo real via Telegram Bot API (`sendChatAction` com `typing`, `upload_photo`, `upload_voice`, `upload_video`, `upload_document`, `choose_sticker`).
   - [x] Rejeição categórica de qualquer mídia, documento ou figurinha recebido em grupos do Telegram.
 
-### P3 — Evolução de produto
+### P3 — Acessibilidade e evolução de produto
 
+- [x] **Acessibilidade para Leitores de Tela / TTS:**
+  - Extração limpa de artigos e páginas com remoção de scripts, styles, headers, footers e navegações em `url_scraper`.
+  - Sanitização de texto com remoção de poluição visual (linhas de traços repetidos, divisores, suavização de tabelas com pipes, colapso de sequências de emojis) em `acessibilidade`.
+  - Análise estruturada de documentos e PDFs (foco prioritário em contas, faturas, boletos, código de barras/PIX copia-e-cola e contratos).
+  - Compactação inteligente de histórico e comando `.resumo` / `/resumo` preservando contexto essencial.
 - [ ] Decidir se a seleção de modelos antigos/OpenRouter continuará exposta por
   chat ou se produção ficará restrita ao `gemini-3.8-flash`.
-- [ ] Evoluir o scraper de URLs para extração de conteúdo mais robusta e segura.
-- [ ] Expor os prompts nomeados já persistidos ou remover a infraestrutura que não
-  fizer parte do produto.
 - [ ] Adicionar plugins/ferramentas com permissões e limites explícitos.
 - [ ] Avaliar modelos locais via Ollama depois de estabilizar observabilidade e
   operação multi-canal.

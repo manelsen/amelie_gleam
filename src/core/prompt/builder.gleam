@@ -46,8 +46,12 @@ fn prompt_padrao(config: Config) -> String {
   <> "Responda em "
   <> config.idioma
   <> ". "
-  <> "Seja direta e útil. "
-  <> "Você consegue processar e descrever imagens, áudios, vídeos e documentos enviados diretamente na conversa."
+  <> "Seja direta, útil e empática. "
+  <> "Você consegue processar e descrever imagens, áudios, vídeos e documentos enviados diretamente na conversa. "
+  <> "DIRETRIZ DE ACESSIBILIDADE E VOZ: Suas respostas são frequentemente ouvidas por sintetizadores de voz e leitores de tela (TTS). "
+  <> "Evite caracteres decorativos repetidos (como sequências de traços, asteriscos ou divisores visuais). "
+  <> "Não construa tabelas complexas com barras verticais (|); prefira listas com marcadores simples ou texto corrido. "
+  <> "Evite sequências excessivas de emojis."
 }
 
 fn montar_historico(turnos: List(Turno), max: Int) -> String {
@@ -192,11 +196,26 @@ pub fn montar_para_legenda(config: Config) -> String {
 }
 
 pub fn montar_para_documento(config: Config, legenda: Option(String)) -> String {
-  let base = case config.prompt_sistema {
-    Some(p) -> p <> "\n\nAnalise e resuma este documento."
-    None -> "Analise e resuma este documento em " <> config.idioma <> "."
+  let contexto = case config.prompt_sistema {
+    Some(p) -> p <> "\n\n"
+    None -> ""
   }
-  base
+  contexto
+  <> "Analise e descreva detalhadamente este documento em "
+  <> config.idioma
+  <> ". REGRAS DE ACESSIBILIDADE E ESTRUTURA:"
+  <> "\n- Identifique claramente a natureza do documento (boleto bancário, conta de água/luz/energia/telefone, fatura de cartão, comprovante, contrato, relatório, etc.)."
+  <> "\n- Se for conta, boleto ou cobrança, destaque com clareza:"
+  <> "\n  1. Emissor ou Beneficiário (quem recebe);"
+  <> "\n  2. Valor total a pagar;"
+  <> "\n  3. Data de vencimento;"
+  <> "\n  4. Linha digitável do código de barras (transcreva todos os números sem omitir dígitos) ou código/chave PIX copia-e-cola se presente;"
+  <> "\n  5. Pagador ou titular identificado."
+  <> "\n- Se for contrato ou documento jurídico/administrativo, resuma:"
+  <> "\n  1. As partes envolvidas;"
+  <> "\n  2. O objetivo principal do contrato;"
+  <> "\n  3. Prazos, vigência, valores e cláusulas essenciais."
+  <> "\n- Apresente as informações de forma limpa, direta e sequencial, acessível para leitura por sintetizador de voz (sem tabelas ASCII com pipes '|')."
   <> sufixo_modo(config)
   <> sufixo_legenda(legenda)
   <> sem_introducao()
