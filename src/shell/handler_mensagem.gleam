@@ -2,6 +2,7 @@
 // Este módulo tem side effects: chama portas, grava histórico.
 
 import adaptadores/whatsmeow_http
+import core/acessibilidade
 import core/ia_dispatcher
 import core/processador
 import core/prompt/builder
@@ -204,11 +205,12 @@ fn executar_acao(
         cfg.provedor,
         cfg.modelo,
       ))
+      let resposta_limpa = acessibilidade.sanitizar_saida_voz(resposta)
       use _ <- result.try(entregar(
         para,
         "amelie",
         "ia_texto",
-        resposta,
+        resposta_limpa,
         msg,
         portas,
       ))
@@ -216,7 +218,7 @@ fn executar_acao(
         msg.chat_id,
         TurnoUsuario(extrair_texto_usuario(msg)),
       ))
-      portas.historico.adicionar(msg.chat_id, TurnoAssistente(resposta))
+      portas.historico.adicionar(msg.chat_id, TurnoAssistente(resposta_limpa))
     }
 
     BuscarUrlEResponder(para, texto, url) -> {
@@ -231,11 +233,12 @@ fn executar_acao(
         cfg.provedor,
         cfg.modelo,
       ))
+      let resposta_limpa = acessibilidade.sanitizar_saida_voz(resposta)
       use _ <- result.try(entregar(
         para,
         "amelie",
         "ia_texto",
-        resposta,
+        resposta_limpa,
         msg,
         portas,
       ))
@@ -243,7 +246,7 @@ fn executar_acao(
         msg.chat_id,
         TurnoUsuario(extrair_texto_usuario(msg)),
       ))
-      portas.historico.adicionar(msg.chat_id, TurnoAssistente(resposta))
+      portas.historico.adicionar(msg.chat_id, TurnoAssistente(resposta_limpa))
     }
 
     EnviarResposta(para, corpo) -> {
@@ -382,55 +385,61 @@ fn executar_acao(
     SnapshotHistorico(chat_id) -> {
       logging.log(
         logging.Info,
-        "Fazendo snapshot do histórico do chat " <> chat_id,
+        "Fazendo snapshot e resumo do histórico do chat " <> chat_id,
       )
       use hist <- result.try(portas.historico.obter(chat_id))
 
-      case list.length(hist) > 50 {
+      case list.length(hist) < 2 {
         True -> {
+          entrega_auditada.enviar(
+            chat_id,
+            "amelie",
+            "texto",
+            "Ainda não há mensagens suficientes no histórico para gerar um resumo.",
+            portas.mensageiro,
+            portas.transacoes,
+          )
+        }
+        False -> {
           let prompt =
-            "Resuma esta conversa de forma concisa, mantendo os pontos importantes:"
+            "Resuma esta conversa de forma concisa e acessível, destacando os pontos principais, decisões e tópicos discutidos:\n\n"
           let historia_texto =
             hist
             |> list.map(fn(t) {
               case t {
                 TurnoUsuario(c) -> "Usuário: " <> c
-                TurnoAssistente(c) -> "Assistente: " <> c
+                TurnoAssistente(c) -> "Amélie: " <> c
               }
             })
             |> string.join("\n")
 
           use resumo <- result.try(ia_dispatcher.gerar_texto(
             portas.ia_dispatcher,
-            prompt <> "\n\n" <> historia_texto,
+            prompt <> historia_texto,
             [],
-            "gemini",
-            "gemini-3.8-flash",
+            cfg.provedor,
+            cfg.modelo,
           ))
 
-          use _ <- result.try(portas.historico.limpar(chat_id))
-          use _ <- result.try(portas.historico.adicionar(
-            chat_id,
-            TurnoUsuario(resumo),
-          ))
+          let resumo_limpo = acessibilidade.sanitizar_saida_voz(resumo)
+
+          // Compacta no banco se houver 10 ou mais turnos acumulados
+          use _ <- result.try(case list.length(hist) >= 10 {
+            True -> {
+              use _ <- result.try(portas.historico.limpar(chat_id))
+              portas.historico.adicionar(
+                chat_id,
+                TurnoUsuario("Contexto anterior resumido: " <> resumo_limpo),
+              )
+            }
+            False -> Ok(Nil)
+          })
 
           entrega_auditada.enviar(
             chat_id,
             "amelie",
             "texto",
-            "🗃️ Histórico compactado com sucesso!",
-            portas.mensageiro,
-            portas.transacoes,
-          )
-        }
-        False -> {
-          entrega_auditada.enviar(
-            chat_id,
-            "amelie",
-            "texto",
-            "📊 Histórico não precisa de compactação ("
-              <> int.to_string(list.length(hist))
-              <> " mensagens).",
+            "📝 *Resumo da conversa:*\n\n" <> resumo_limpo,
             portas.mensageiro,
             portas.transacoes,
           )
@@ -734,13 +743,14 @@ fn entregar(
   msg: Mensagem,
   portas: Portas,
 ) -> Result(Nil, Erro) {
+  let conteudo_sanitizado = acessibilidade.sanitizar_saida_voz(conteudo)
   case msg.message_id {
     option.Some(mid) ->
       entrega_auditada.enviar_citando(
         para,
         remetente,
         tipo,
-        conteudo,
+        conteudo_sanitizado,
         mid,
         msg.remetente,
         portas.mensageiro,
@@ -751,7 +761,7 @@ fn entregar(
         para,
         remetente,
         tipo,
-        conteudo,
+        conteudo_sanitizado,
         portas.mensageiro,
         portas.transacoes,
       )

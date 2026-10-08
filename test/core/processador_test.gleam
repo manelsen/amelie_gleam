@@ -2,7 +2,7 @@ import core/processador
 import dominio/acao.{
   BaixarVideoUrlEDescrever, BuscarUrlEResponder, ConsultarStatus,
   EnfileirarMidia, EnviarResposta, GerarEEnviar, MidiaAudio, MidiaImagem,
-  MidiaSticker, MidiaVideo, NaoResponder, ResetarWhatsApp,
+  MidiaSticker, MidiaVideo, NaoResponder, ResetarWhatsApp, SnapshotHistorico,
 }
 import dominio/erro
 import dominio/mensagem
@@ -289,4 +289,22 @@ pub fn processar_comando_reset_whatsapp_test() {
   let assert Ok([ResetarWhatsApp(chat_id, args)]) = result
   chat_id |> should.equal(cfg.chat_id)
   args |> should.equal("5531999990000")
+}
+
+pub fn processar_comando_resumo_ponto_test() {
+  let msg = fixtures.mensagem_texto(".resumo")
+  let cfg = fixtures.config_padrao()
+  let result = processador.processar(msg, cfg, [])
+  result |> should.be_ok
+  let assert Ok([SnapshotHistorico(chat_id)]) = result
+  chat_id |> should.equal(cfg.chat_id)
+}
+
+pub fn processar_comando_resumo_barra_test() {
+  let msg = fixtures.mensagem_texto("/resumo")
+  let cfg = fixtures.config_padrao()
+  let result = processador.processar(msg, cfg, [])
+  result |> should.be_ok
+  let assert Ok([SnapshotHistorico(chat_id)]) = result
+  chat_id |> should.equal(cfg.chat_id)
 }

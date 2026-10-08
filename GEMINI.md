@@ -35,6 +35,7 @@ src/
 │   │   └── dispatcher.gleam
 │   ├── prompt/
 │   │   └── builder.gleam
+│   ├── acessibilidade.gleam
 │   ├── ia_dispatcher.gleam
 │   ├── processador.gleam
 │   └── validacao.gleam
@@ -79,7 +80,7 @@ test/                 # Test suite (mirrors src/ structure)
 ### Commands
 
 - **Build:** `gleam build`
-- **Test:** `gleam test` (161 tests passing)
+- **Test:** `gleam test` (175 tests passing)
 - **Bridge Tests:** `cd whatsmeow-bridge && go test -count=1 ./...`
 - **Run (Local):**
   ```bash

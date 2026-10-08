@@ -27,6 +27,7 @@ pub fn validar_texto(body: String) -> Result(String, Erro) {
 const comandos_conhecidos = [
   "ajuda", "start", "reset", "audio", "imagem", "video", "doc", "legenda",
   "longo", "curto", "cego", "modelo", "parear", "status", "reset_whatsapp",
+  "resumo", "snapshot", "compactar",
 ]
 
 pub fn parsear_comando(body: String) -> Result(#(String, String), Erro) {

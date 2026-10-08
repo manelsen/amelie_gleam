@@ -2,7 +2,7 @@
 
 import dominio/acao.{
   type Acao, AlterarModelo, ConsultarStatus, EnviarResposta, LimparHistorico,
-  ResetarWhatsApp, SalvarConfig, SolicitarPareamento,
+  ResetarWhatsApp, SalvarConfig, SnapshotHistorico, SolicitarPareamento,
 }
 import dominio/config.{type Config, Config, Curto, Longo}
 import dominio/erro.{type Erro}
@@ -17,6 +17,8 @@ pub fn executar(
   case nome {
     "ajuda" | "start" -> Ok(ajuda(config))
     "reset" -> Ok(reset(config))
+    "resumo" | "snapshot" | "compactar" ->
+      Ok([SnapshotHistorico(config.chat_id)])
     "audio" -> toggle("audio", args, config)
     "imagem" -> toggle("imagem", args, config)
     "video" -> toggle("video", args, config)
@@ -39,6 +41,7 @@ fn ajuda(cfg: Config) -> List(Acao) {
   let texto =
     "*Amélie — Comandos disponíveis*\n\n"
     <> "`.ajuda` — esta mensagem\n"
+    <> "`.resumo` — resumir a conversa e compactar histórico\n"
     <> "`.reset` — resetar histórico e configurações\n"
     <> "`.audio` — alternar transcrição de áudio\n"
     <> "`.imagem` — alternar análise de imagem\n"

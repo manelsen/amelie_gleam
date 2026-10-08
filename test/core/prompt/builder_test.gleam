@@ -168,3 +168,22 @@ pub fn montar_historico_respeita_max_test() {
   let prompt = builder.montar("atual", fixtures.config_padrao(), muitos_turnos)
   string.contains(prompt, "pergunta 1\n") |> should.be_false
 }
+
+pub fn montar_inclui_diretrizes_de_voz_test() {
+  let cfg = fixtures.config_padrao()
+  let prompt = builder.montar("olá", cfg, [])
+  string.contains(prompt, "sintetizadores de voz") |> should.be_true
+  string.contains(prompt, "barras verticais") |> should.be_true
+}
+
+pub fn montar_para_documento_inclui_regras_acessibilidade_e_financeiras_test() {
+  let cfg = fixtures.config_padrao()
+  let prompt = builder.montar_para_documento(cfg, None)
+  string.contains(prompt, "boleto bancário") |> should.be_true
+  string.contains(prompt, "vencimento") |> should.be_true
+  string.contains(prompt, "código de barras") |> should.be_true
+  string.contains(prompt, "PIX") |> should.be_true
+  string.contains(prompt, "sintetizador de voz") |> should.be_true
+  string.contains(prompt, "Descrição do documento") |> should.be_true
+  string.contains(prompt, "Fim da descrição") |> should.be_true
+}
