@@ -7,7 +7,9 @@ import dominio/acao.{
 }
 import gleam/erlang/process.{type Subject}
 import gleam/int
+import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
+import gleam/otp/supervision
 import gleam/result
 
 pub type Metricas =
@@ -49,18 +51,37 @@ fn estado_inicial() -> Estado {
 }
 
 pub fn iniciar() -> Result(Metricas, actor.StartError) {
-  actor.new(estado_inicial())
-  |> actor.on_message(fn(state, msg) {
-    case msg {
-      Incrementar(tipo) -> actor.continue(incrementar(state, tipo))
-      Consultar(resposta) -> {
-        process.send(resposta, state)
-        actor.continue(state)
-      }
-    }
-  })
-  |> actor.start()
+  iniciar_actor(None)
   |> result.map(fn(started) { started.data })
+}
+
+pub fn iniciar_actor(
+  name: Option(process.Name(MensagemMetrica)),
+) -> Result(actor.Started(Metricas), actor.StartError) {
+  let builder =
+    actor.new(estado_inicial())
+    |> actor.on_message(fn(state, msg) {
+      case msg {
+        Incrementar(tipo) -> actor.continue(incrementar(state, tipo))
+        Consultar(resposta) -> {
+          process.send(resposta, state)
+          actor.continue(state)
+        }
+      }
+    })
+
+  let builder = case name {
+    Some(n) -> actor.named(builder, n)
+    None -> builder
+  }
+
+  actor.start(builder)
+}
+
+pub fn supervisionado(
+  name: process.Name(MensagemMetrica),
+) -> supervision.ChildSpecification(Metricas) {
+  supervision.worker(fn() { iniciar_actor(Some(name)) })
 }
 
 pub fn registrar(metricas: Metricas, tipo: TipoContador) -> Nil {

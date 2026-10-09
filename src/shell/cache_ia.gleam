@@ -8,6 +8,7 @@ import gleam/erlang/process.{type Subject}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
+import gleam/otp/supervision
 import gleam/result
 
 // 1 hora em ms
@@ -31,10 +32,29 @@ type Estado =
   Dict(String, EntradaCache)
 
 pub fn iniciar() -> Result(CacheIA, actor.StartError) {
-  actor.new(dict.new())
-  |> actor.on_message(tratar)
-  |> actor.start()
+  iniciar_actor(None)
   |> result.map(fn(started) { started.data })
+}
+
+pub fn iniciar_actor(
+  name: Option(process.Name(MensagemCache)),
+) -> Result(actor.Started(CacheIA), actor.StartError) {
+  let builder =
+    actor.new(dict.new())
+    |> actor.on_message(tratar)
+
+  let builder = case name {
+    Some(n) -> actor.named(builder, n)
+    None -> builder
+  }
+
+  actor.start(builder)
+}
+
+pub fn supervisionado(
+  name: process.Name(MensagemCache),
+) -> supervision.ChildSpecification(CacheIA) {
+  supervision.worker(fn() { iniciar_actor(Some(name)) })
 }
 
 fn tratar(
@@ -85,7 +105,12 @@ fn evict(estado: Estado) -> Estado {
 pub fn chave(prompt: String, historico: List(Turno), modelo: String) -> String
 
 pub fn obter(cache: CacheIA, k: String) -> Option(String) {
-  process.call(cache, 1000, fn(reply) { Obter(k, reply) })
+  let reply = process.new_subject()
+  process.send(cache, Obter(k, reply))
+  case process.receive(reply, 1000) {
+    Ok(resp) -> resp
+    Error(_) -> None
+  }
 }
 
 pub fn guardar(cache: CacheIA, k: String, valor: String) -> Nil {

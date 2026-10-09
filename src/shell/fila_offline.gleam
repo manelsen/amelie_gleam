@@ -3,8 +3,9 @@ import dominio/transacao as t
 import gleam/erlang/process
 import gleam/int
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
+import gleam/otp/supervision
 import gleam/result
 import gleam/string
 import logging
@@ -55,6 +56,16 @@ pub fn iniciar(
   mensageiro: MensageiroPorta,
   tentativas_max: Int,
 ) -> Result(FilaOffline, actor.StartError) {
+  iniciar_actor(transacoes, mensageiro, tentativas_max, None)
+  |> result.map(fn(started) { started.data })
+}
+
+pub fn iniciar_actor(
+  transacoes: TransacaoPorta,
+  mensageiro: MensageiroPorta,
+  tentativas_max: Int,
+  name: Option(process.Name(Mensagem)),
+) -> Result(actor.Started(FilaOffline), actor.StartError) {
   let state =
     State(
       transacoes: transacoes,
@@ -62,10 +73,27 @@ pub fn iniciar(
       tentativas_max: tentativas_max,
     )
 
-  actor.new(state)
-  |> actor.on_message(handle_message)
-  |> actor.start()
-  |> result.map(fn(started) { started.data })
+  let builder =
+    actor.new(state)
+    |> actor.on_message(handle_message)
+
+  let builder = case name {
+    Some(n) -> actor.named(builder, n)
+    None -> builder
+  }
+
+  actor.start(builder)
+}
+
+pub fn supervisionado(
+  transacoes: TransacaoPorta,
+  mensageiro: MensageiroPorta,
+  tentativas_max: Int,
+  name: process.Name(Mensagem),
+) -> supervision.ChildSpecification(FilaOffline) {
+  supervision.worker(fn() {
+    iniciar_actor(transacoes, mensageiro, tentativas_max, Some(name))
+  })
 }
 
 fn handle_message(state: State, msg: Mensagem) -> actor.Next(State, Mensagem) {
