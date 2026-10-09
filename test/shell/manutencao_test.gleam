@@ -1,5 +1,6 @@
 import dominio/erro
 import gleam/erlang/process
+import gleam/option.{Some}
 import gleeunit/should
 import helpers/portas_fake
 import portas/transacao_porta.{TransacaoPorta}
@@ -30,4 +31,23 @@ pub fn manutencao_executar_com_erro_banco_nao_entra_em_panico_test() {
   // Deve concluir sem lançar exceção / pânico
   manutencao.executar(porta)
   |> should.equal(Nil)
+}
+
+pub fn manutencao_actor_executar_agora_test() {
+  let ref = process.new_subject()
+  let porta_base = portas_fake.transacao_noop()
+  let porta =
+    TransacaoPorta(..porta_base, limpar_antigas: fn() {
+      process.send(ref, "chamou_limpeza")
+      Ok(Nil)
+    })
+
+  let name = process.new_name("teste_manutencao_actor")
+  let assert Ok(started) =
+    manutencao.iniciar_actor(porta, 3_600_000, Some(name))
+
+  manutencao.executar_agora(started.data)
+
+  process.receive(ref, 1000)
+  |> should.equal(Ok("chamou_limpeza"))
 }

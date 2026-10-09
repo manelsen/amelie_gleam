@@ -68,3 +68,15 @@ pub fn limpar_antigas_remove_transacoes_e_mensagens_expiradas_test() {
     _ -> False
   })
 }
+
+pub fn sqlite_pragmas_concorrencia_test() {
+  use conn <- sqlight.with_connection("file:test_pragmas?mode=memory")
+  sqlight.exec("PRAGMA journal_mode = WAL;", conn)
+  |> should.equal(Ok(Nil))
+
+  sqlight.exec("PRAGMA busy_timeout = 5000;", conn)
+  |> should.equal(Ok(Nil))
+
+  sqlight.exec("PRAGMA synchronous = NORMAL;", conn)
+  |> should.equal(Ok(Nil))
+}

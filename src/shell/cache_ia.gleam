@@ -82,14 +82,21 @@ fn buscar(estado: Estado, chave: String) -> Option(String) {
 }
 
 fn inserir(estado: Estado, chave: String, valor: String) -> Estado {
+  let agora = now_ms()
   let estado = case dict.size(estado) >= max_entradas {
-    True -> evict(estado)
+    True -> {
+      let estado_limpo = dict.filter(estado, fn(_k, v) { agora < v.expira_em })
+      case dict.size(estado_limpo) >= max_entradas {
+        True -> evict(estado_limpo)
+        False -> estado_limpo
+      }
+    }
     False -> estado
   }
   dict.insert(
     estado,
     chave,
-    EntradaCache(valor: valor, expira_em: now_ms() + ttl_ms),
+    EntradaCache(valor: valor, expira_em: agora + ttl_ms),
   )
 }
 
