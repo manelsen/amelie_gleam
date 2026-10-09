@@ -25,9 +25,7 @@ import gleam/option
 import gleam/result
 import gleam/string
 import mist.{type Connection, type ResponseData}
-import shell/cache_ia
-import shell/circuit_breaker
-import shell/fila_midia
+import shell/arvore_supervisao
 import shell/fila_offline
 import shell/handler_mensagem.{type Portas, Portas}
 import shell/ia_resiliente
@@ -113,55 +111,34 @@ pub fn main() {
 
   use conn <- sqlight.with_connection(db_path)
 
-  let cb_gemini =
-    circuit_breaker.iniciar()
-    |> result.lazy_unwrap(fn() {
-      panic as "falha ao iniciar circuit breaker gemini"
-    })
-  let cb_openrouter =
-    circuit_breaker.iniciar()
-    |> result.lazy_unwrap(fn() {
-      panic as "falha ao iniciar circuit breaker openrouter"
-    })
-  let cache_gemini =
-    cache_ia.iniciar()
-    |> result.lazy_unwrap(fn() { panic as "falha ao iniciar cache gemini" })
-  let cache_openrouter =
-    cache_ia.iniciar()
-    |> result.lazy_unwrap(fn() { panic as "falha ao iniciar cache openrouter" })
-
-  let gemini_ia =
-    gemini_http.criar(gemini_api_key)
-    |> ia_resiliente.envolver(cb_gemini, cache_gemini)
-  let openrouter_ia =
-    openrouter_http.criar(openrouter_api_key)
-    |> ia_resiliente.envolver(cb_openrouter, cache_openrouter)
-  let ia_dispatcher =
-    ia_dispatcher.IADispatcher(gemini: gemini_ia, openrouter: openrouter_ia)
-  let whatsapp = whatsmeow_http.criar(bridge_url)
-  let telegram = telegram_http.criar(telegram_bot_token)
-  let mensageiro = roteador_mensageiro.criar(whatsapp, telegram)
   let config_p = config_sqlite.criar(conn)
   let historico_p = historico_sqlite.criar(conn)
   let prompts_p = prompt_sqlite.criar(conn)
   let usuarios_p = usuario_sqlite.criar(conn)
   let grupos_p = grupo_sqlite.criar(conn)
   let transacoes_p = transacao_sqlite.criar(conn)
+  let whatsapp = whatsmeow_http.criar(bridge_url)
+  let telegram = telegram_http.criar(telegram_bot_token)
+  let mensageiro = roteador_mensageiro.criar(whatsapp, telegram)
 
-  let fila =
-    fila_midia.iniciar_todas()
-    |> result.lazy_unwrap(fn() { panic as "falha ao iniciar filas de mídia" })
+  let #(_supervisor, procs) =
+    arvore_supervisao.iniciar(transacoes_p, mensageiro)
+    |> result.lazy_unwrap(fn() {
+      panic as "falha ao iniciar árvore de supervisão de processos de suporte"
+    })
 
-  let metricas_actor =
-    metricas.iniciar()
-    |> result.lazy_unwrap(fn() { panic as "falha ao iniciar métricas" })
+  let gemini_ia =
+    gemini_http.criar(gemini_api_key)
+    |> ia_resiliente.envolver(procs.cb_gemini, procs.cache_gemini)
+  let openrouter_ia =
+    openrouter_http.criar(openrouter_api_key)
+    |> ia_resiliente.envolver(procs.cb_openrouter, procs.cache_openrouter)
+  let ia_dispatcher =
+    ia_dispatcher.IADispatcher(gemini: gemini_ia, openrouter: openrouter_ia)
 
-  let fila_offline_actor =
-    fila_offline.iniciar(transacoes_p, mensageiro, 3)
-    |> result.lazy_unwrap(fn() { panic as "falha ao iniciar fila offline" })
   let _ =
     fila_offline.agendar_processamento(
-      fila_offline_actor,
+      procs.fila_offline,
       offline_retry_interval_ms,
     )
   let _ = manutencao.agendar_padrao(transacoes_p)
@@ -172,9 +149,9 @@ pub fn main() {
       ia_dispatcher: ia_dispatcher,
       config: config_p,
       historico: historico_p,
-      fila: fila,
+      fila: procs.fila,
       prompts: prompts_p,
-      metricas: metricas_actor,
+      metricas: procs.metricas,
       usuarios: usuarios_p,
       grupos: grupos_p,
       transacoes: transacoes_p,

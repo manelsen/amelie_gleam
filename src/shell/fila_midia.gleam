@@ -11,8 +11,9 @@ import dominio/config.{type Config}
 import dominio/erro.{type Erro}
 import dominio/mensagem.{type Mensagem, Audio, Documento, Imagem, Video}
 import gleam/erlang/process.{type Subject}
-import gleam/option
+import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
+import gleam/otp/supervision
 import gleam/result
 import gleam/string
 import logging
@@ -48,30 +49,49 @@ pub type MensagemFila {
   Parar
 }
 
-fn iniciar_uma() -> Result(FilaMidia, actor.StartError) {
-  actor.new(Nil)
-  |> actor.on_message(fn(state, msg) {
-    case msg {
-      Parar -> actor.stop()
-      Enfileirar(chat_id, mensagem, tipo, cfg, ia, mensageiro, transacoes) -> {
-        case
-          processar(chat_id, mensagem, tipo, cfg, ia, mensageiro, transacoes)
-        {
-          Ok(_) -> Nil
-          Error(e) ->
-            logging.log(
-              logging.Warning,
-              "Erro ao processar mídia em "
-                <> chat_id
-                <> ": "
-                <> erro.descricao(e),
-            )
+pub fn iniciar_uma_actor(
+  name: Option(process.Name(MensagemFila)),
+) -> Result(actor.Started(FilaMidia), actor.StartError) {
+  let builder =
+    actor.new(Nil)
+    |> actor.on_message(fn(state, msg) {
+      case msg {
+        Parar -> actor.stop()
+        Enfileirar(chat_id, mensagem, tipo, cfg, ia, mensageiro, transacoes) -> {
+          case
+            processar(chat_id, mensagem, tipo, cfg, ia, mensageiro, transacoes)
+          {
+            Ok(_) -> Nil
+            Error(e) ->
+              logging.log(
+                logging.Warning,
+                "Erro ao processar mídia em "
+                  <> chat_id
+                  <> ": "
+                  <> erro.descricao(e),
+              )
+          }
+          actor.continue(state)
         }
-        actor.continue(state)
       }
-    }
-  })
-  |> actor.start()
+    })
+
+  let builder = case name {
+    Some(n) -> actor.named(builder, n)
+    None -> builder
+  }
+
+  actor.start(builder)
+}
+
+pub fn supervisionado_um(
+  name: process.Name(MensagemFila),
+) -> supervision.ChildSpecification(FilaMidia) {
+  supervision.worker(fn() { iniciar_uma_actor(Some(name)) })
+}
+
+fn iniciar_uma() -> Result(FilaMidia, actor.StartError) {
+  iniciar_uma_actor(None)
   |> result.map(fn(started) { started.data })
 }
 

@@ -3,7 +3,9 @@
 // Estados: Fechado (normal) → Aberto (bloqueado) → SemiAberto (prova única com contenção)
 
 import gleam/erlang/process.{type Subject}
+import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
+import gleam/otp/supervision
 import gleam/result
 
 pub const limite_falhas_padrao = 5
@@ -44,10 +46,39 @@ pub fn iniciar() -> Result(Subject(Mensagem), actor.StartError) {
 pub fn iniciar_com_config(
   config: Config,
 ) -> Result(Subject(Mensagem), actor.StartError) {
-  actor.new(EstadoActor(estado: Fechado(0), config: config))
-  |> actor.on_message(tratar)
-  |> actor.start()
+  iniciar_actor(config, None)
   |> result.map(fn(started) { started.data })
+}
+
+pub fn iniciar_actor(
+  config: Config,
+  name: Option(process.Name(Mensagem)),
+) -> Result(actor.Started(Subject(Mensagem)), actor.StartError) {
+  let builder =
+    actor.new(EstadoActor(estado: Fechado(0), config: config))
+    |> actor.on_message(tratar)
+
+  let builder = case name {
+    Some(n) -> actor.named(builder, n)
+    None -> builder
+  }
+
+  actor.start(builder)
+}
+
+pub fn supervisionado(
+  name: process.Name(Mensagem),
+) -> supervision.ChildSpecification(Subject(Mensagem)) {
+  supervision.worker(fn() {
+    iniciar_actor(
+      Config(
+        limite_falhas: limite_falhas_padrao,
+        reset_ms: reset_ms_padrao,
+        timeout_probe_ms: timeout_probe_ms_padrao,
+      ),
+      Some(name),
+    )
+  })
 }
 
 fn tratar(
@@ -108,13 +139,24 @@ pub fn ao_falhar(estado: Estado, config: Config) -> Estado {
 }
 
 /// Verifica se o CB permite execução (False = bloqueado).
+/// Em caso de timeout ou indisponibilidade temporária do actor, não bloqueia por padrão.
 pub fn pode_executar(cb: Subject(Mensagem)) -> Bool {
-  process.call(cb, 1000, fn(reply) { Verificar(reply) })
+  let reply = process.new_subject()
+  process.send(cb, Verificar(reply))
+  case process.receive(reply, 1000) {
+    Ok(pode) -> pode
+    Error(_) -> True
+  }
 }
 
 /// Obtém o estado atual do CB para inspeção e testes.
 pub fn obter_estado(cb: Subject(Mensagem)) -> Estado {
-  process.call(cb, 1000, fn(reply) { ObterEstado(reply) })
+  let reply = process.new_subject()
+  process.send(cb, ObterEstado(reply))
+  case process.receive(reply, 1000) {
+    Ok(estado) -> estado
+    Error(_) -> Fechado(0)
+  }
 }
 
 pub fn registrar_sucesso(cb: Subject(Mensagem)) -> Nil {
