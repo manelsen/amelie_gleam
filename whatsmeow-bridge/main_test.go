@@ -409,15 +409,16 @@ func TestAttachMediaFileReplacesInlineData(t *testing.T) {
 func TestCleanupOrphanMediaFiles(t *testing.T) {
 	dir := t.TempDir()
 	antigo := filepath.Join(dir, mediaTempPrefix+"imagem_antigo")
+	localAntigo := filepath.Join(dir, "amelie_local_antigo")
 	recente := filepath.Join(dir, mediaTempPrefix+"imagem_recente")
 	alheio := filepath.Join(dir, "outro_arquivo")
-	for _, path := range []string{antigo, recente, alheio} {
+	for _, path := range []string{antigo, localAntigo, recente, alheio} {
 		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
 	velho := time.Now().Add(-48 * time.Hour)
-	for _, path := range []string{antigo, alheio} {
+	for _, path := range []string{antigo, localAntigo, alheio} {
 		if err := os.Chtimes(path, velho, velho); err != nil {
 			t.Fatal(err)
 		}
@@ -427,6 +428,9 @@ func TestCleanupOrphanMediaFiles(t *testing.T) {
 
 	if _, err := os.Stat(antigo); !os.IsNotExist(err) {
 		t.Fatalf("arquivo órfão antigo deveria ter sido removido: %v", err)
+	}
+	if _, err := os.Stat(localAntigo); !os.IsNotExist(err) {
+		t.Fatalf("arquivo órfão local antigo deveria ter sido removido: %v", err)
 	}
 	if _, err := os.Stat(recente); err != nil {
 		t.Fatalf("arquivo recente deveria permanecer: %v", err)

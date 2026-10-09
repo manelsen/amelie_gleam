@@ -104,6 +104,12 @@ pub fn main() {
   let offline_retry_interval_ms =
     int.parse(offline_retry_interval_str)
     |> result.unwrap(or: 30_000)
+  let manutencao_intervalo_str =
+    get_env("MANUTENCAO_INTERVALO_MS")
+    |> result.unwrap(or: "3600000")
+  let manutencao_intervalo_ms =
+    int.parse(manutencao_intervalo_str)
+    |> result.unwrap(or: 3_600_000)
 
   let providers_config =
     providers_config.ler_arquivo("./config/providers.yaml")
@@ -141,7 +147,7 @@ pub fn main() {
       procs.fila_offline,
       offline_retry_interval_ms,
     )
-  let _ = manutencao.agendar_padrao(transacoes_p)
+  let _ = manutencao.agendar(transacoes_p, manutencao_intervalo_ms)
 
   let portas =
     Portas(

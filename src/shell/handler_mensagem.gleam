@@ -33,6 +33,7 @@ import portas/mensageiro_porta.{type MensageiroPorta}
 import portas/prompt_porta.{type PromptPorta}
 import portas/transacao_porta.{type TransacaoPorta}
 import portas/usuario_porta.{type UsuarioPorta}
+import shell/arquivos_temporarios
 import shell/entrega_auditada
 import shell/fila_midia.{type FilasMidia}
 import shell/metricas.{type Metricas}
@@ -100,6 +101,7 @@ pub fn handle(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
           <> "): "
           <> msg.chat_id,
       )
+      limpar_midia_se_descartada(msg)
       Ok(Nil)
     }
     False ->
@@ -116,6 +118,7 @@ pub fn handle(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
                   <> "] Mensagem ja processada, ignorando: "
                   <> msg_id,
               )
+              limpar_midia_se_descartada(msg)
               Ok(Nil)
             }
             Ok(False) -> {
@@ -127,6 +130,16 @@ pub fn handle(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
         }
         option.None -> processar_mensagem(msg, portas)
       }
+  }
+}
+
+fn limpar_midia_se_descartada(msg: Mensagem) -> Nil {
+  case msg.corpo {
+    mensagem.Video(caminho_temp: caminho, ..) -> {
+      let _ = arquivos_temporarios.deletar(caminho)
+      Nil
+    }
+    _ -> Nil
   }
 }
 
@@ -152,6 +165,7 @@ fn processar_mensagem(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
   case handle_interno(msg, portas) {
     Ok(Nil) -> Ok(Nil)
     Error(e) -> {
+      limpar_midia_se_descartada(msg)
       metricas.registrar(portas.metricas, metricas.Erros)
       // Log do erro no servidor
       logging.log(
@@ -178,6 +192,17 @@ fn handle_interno(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
   use cfg <- result.try(portas.config.obter(msg.chat_id))
   use hist <- result.try(portas.historico.obter(msg.chat_id))
   use acoes <- result.try(processador.processar(msg, cfg, hist))
+  let vai_enfileirar_video =
+    list.any(acoes, fn(a) {
+      case a {
+        EnfileirarMidia(_, MidiaVideo) -> True
+        _ -> False
+      }
+    })
+  case vai_enfileirar_video {
+    False -> limpar_midia_se_descartada(msg)
+    True -> Nil
+  }
   acoes
   |> list.map(executar_acao(_, msg, cfg, hist, portas))
   |> result.all

@@ -5,7 +5,8 @@
          contagem_processos/0, spawn_fn/1, upload_file/3, debug_log/1,
          strip_timestamps/1, ytdlp_download/1, video_tem_audio/1,
          constant_time_equal/2, validate_bridge_media/1, read_bridge_media/1,
-         cache_key/3, write_private_media/1]).
+         cache_key/3, write_private_media/1, limpar_midias_antigas/1,
+         delete_file/1]).
 
 %% Lê arquivo do disco.
 %% Retorna {ok, Binary} | {error, Binary} — Result(BitArray, String) no Gleam.
@@ -106,6 +107,66 @@ read_bridge_media(Path) ->
             end;
         Error -> Error
     end.
+
+%% Remove arquivo do disco. Retorna {ok, nil} | {error, Reason}.
+delete_file(Path) when is_binary(Path) ->
+    case file:delete(Path) of
+        ok -> {ok, nil};
+        {error, Reason} -> {error, atom_to_binary(Reason, utf8)}
+    end;
+delete_file(Path) when is_list(Path) ->
+    case file:delete(Path) of
+        ok -> {ok, nil};
+        {error, Reason} -> {error, atom_to_binary(Reason, utf8)}
+    end;
+delete_file(_) ->
+    {error, <<"caminho inválido"/utf8>>}.
+
+%% Varre o diretório de mídias temporárias e remove arquivos órfãos (amelie_midia_*
+%% ou amelie_local_*) cuja idade em segundos seja maior ou igual a MaxAgeSeconds.
+%% Retorna {ok, QuantidadeRemovida} | {error, Reason}.
+limpar_midias_antigas(MaxAgeSeconds) when is_integer(MaxAgeSeconds), MaxAgeSeconds >= 0 ->
+    Root = media_root(),
+    case file:list_dir(Root) of
+        {ok, Filenames} ->
+            NowSecs = calendar:datetime_to_gregorian_seconds(erlang:universaltime()),
+            Deleted = lists:foldl(
+                fun(Name, Count) ->
+                    case is_media_temp_file(Name) of
+                        true ->
+                            FullPath = filename:join(Root, Name),
+                            case file:read_link_info(FullPath, [{time, universal}]) of
+                                {ok, #file_info{type = regular, mtime = Mtime}} ->
+                                    FileSecs = calendar:datetime_to_gregorian_seconds(Mtime),
+                                    Age = NowSecs - FileSecs,
+                                    case Age >= MaxAgeSeconds of
+                                        true ->
+                                            case file:delete(FullPath) of
+                                                ok -> Count + 1;
+                                                _ -> Count
+                                            end;
+                                        false -> Count
+                                    end;
+                                _ -> Count
+                            end;
+                        false -> Count
+                    end
+                end,
+                0,
+                Filenames
+            ),
+            {ok, Deleted};
+        {error, enoent} ->
+            {ok, 0};
+        {error, Reason} ->
+            {error, atom_to_binary(Reason, utf8)}
+    end;
+limpar_midias_antigas(_) ->
+    {error, <<"idade máxima inválida"/utf8>>}.
+
+is_media_temp_file(Name) ->
+    (lists:prefix("amelie_midia_", Name) orelse lists:prefix("amelie_local_", Name))
+    andalso filename:basename(Name) =:= Name.
 
 %% Métricas de memória e processos BEAM.
 memoria_total_mb() ->
