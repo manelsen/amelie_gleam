@@ -69,7 +69,7 @@ docker compose exec amelie sh   # Acessar shell interno para depuração
 | `BRIDGE_TOKEN` | — | Obrigatório: segredo aleatório de pelo menos 32 caracteres, igual no bridge e no Gleam |
 | `BRIDGE_HOST` | `127.0.0.1` | Interface de escuta do bridge; mantenha privada |
 | `MEDIA_TEMP_DIR` | `/tmp/amelie-media` | Diretório compartilhado entre bridge e Gleam, com permissão 0700 |
-| `MOBILE_NUMBER` | — | Número de telefone para Pairing Code (ex: `5531972344065`) |
+| `MOBILE_NUMBER` | — | Número de telefone para Pairing Code (ex: `5531999990000`) |
 | `DB_PATH` | `/data/amelie.sqlite` | Caminho do SQLite da aplicação Gleam |
 | `BRIDGE_DB_PATH` | `/data/bridge/whatsapp.db` | Caminho do SQLite de sessão do WhatsApp |
 | `PORT` | `4000` | Porta HTTP da aplicação Gleam (acessível no host em `127.0.0.1:4001`) |
@@ -89,7 +89,7 @@ Quando o bot do Telegram estiver configurado com `TELEGRAM_ADMIN_CHAT_ID`, você
   - Métricas do BEAM Erlang (memória total consumida e contagem de processos ativos).
   - Total de mensagens recebidas, processadas e eventuais erros.
 - **`/reset_whatsapp`:** Desconecta e limpa a sessão local do WhatsApp com segurança (recriando o dispositivo no banco e reiniciando a rotina) e envia imediatamente um novo código de pareamento no seu chat do Telegram.
-- **`/parear <numero>`:** Solicita um novo Pairing Code sob demanda para o número especificado (formato com DDD e nono dígito: ex. `5531972344065`).
+- **`/parear <numero>`:** Solicita um novo Pairing Code sob demanda para o número especificado (formato com DDD e nono dígito: ex. `5531999990000`).
 
 ## Dados, Volumes e Backup
 
@@ -139,7 +139,7 @@ docker compose up -d
        "whatsapp_bridge": {
          "connected": true,
          "logged_in": true,
-         "jid": "553172344065:96@s.whatsapp.net"
+         "jid": "553199990000:96@s.whatsapp.net"
        },
        "telegram": { "status": "enabled" },
        "beam": { "memory_total_mb": 40.2, "process_count": 116 }
