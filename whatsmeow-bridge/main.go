@@ -78,7 +78,8 @@ func getEnv(key, fallback string) string {
 }
 
 // cleanPhoneNumber sanitiza o número de telefone para o formato internacional exigido pelo WhatsApp.
-// Remove caracteres não-numéricos, zeros à esquerda e adiciona DDI 55 para números brasileiros de 10/11 dígitos.
+// Remove caracteres não-numéricos, zeros à esquerda, adiciona DDI 55 para números brasileiros de 10/11 dígitos
+// e normaliza celulares brasileiros inserindo o 9º dígito quando ausente.
 func cleanPhoneNumber(phone string) string {
 	var sb strings.Builder
 	for _, r := range phone {
@@ -96,7 +97,59 @@ func cleanPhoneNumber(phone string) string {
 			cleaned = "55" + cleaned
 		}
 	}
+
+	// Normaliza celulares brasileiros: se tem DDI 55 + DDD válido (11-99) + 8 dígitos locais iniciados em 6, 7, 8 ou 9,
+	// insere o 9º dígito ('9') após o DDD, totalizando 13 dígitos.
+	if strings.HasPrefix(cleaned, "55") && len(cleaned) == 12 {
+		ddd := int(cleaned[2]-'0')*10 + int(cleaned[3]-'0')
+		if ddd >= 11 && ddd <= 99 {
+			firstLocalDigit := cleaned[4]
+			if firstLocalDigit >= '6' && firstLocalDigit <= '9' {
+				cleaned = "55" + cleaned[2:4] + "9" + cleaned[4:]
+			}
+		}
+	}
+
 	return cleaned
+}
+
+// samePhoneNumber compara dois números de telefone considerando a equivalência
+// do nono dígito para celulares brasileiros (12 dígitos legados vs 13 dígitos normalizados com DDI 55).
+func samePhoneNumber(phoneA, phoneB string) bool {
+	a := cleanPhoneNumber(phoneA)
+	b := cleanPhoneNumber(phoneB)
+	if a == b {
+		return true
+	}
+	return matchBrazilPhoneEquivalence(a, b)
+}
+
+func matchBrazilPhoneEquivalence(a, b string) bool {
+	if a == b {
+		return true
+	}
+	longNum, shortNum := a, b
+	if len(a) < len(b) {
+		longNum, shortNum = b, a
+	}
+	if len(longNum) != 13 || len(shortNum) != 12 {
+		return false
+	}
+	if !strings.HasPrefix(longNum, "55") || !strings.HasPrefix(shortNum, "55") {
+		return false
+	}
+	if longNum[2:4] != shortNum[2:4] {
+		return false
+	}
+	if longNum[4] != '9' {
+		return false
+	}
+	// No Brasil, a regra do 9º dígito se aplica exclusivamente a celulares (dígitos locais iniciados por 6, 7, 8 ou 9)
+	firstMobileDigit := shortNum[4]
+	if firstMobileDigit < '6' || firstMobileDigit > '9' {
+		return false
+	}
+	return longNum[5:] == shortNum[4:]
 }
 
 // ---------------------------------------------------------------------------
@@ -222,7 +275,7 @@ func (b *Bridge) Start() error {
 	b.startQueueWorker()
 
 	phone := cleanPhoneNumber(b.cfg.BotPhone)
-	if phone != "" && b.client.Store.ID != nil && b.client.Store.ID.User != phone {
+	if phone != "" && b.client.Store.ID != nil && !samePhoneNumber(b.client.Store.ID.User, phone) {
 		log.Printf("[WhatsApp] MOBILE_NUMBER (%s) difere da sessão salva (%s). Limpando sessão anterior para novo pareamento.", phone, b.client.Store.ID.User)
 		b.deleteSessionStore()
 	}
@@ -1871,6 +1924,7 @@ func (b *Bridge) deleteSessionStore() {
 }
 
 func (b *Bridge) requestPairingCode(phone string) (string, error) {
+	phone = cleanPhoneNumber(phone)
 	if b.client.Store.ID != nil && !b.client.IsLoggedIn() {
 		b.deleteSessionStore()
 	}
