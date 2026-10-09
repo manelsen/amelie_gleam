@@ -2,9 +2,8 @@
 // Remove scripts, estilos, navegação e ruídos para entregar um texto limpo
 // e acessível para a IA resumir.
 
+import adaptadores/whatsmeow_http
 import dominio/erro.{type Erro}
-import gleam/http/request
-import gleam/httpc
 import gleam/list
 import gleam/result
 import gleam/string
@@ -12,41 +11,14 @@ import gleam/string
 pub const max_chars = 6000
 
 pub fn buscar(url: String) -> Result(String, Erro) {
-  use req <- result.try(
-    request.to(url)
-    |> result.map_error(fn(_) { erro.ErroComunicacao("URL inválida: " <> url) }),
-  )
-
-  let req =
-    req
-    |> request.set_header(
-      "user-agent",
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 AmelieBot/2.0",
-    )
-    |> request.set_header(
-      "accept",
-      "text/html,application/xhtml+xml,text/plain",
-    )
-
-  use resp <- result.try(
-    httpc.send(req)
-    |> result.map_error(fn(_) {
-      erro.ErroComunicacao("falha ao buscar URL: " <> url)
-    }),
-  )
-
-  case resp.status {
-    200 ->
-      resp.body
-      |> extrair_texto
-      |> truncar(max_chars)
-      |> Ok
-    status ->
-      Error(erro.ErroComunicacao(
-        "URL retornou status " <> string.inspect(status) <> ": " <> url,
-      ))
-  }
+  let bridge_url =
+    get_env("WHATSMEOW_URL") |> result.unwrap("http://localhost:8080")
+  use html <- result.try(whatsmeow_http.buscar_pagina(bridge_url, url))
+  html |> extrair_texto |> truncar(max_chars) |> Ok
 }
+
+@external(erlang, "amelie_gleam_ffi", "get_env")
+fn get_env(name: String) -> Result(String, Nil)
 
 /// Extrai o conteúdo textual de uma página HTML, descartando ruídos como
 /// scripts, estilos, tags de cabeçalho/rodapé e menus.

@@ -16,6 +16,7 @@ import gleam/result
 import gleam/string
 import logging
 import portas/ia_porta.{type IAPorta, IAPorta}
+import shell/arquivos_temporarios
 import simplifile
 
 const base_url = "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -139,15 +140,10 @@ fn processar_audio(
   use _ <- result.try(validar_midia_nao_vazia(dados, "áudio"))
 
   let mime = normalizar_mime(mime)
-  let caminho = caminho_temp("audio")
-
-  use _ <- result.try(
-    simplifile.write_bits(to: caminho, bits: dados)
+  use caminho <- result.try(
+    arquivos_temporarios.gravar(dados)
     |> result.map_error(fn(e) {
-      erro.ErroUpload(
-        "falha ao criar arquivo temporário de áudio: "
-        <> simplifile.describe_error(e),
-      )
+      erro.ErroUpload("falha ao criar arquivo temporário de áudio: " <> e)
     }),
   )
 
@@ -343,10 +339,6 @@ fn validar_midia_nao_vazia(dados: BitArray, tipo: String) -> Result(Nil, Erro) {
   }
 }
 
-fn caminho_temp(prefixo: String) -> String {
-  "/tmp/amelie_" <> prefixo <> "_" <> int.to_string(now_ms()) <> ".bin"
-}
-
 fn deletar_arquivo(api_key: String, uri: String) -> Result(Nil, Erro) {
   let url = uri <> "?key=" <> api_key
   use req <- result.try(
@@ -441,6 +433,3 @@ fn upload_file_ffi(
   caminho: String,
   mime: String,
 ) -> Result(String, String)
-
-@external(erlang, "amelie_gleam_ffi", "now_ms")
-fn now_ms() -> Int

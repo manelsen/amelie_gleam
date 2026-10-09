@@ -33,6 +33,7 @@ import shell/handler_mensagem.{type Portas, Portas}
 import shell/ia_resiliente
 import shell/manutencao
 import shell/metricas
+import shell/seguranca_http
 import shell/telegram_poller
 import sqlight
 
@@ -49,13 +50,11 @@ fn get_env(name: String) -> Result(String, Nil)
 @external(erlang, "amelie_gleam_ffi", "spawn_fn")
 fn spawn_fn(f: fn() -> a) -> Nil
 
-@external(erlang, "amelie_gleam_ffi", "read_file")
+@external(erlang, "amelie_gleam_ffi", "read_bridge_media")
 fn read_file(path: String) -> Result(BitArray, String)
 
-@external(erlang, "file", "delete")
-fn delete_file(path: String) -> Result(Nil, ErlFileError)
-
-type ErlFileError
+@external(erlang, "amelie_gleam_ffi", "validate_bridge_media")
+fn validar_arquivo(path: String) -> Result(String, String)
 
 /// Webhook decodificado. `arquivo` aponta para a mídia que o bridge gravou em
 /// disco e que ainda precisa ser lida para preencher `msg.corpo`.
@@ -68,6 +67,10 @@ pub fn main() {
   |> dot_env.load
 
   logging.configure()
+
+  let bridge_token = seguranca_http.token_bridge()
+  let assert True = string.byte_size(bridge_token) >= 32
+    as "Defina BRIDGE_TOKEN com pelo menos 32 caracteres aleatórios"
 
   let gemini_api_key =
     get_env("GEMINI_API_KEY")
@@ -83,7 +86,7 @@ pub fn main() {
     |> result.unwrap(or: "")
   let telegram_admin_chat_id =
     get_env("TELEGRAM_ADMIN_CHAT_ID")
-    |> result.unwrap(or: "924255495")
+    |> result.unwrap(or: "")
 
   let bridge_url =
     get_env("WHATSMEOW_URL")
@@ -190,6 +193,7 @@ pub fn main() {
         telegram_secret_token,
         telegram_bot_token,
         telegram_admin_chat_id,
+        bridge_token,
       )
     })
     |> mist.port(port)
@@ -211,15 +215,41 @@ fn handle_request(
   telegram_secret: String,
   telegram_bot_token: String,
   telegram_admin_chat_id: String,
+  bridge_token: String,
 ) -> response.Response(ResponseData) {
   case req.path {
-    "/webhook" -> handle_webhook(req, portas)
+    "/webhook" ->
+      proteger_webhook(
+        req,
+        seguranca_http.cabecalho_bridge,
+        bridge_token,
+        fn(req) { handle_webhook(req, portas) },
+      )
     "/webhook/telegram" ->
       handle_telegram_webhook(req, portas, telegram_secret, telegram_bot_token)
     "/webhook/bridge-event" ->
-      handle_bridge_event(req, telegram_bot_token, telegram_admin_chat_id)
+      proteger_webhook(
+        req,
+        seguranca_http.cabecalho_bridge,
+        bridge_token,
+        fn(req) {
+          handle_bridge_event(req, telegram_bot_token, telegram_admin_chat_id)
+        },
+      )
     "/health" -> handle_health(conn, bridge_url, telegram_bot_token)
     _ -> json_response(404, "{\"error\":\"not found\"}")
+  }
+}
+
+fn proteger_webhook(
+  req: Request(Connection),
+  cabecalho: String,
+  segredo: String,
+  handler: fn(Request(Connection)) -> response.Response(ResponseData),
+) -> response.Response(ResponseData) {
+  case seguranca_http.autorizar_webhook(req, cabecalho, segredo) {
+    Ok(_) -> handler(req)
+    Error(status) -> json_response(status, "{\"error\":\"request rejected\"}")
   }
 }
 
@@ -320,8 +350,8 @@ fn handle_bridge_event(
       case parse_bridge_event(req_with_body.body) {
         Error(_) -> json_response(400, "{\"error\":\"invalid payload\"}")
         Ok(evt) -> {
-          case bot_token {
-            "" -> Nil
+          case bot_token == "" || admin_chat_id == "" {
+            True -> Nil
             _ -> {
               case evt {
                 BridgePairingCode(phone, code) -> {
@@ -394,16 +424,12 @@ fn handle_telegram_webhook(
   secret_token: String,
   bot_token: String,
 ) -> response.Response(ResponseData) {
-  case secret_token {
-    "" -> processar_telegram_body(req, portas, bot_token)
-    expected -> {
-      case request.get_header(req, "x-telegram-bot-api-secret-token") {
-        Ok(token) if token == expected ->
-          processar_telegram_body(req, portas, bot_token)
-        _ -> json_response(401, "{\"error\":\"unauthorized\"}")
-      }
-    }
-  }
+  proteger_webhook(
+    req,
+    "x-telegram-bot-api-secret-token",
+    secret_token,
+    fn(req) { processar_telegram_body(req, portas, bot_token) },
+  )
 }
 
 fn processar_telegram_body(
@@ -453,6 +479,32 @@ fn parse_webhook(body: BitArray) -> Result(Webhook, Nil) {
     Error(_) -> Error(Nil)
     Ok(s) ->
       json.parse(s, mensagem_decoder())
+      |> result.map_error(fn(_) { Nil })
+      |> result.try(validar_webhook)
+  }
+}
+
+fn validar_webhook(webhook: Webhook) -> Result(Webhook, Nil) {
+  use _ <- result.try(
+    case
+      seguranca_http.identidade_whatsapp_valida(
+        webhook.msg.chat_id,
+        webhook.msg.remetente,
+      )
+    {
+      True -> Ok(Nil)
+      False -> Error(Nil)
+    },
+  )
+  let arquivo = case webhook.msg.corpo {
+    mensagem.Video(caminho_temp: caminho, ..) -> option.Some(caminho)
+    _ -> webhook.arquivo
+  }
+  case arquivo {
+    option.None -> Ok(webhook)
+    option.Some(caminho) ->
+      validar_arquivo(caminho)
+      |> result.map(fn(_) { webhook })
       |> result.map_error(fn(_) { Nil })
   }
 }
@@ -573,7 +625,6 @@ fn carregar_midia(webhook: Webhook) -> Mensagem {
           )
         }
       }
-      let _ = delete_file(caminho)
       Mensagem(..webhook.msg, corpo: corpo)
     }
   }

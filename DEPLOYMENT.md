@@ -7,9 +7,8 @@ amelie_gleam/
 ├── src/                    # Código Gleam (core funcional, portas, adaptadores, shell)
 ├── whatsmeow-bridge/       # Bridge Go (conectividade WhatsApp via whatsmeow)
 ├── config/                 # Configuração externa de provedores (providers.yaml)
-├── cookies/                # Cookies opcionais do yt-dlp (ex: instagram.txt)
 ├── db/                     # Volume persistente (SQLite da aplicação + sessão WhatsApp)
-├── Dockerfile              # Imagem unificada multi-stage (bridge + app + ffmpeg + yt-dlp)
+├── Dockerfile              # Imagem unificada multi-stage (bridge + app + ffmpeg)
 ├── entrypoint.sh           # Inicializa bridge em background e Gleam em foreground
 ├── docker-compose.yml      # Definição do serviço unificado
 ├── .env.example            # Template de variáveis de ambiente
@@ -27,11 +26,11 @@ amelie_gleam/
 # 1. Copiar o template de variáveis de ambiente
 cp .env.example .env
 
-# 2. Editar o arquivo .env com suas chaves de API
-nano .env
+# 2. Gerar um segredo e copiar o resultado para BRIDGE_TOKEN no .env
+openssl rand -hex 32
 
-# 3. (Opcional) Criar diretório de cookies se for utilizar download de mídias restritas do Instagram
-mkdir -p cookies
+# 3. Editar .env: BRIDGE_TOKEN, chaves de API e seu TELEGRAM_ADMIN_CHAT_ID
+nano .env
 
 # 4. Construir e iniciar os containers em background
 docker compose up -d --build
@@ -65,18 +64,20 @@ docker compose exec amelie sh   # Acessar shell interno para depuração
 | `GEMINI_API_KEY` | — | Chave da Google Gemini API (**obrigatório**) |
 | `OPENROUTER_API_KEY` | — | Chave OpenRouter (opcional para modelos adicionais) |
 | `TELEGRAM_BOT_TOKEN` | — | Token da Telegram Bot API gerado via @BotFather (opcional) |
-| `TELEGRAM_SECRET_TOKEN` | — | Token secreto para validação do webhook do Telegram (opcional) |
+| `TELEGRAM_SECRET_TOKEN` | — | Obrigatório para webhook; vazio rejeita todas as requisições ao endpoint. Polling continua disponível |
 | `TELEGRAM_ADMIN_CHAT_ID` | — | Chat ID do administrador no Telegram para alertas e comandos restritos (opcional) |
+| `BRIDGE_TOKEN` | — | Obrigatório: segredo aleatório de pelo menos 32 caracteres, igual no bridge e no Gleam |
+| `BRIDGE_HOST` | `127.0.0.1` | Interface de escuta do bridge; mantenha privada |
+| `MEDIA_TEMP_DIR` | `/tmp/amelie-media` | Diretório compartilhado entre bridge e Gleam, com permissão 0700 |
 | `MOBILE_NUMBER` | — | Número de telefone para Pairing Code (ex: `5531972344065`) |
 | `DB_PATH` | `/data/amelie.sqlite` | Caminho do SQLite da aplicação Gleam |
 | `BRIDGE_DB_PATH` | `/data/bridge/whatsapp.db` | Caminho do SQLite de sessão do WhatsApp |
-| `PORT` | `4000` | Porta HTTP da aplicação Gleam (exposta externamente como `4001`) |
+| `PORT` | `4000` | Porta HTTP da aplicação Gleam (acessível no host em `127.0.0.1:4001`) |
 | `BRIDGE_PORT` | `8080` | Porta interna do bridge whatsmeow (não exposta publicamente) |
 | `OFFLINE_RETRY_INTERVAL_MS`| `30000` | Intervalo em milissegundos para reprocessamento de mensagens offline |
-| `YTDLP_COOKIES_PATH` | — | Caminho interno do arquivo de cookies Netscape (ex: `/cookies/instagram.txt`) |
 
 > [!NOTE]
-> `WHATSMEOW_URL` e `GLEAM_URL` são injetados automaticamente pelo script [`entrypoint.sh`](file:///home/micelio/git/amelie_gleam/entrypoint.sh) e não precisam ser declarados no `.env`.
+> `WHATSMEOW_URL` e `GLEAM_URL` são injetados automaticamente pelo script [`entrypoint.sh`](entrypoint.sh) e não precisam ser declarados no `.env`.
 
 ## Administração e Pareamento Remoto
 
@@ -144,5 +145,37 @@ docker compose up -d
        "beam": { "memory_total_mb": 40.2, "process_count": 116 }
      }
      ```
-4. **Erros de download no Instagram / YouTube:**
-   Para conteúdo que requer login ou restrição de idade, exporte os cookies do navegador em formato Netscape, salve em `./cookies/instagram.txt` e configure `YTDLP_COOKIES_PATH=/cookies/instagram.txt`.
+4. **Links de vídeos:**
+   Downloads com extratores externos estão desativados por segurança. Envie o arquivo diretamente pelo WhatsApp ou Telegram.
+
+## Atualização de segurança
+
+Antes de subir esta versão, configure `BRIDGE_TOKEN` em ambos os processos. O
+entrypoint e os binários recusam inicialização sem um segredo de pelo menos 32
+caracteres. Gere-o aleatoriamente; não use uma frase nem reutilize uma chave de IA.
+Não envie o segredo para páginas externas.
+
+O Compose publica a porta apenas em `127.0.0.1`. Para Telegram por webhook, use um
+proxy HTTPS que exponha **somente** `/webhook/telegram` e configure o mesmo
+`TELEGRAM_SECRET_TOKEN` no registro do webhook junto ao Telegram. Os endpoints
+`/webhook` e `/webhook/bridge-event` são privados e exigem
+`X-Amelie-Bridge-Token`. Sem segredo Telegram, o endpoint fica fechado e o polling
+continua funcionando. `TELEGRAM_ADMIN_CHAT_ID` vazio desabilita comandos remotos;
+quando configurado, eles exigem mensagem privada do próprio administrador.
+
+O spool de mídia do bridge mudou para `MEDIA_TEMP_DIR`, um diretório 0700. Apenas
+arquivos regulares diretamente nele, com nomes gerados pelo bridge, sem links e
+com até 50 MiB são aceitos. Mídias antigas pendentes em `/tmp/amelie_midia_*` serão
+rejeitadas após a atualização e deverão ser reenviadas. Não habilite compatibilidade
+com caminhos antigos vindos de payloads.
+
+A leitura de páginas usa o endpoint autenticado `/fetch` do bridge, inclusive para
+mensagens Telegram. O cliente só permite HTTP/HTTPS nas portas padrão, valida os
+IPs no momento de conectar e em cada redirecionamento, mantém a verificação TLS e
+limita a resposta a 1 MiB e a operação a 15 segundos. O bridge precisa estar
+rodando para esse recurso.
+
+O download de links por `yt-dlp` foi desativado: seus extratores podem abrir
+conexões adicionais que escapam da validação da URL inicial. Vídeos enviados como
+arquivo continuam disponíveis. Reativar downloads exige um serviço isolado com
+controle de tráfego de saída; não basta uma lista de hosts na URL recebida.

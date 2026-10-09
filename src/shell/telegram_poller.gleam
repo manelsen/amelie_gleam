@@ -15,8 +15,8 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import logging
+import shell/arquivos_temporarios
 import shell/handler_mensagem.{type Portas}
-import simplifile
 
 const base_url = "https://api.telegram.org"
 
@@ -32,9 +32,6 @@ pub fn iniciar(bot_token: String, portas: Portas) -> Nil {
 
 @external(erlang, "amelie_gleam_ffi", "spawn_fn")
 fn spawn_fn(f: fn() -> a) -> Nil
-
-@external(erlang, "amelie_gleam_ffi", "now_ms")
-fn now_ms() -> Int
 
 fn spawn_poller(bot_token: String, offset: Int, portas: Portas) -> Nil {
   spawn_fn(fn() { loop(bot_token, offset, portas) })
@@ -220,14 +217,8 @@ pub fn despachar_evento(
           )
         case telegram_http.baixar_arquivo(bot_token, file_id) {
           Ok(bytes) -> {
-            let caminho =
-              "/tmp/amelie_tg_video_"
-              <> int.to_string(now_ms())
-              <> "_"
-              <> file_id
-              <> ".mp4"
-            case simplifile.write_bits(to: caminho, bits: bytes) {
-              Ok(_) -> {
+            case arquivos_temporarios.gravar(bytes) {
+              Ok(caminho) -> {
                 let msg =
                   Mensagem(
                     ..base,
@@ -239,8 +230,7 @@ pub fn despachar_evento(
               Error(e) -> {
                 logging.log(
                   logging.Warning,
-                  "Telegram poller: falha ao salvar vídeo temporário: "
-                    <> simplifile.describe_error(e),
+                  "Telegram poller: falha ao salvar vídeo temporário: " <> e,
                 )
                 let _ =
                   portas.mensageiro.enviar(

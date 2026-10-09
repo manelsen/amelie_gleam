@@ -1,5 +1,5 @@
-// Baixa vídeos de plataformas externas via yt-dlp.
-// Shell: tem side effects (processo externo, disco).
+// Downloads externos estão desativados até haver isolamento de rede dos extratores.
+// Mantém o contrato de erro para orientar o usuário a enviar o arquivo diretamente.
 
 import dominio/erro.{type Erro}
 import gleam/result

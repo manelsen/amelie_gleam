@@ -11,11 +11,10 @@ services:
       - BRIDGE_DB_PATH=/data/bridge/whatsapp.db
     volumes:
       - ./db:/data
-      - ./cookies:/cookies:ro
     extra_hosts:
       - "a.whatsapp.net:57.144.249.32"
     ports:
-      - "4001:4000"
+      - "127.0.0.1:4001:4000"
     logging:
       driver: "json-file"
       options:

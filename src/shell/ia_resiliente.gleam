@@ -18,7 +18,7 @@ const espera_base_ms = 1000
 pub fn envolver(porta: IAPorta, cb: Subject(CbMsg), cache: CacheIA) -> IAPorta {
   IAPorta(
     gerar_texto: fn(prompt, historico, modelo) {
-      let k = cache_ia.chave(prompt, modelo)
+      let k = cache_ia.chave(prompt, historico, modelo)
       case cache_ia.obter(cache, k) {
         option.Some(cached) -> Ok(cached)
         option.None ->

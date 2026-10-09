@@ -9,7 +9,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -53,6 +52,8 @@ func init() {
 
 type Config struct {
 	Port     string // Porta HTTP deste bridge (default: 8080)
+	Host     string // Interface privada (default: 127.0.0.1)
+	Token    string // Segredo compartilhado com o Gleam
 	GleamURL string // URL do webhook Gleam (default: http://localhost:4000/webhook)
 	DBPath   string // SQLite para sessão WhatsApp (default: ./db/whatsmeow.db)
 	BotPhone string // Número para Pairing Code (opcional, ativa Pairing Code se definido)
@@ -61,6 +62,8 @@ type Config struct {
 func configFromEnv() Config {
 	return Config{
 		Port:     getEnv("BRIDGE_PORT", "8080"),
+		Host:     getEnv("BRIDGE_HOST", "127.0.0.1"),
+		Token:    getEnv("BRIDGE_TOKEN", ""),
 		GleamURL: getEnv("GLEAM_URL", "http://localhost:4000/webhook"),
 		DBPath:   getEnv("BRIDGE_DB_PATH", "./db/whatsmeow.db"),
 		BotPhone: getEnv("MOBILE_NUMBER", ""),
@@ -156,6 +159,8 @@ type HealthResponse struct {
 // httpClient sem Expect: 100-continue — evita MalformedRequest no Mist
 // para payloads binários grandes (áudio, imagem, documento).
 var httpClient = &http.Client{
+	Timeout:       20 * time.Second,
+	CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
 	Transport: &http.Transport{
 		ExpectContinueTimeout: 0,
 	},
@@ -1086,7 +1091,11 @@ func convertAnimatedStickerToMP4(data []byte) (string, bool) {
 		return "", false
 	}
 
-	output, err := os.CreateTemp("", mediaTempPrefix+"sticker_*.mp4")
+	mediaDir, err := mediaTempDir()
+	if err != nil {
+		return "", false
+	}
+	output, err := os.CreateTemp(mediaDir, mediaTempPrefix+"sticker_*.mp4")
 	if err != nil {
 		log.Printf("Falha ao criar MP4 temporário de figurinha animada: %v", err)
 		return "", false
@@ -1316,7 +1325,11 @@ const orphanMediaMaxAge = 26 * time.Hour
 // writeMediaTemp grava a mídia em arquivo temporário. O webhook leva só o
 // caminho: base64 de mídia grande ultrapassava o limite de corpo do Mist.
 func writeMediaTemp(kind, ext string, data []byte) (string, error) {
-	f, err := os.CreateTemp("", mediaTempPrefix+kind+"_*"+ext)
+	dir, err := mediaTempDir()
+	if err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp(dir, mediaTempPrefix+kind+"_*"+ext)
 	if err != nil {
 		return "", err
 	}
@@ -1507,7 +1520,9 @@ func (b *Bridge) processQueue() {
 func (b *Bridge) cleanupQueue() {
 	b.queueDB.Exec(`DELETE FROM webhook_queue WHERE delivered_at IS NOT NULL AND created_at < unixepoch() - 3600`)
 	b.queueDB.Exec(`DELETE FROM webhook_queue WHERE attempts >= 100 AND created_at < unixepoch() - 86400`)
-	cleanupOrphanMediaFiles(os.TempDir(), orphanMediaMaxAge)
+	if dir, err := mediaTempDir(); err == nil {
+		cleanupOrphanMediaFiles(dir, orphanMediaMaxAge)
+	}
 }
 
 func (b *Bridge) postToGleam(payload IncomingWebhook) error {
@@ -1516,12 +1531,12 @@ func (b *Bridge) postToGleam(payload IncomingWebhook) error {
 		return err
 	}
 
-	resp, err := httpClient.Post(b.cfg.GleamURL, "application/json", bytes.NewReader(data))
+	resp, err := b.postAuthenticated(b.cfg.GleamURL, data)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("gleam retornou status %d: %s", resp.StatusCode, string(body))
 	}
@@ -1711,12 +1726,12 @@ type PairPhoneResponse struct {
 }
 
 func (b *Bridge) handlePairPhone(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, ErrorResponse{
 			OK: false,
 			APIError: APIError{
 				Code:    "method_not_allowed",
-				Message: "método não permitido; use POST ou GET",
+				Message: "método não permitido; use POST",
 			},
 		})
 		return
@@ -1927,11 +1942,14 @@ func (b *Bridge) notifyGleamEvent(payload map[string]interface{}) {
 
 	go func() {
 		for attempt := 1; attempt <= 5; attempt++ {
-			resp, err := httpClient.Post(eventURL, "application/json", bytes.NewReader(data))
+			resp, err := b.postAuthenticated(eventURL, data)
 			if err == nil {
 				_ = resp.Body.Close()
-				log.Printf("[Bridge] Evento '%v' notificado ao Gleam com sucesso\n", payload["evento"])
-				return
+				if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+					log.Printf("[Bridge] Evento '%v' notificado ao Gleam com sucesso\n", payload["evento"])
+					return
+				}
+				err = fmt.Errorf("Gleam retornou status %d", resp.StatusCode)
 			}
 			log.Printf("[Bridge] Falha ao notificar evento ao Gleam (tentativa %d/5): %v\n", attempt, err)
 			time.Sleep(1 * time.Second)
@@ -1960,22 +1978,25 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 
 func main() {
 	cfg := configFromEnv()
+	if len(cfg.Token) < 32 {
+		log.Fatal("Defina BRIDGE_TOKEN com pelo menos 32 caracteres aleatórios")
+	}
+	if _, err := mediaTempDir(); err != nil {
+		log.Fatalf("Diretório de mídia inválido: %v", err)
+	}
 
 	bridge, err := NewBridge(cfg)
 	if err != nil {
 		log.Fatalf("Falha ao criar bridge: %v\n", err)
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/send", bridge.handleSend)
-	mux.HandleFunc("/react", bridge.handleReact)
-	mux.HandleFunc("/health", bridge.handleHealth)
-	mux.HandleFunc("/pair-phone", bridge.handlePairPhone)
-	mux.HandleFunc("/reset-session", bridge.handleResetSession)
-
 	server := &http.Server{
-		Addr:    ":" + cfg.Port,
-		Handler: mux,
+		Addr:              net.JoinHostPort(cfg.Host, cfg.Port),
+		Handler:           bridge.routes(),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      120 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	go func() {
