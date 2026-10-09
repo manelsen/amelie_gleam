@@ -193,17 +193,40 @@ fn marcar_entregue(conn: sqlight.Connection, id: Int) -> Result(Nil, Erro) {
   |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
 }
 
-// Remove transações entregues ou descartadas com mais de 7 dias.
-// Retorna o número de linhas deletadas.
+// Remove transações entregues ou descartadas com mais de 7 dias,
+// remove mensagens recebidas para deduplicação com mais de 7 dias,
+// e executa checkpoint do WAL e otimização de índices do SQLite.
 fn limpar_antigas(conn: sqlight.Connection) -> Result(Nil, Erro) {
-  let sql =
+  let sql_transacoes =
     "DELETE FROM transacoes
      WHERE status IN ('entregue', 'descartada')
        AND criado_em < unixepoch() - 7 * 24 * 60 * 60"
 
-  sqlight.query(sql, on: conn, with: [], expecting: decode.dynamic)
-  |> result.map(fn(_) { Nil })
-  |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
+  let sql_msg_recebidas =
+    "DELETE FROM mensagens_recebidas
+     WHERE recebido_em < unixepoch() - 7 * 24 * 60 * 60"
+
+  use _ <- result.try(
+    sqlight.query(sql_transacoes, on: conn, with: [], expecting: decode.dynamic)
+    |> result.map(fn(_) { Nil })
+    |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) }),
+  )
+
+  use _ <- result.try(
+    sqlight.query(
+      sql_msg_recebidas,
+      on: conn,
+      with: [],
+      expecting: decode.dynamic,
+    )
+    |> result.map(fn(_) { Nil })
+    |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) }),
+  )
+
+  let _ = sqlight.exec("PRAGMA wal_checkpoint(TRUNCATE);", conn)
+  let _ = sqlight.exec("PRAGMA optimize;", conn)
+
+  Ok(Nil)
 }
 
 fn transacao_decoder() -> decode.Decoder(t.Transacao) {

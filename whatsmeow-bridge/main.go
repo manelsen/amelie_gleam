@@ -1417,7 +1417,8 @@ func cleanupOrphanMediaFiles(dir string, maxAge time.Duration) {
 	}
 	limite := time.Now().Add(-maxAge)
 	for _, entry := range entries {
-		if !entry.Type().IsRegular() || !strings.HasPrefix(entry.Name(), mediaTempPrefix) {
+		name := entry.Name()
+		if !entry.Type().IsRegular() || (!strings.HasPrefix(name, mediaTempPrefix) && !strings.HasPrefix(name, "amelie_local_")) {
 			continue
 		}
 		info, err := entry.Info()
@@ -1573,6 +1574,9 @@ func (b *Bridge) processQueue() {
 func (b *Bridge) cleanupQueue() {
 	b.queueDB.Exec(`DELETE FROM webhook_queue WHERE delivered_at IS NOT NULL AND created_at < unixepoch() - 3600`)
 	b.queueDB.Exec(`DELETE FROM webhook_queue WHERE attempts >= 100 AND created_at < unixepoch() - 86400`)
+	b.queueDB.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
+	b.queueDB.Exec(`PRAGMA optimize`)
+	b.queueDB.Exec(`VACUUM`)
 	if dir, err := mediaTempDir(); err == nil {
 		cleanupOrphanMediaFiles(dir, orphanMediaMaxAge)
 	}
