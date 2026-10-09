@@ -132,9 +132,6 @@ pub fn despachar_evento(
       spawn_fn(fn() {
         let _ =
           telegram_http.enviar_chat_action(bot_token, msg.chat_id, "typing")
-        Nil
-      })
-      spawn_fn(fn() {
         let _ = handler_mensagem.handle(msg, portas)
         Nil
       })

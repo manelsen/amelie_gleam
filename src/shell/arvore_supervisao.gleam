@@ -12,6 +12,7 @@ import shell/cache_ia
 import shell/circuit_breaker
 import shell/fila_midia
 import shell/fila_offline
+import shell/manutencao
 import shell/metricas
 
 pub type ProcessosSupervisionados {
@@ -23,12 +24,28 @@ pub type ProcessosSupervisionados {
     metricas: Subject(metricas.MensagemMetrica),
     fila: fila_midia.FilasMidia,
     fila_offline: Subject(fila_offline.Mensagem),
+    manutencao: Subject(manutencao.MensagemManutencao),
   )
 }
 
 pub fn iniciar(
   transacoes: TransacaoPorta,
   mensageiro: MensageiroPorta,
+) -> Result(
+  #(static_supervisor.Supervisor, ProcessosSupervisionados),
+  actor.StartError,
+) {
+  iniciar_com_intervalo_manutencao(
+    transacoes,
+    mensageiro,
+    manutencao.intervalo_padrao_ms,
+  )
+}
+
+pub fn iniciar_com_intervalo_manutencao(
+  transacoes: TransacaoPorta,
+  mensageiro: MensageiroPorta,
+  intervalo_manutencao_ms: Int,
 ) -> Result(
   #(static_supervisor.Supervisor, ProcessosSupervisionados),
   actor.StartError,
@@ -44,6 +61,7 @@ pub fn iniciar(
   let name_fila_doc = process.new_name("amelie_fila_documento")
   let name_fila_stk = process.new_name("amelie_fila_sticker")
   let name_fila_offline = process.new_name("amelie_fila_offline")
+  let name_manutencao = process.new_name("amelie_manutencao")
 
   let procs =
     ProcessosSupervisionados(
@@ -60,6 +78,7 @@ pub fn iniciar(
         sticker: process.named_subject(name_fila_stk),
       ),
       fila_offline: process.named_subject(name_fila_offline),
+      manutencao: process.named_subject(name_manutencao),
     )
 
   let builder =
@@ -80,6 +99,11 @@ pub fn iniciar(
       mensageiro,
       3,
       name_fila_offline,
+    ))
+    |> static_supervisor.add(manutencao.supervisionado(
+      transacoes,
+      intervalo_manutencao_ms,
+      name_manutencao,
     ))
 
   case static_supervisor.start(builder) {

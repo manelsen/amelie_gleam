@@ -29,7 +29,6 @@ import shell/arvore_supervisao
 import shell/fila_offline
 import shell/handler_mensagem.{type Portas, Portas}
 import shell/ia_resiliente
-import shell/manutencao
 import shell/metricas
 import shell/seguranca_http
 import shell/telegram_poller
@@ -54,6 +53,9 @@ fn read_file(path: String) -> Result(BitArray, String)
 @external(erlang, "amelie_gleam_ffi", "validate_bridge_media")
 fn validar_arquivo(path: String) -> Result(String, String)
 
+@external(erlang, "amelie_gleam_ffi", "ensure_applications_started")
+fn ensure_applications_started() -> Nil
+
 /// Webhook decodificado. `arquivo` aponta para a mídia que o bridge gravou em
 /// disco e que ainda precisa ser lida para preencher `msg.corpo`.
 type Webhook {
@@ -65,6 +67,7 @@ pub fn main() {
   |> dot_env.load
 
   logging.configure()
+  ensure_applications_started()
 
   let bridge_token = seguranca_http.token_bridge()
   let assert True = string.byte_size(bridge_token) >= 32
@@ -117,6 +120,10 @@ pub fn main() {
 
   use conn <- sqlight.with_connection(db_path)
 
+  let _ = sqlight.exec("PRAGMA journal_mode = WAL;", conn)
+  let _ = sqlight.exec("PRAGMA busy_timeout = 5000;", conn)
+  let _ = sqlight.exec("PRAGMA synchronous = NORMAL;", conn)
+
   let config_p = config_sqlite.criar(conn)
   let historico_p = historico_sqlite.criar(conn)
   let prompts_p = prompt_sqlite.criar(conn)
@@ -128,7 +135,11 @@ pub fn main() {
   let mensageiro = roteador_mensageiro.criar(whatsapp, telegram)
 
   let #(_supervisor, procs) =
-    arvore_supervisao.iniciar(transacoes_p, mensageiro)
+    arvore_supervisao.iniciar_com_intervalo_manutencao(
+      transacoes_p,
+      mensageiro,
+      manutencao_intervalo_ms,
+    )
     |> result.lazy_unwrap(fn() {
       panic as "falha ao iniciar árvore de supervisão de processos de suporte"
     })
@@ -147,7 +158,6 @@ pub fn main() {
       procs.fila_offline,
       offline_retry_interval_ms,
     )
-  let _ = manutencao.agendar(transacoes_p, manutencao_intervalo_ms)
 
   let portas =
     Portas(

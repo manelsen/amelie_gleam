@@ -5,6 +5,7 @@ import helpers/portas_fake
 import shell/arvore_supervisao
 import shell/cache_ia
 import shell/circuit_breaker
+import shell/manutencao
 import shell/metricas
 
 pub fn arvore_supervisao_inicializacao_test() {
@@ -27,6 +28,9 @@ pub fn arvore_supervisao_inicializacao_test() {
   metricas.registrar(procs.metricas, metricas.MensagensProcessadas)
   let estado_metricas = metricas.consultar(procs.metricas)
   estado_metricas.mensagens |> should.equal(1)
+
+  // 4. Manutenção supervisionada responde a comando sob demanda
+  manutencao.executar_agora(procs.manutencao)
 }
 
 pub fn arvore_supervisao_recuperacao_apos_crash_test() {

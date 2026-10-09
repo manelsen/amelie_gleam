@@ -6,7 +6,7 @@
          strip_timestamps/1, ytdlp_download/1, video_tem_audio/1,
          constant_time_equal/2, validate_bridge_media/1, read_bridge_media/1,
          cache_key/3, write_private_media/1, limpar_midias_antigas/1,
-         delete_file/1]).
+         delete_file/1, ensure_applications_started/0]).
 
 %% Lê arquivo do disco.
 %% Retorna {ok, Binary} | {error, Binary} — Result(BitArray, String) no Gleam.
@@ -178,11 +178,15 @@ memoria_processos_mb() ->
 contagem_processos() ->
     erlang:system_info(process_count).
 
+%% Garante que aplicações de rede (inets, ssl) estejam iniciadas no nó BEAM.
+ensure_applications_started() ->
+    _ = inets:start(),
+    _ = ssl:start(),
+    ok.
+
 %% Faz upload multipart de arquivo para a Gemini File API.
 %% Retorna {ok, ResponseBody} | {error, Reason}.
 upload_file(ApiKey, FilePath, MimeType) ->
-    inets:start(),
-    ssl:start(),
     case file:read_file(FilePath) of
         {error, Reason} -> {error, atom_to_binary(Reason, utf8)};
         {ok, FileData} ->
@@ -254,20 +258,34 @@ debug_log(Msg) ->
     ok.
 
 %% Verifica se o arquivo de vídeo possui faixa/stream de áudio.
+%% Executa em processo efêmero dedicado para nunca poluir a mailbox
+%% de atores OTP chamadores (ex: fila_midia) com mensagens do port.
 %% Retorna true | false.
 video_tem_audio(Path) ->
     case os:find_executable("ffprobe") of
         false ->
             true;
         Ffprobe ->
-            try open_port({spawn_executable, Ffprobe}, [
-                {args, ["-v", "error", "-protocol_whitelist", "file",
-                        "-select_streams", "a:0", "-show_entries", "stream=codec_type",
-                        "-of", "default=nw=1:nk=1", "-i", binary_to_list(Path)]},
-                binary, exit_status, use_stdio, stderr_to_stdout
-            ]) of
-                Port -> ffprobe_wait(Port, <<>>, erlang:monotonic_time(millisecond) + 10000)
-            catch error:_ -> false
+            Parent = self(),
+            Ref = make_ref(),
+            spawn(fun() ->
+                Result = try
+                    Port = open_port({spawn_executable, Ffprobe}, [
+                        {args, ["-v", "error", "-protocol_whitelist", "file",
+                                "-select_streams", "a:0", "-show_entries", "stream=codec_type",
+                                "-of", "default=nw=1:nk=1", "-i", binary_to_list(Path)]},
+                        binary, exit_status, use_stdio, stderr_to_stdout
+                    ]),
+                    ffprobe_wait(Port, <<>>, erlang:monotonic_time(millisecond) + 10000)
+                catch
+                    error:_ -> false
+                end,
+                Parent ! {Ref, Result}
+            end),
+            receive
+                {Ref, HasAudio} -> HasAudio
+            after 11000 ->
+                false
             end
     end.
 
