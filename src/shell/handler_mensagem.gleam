@@ -3,15 +3,17 @@
 
 import adaptadores/whatsmeow_http
 import core/acessibilidade
+import core/anti_spam as core_anti_spam
 import core/ia_dispatcher
 import core/processador
 import core/prompt/builder
 import dominio/acao.{
   AlterarModelo, AtivarPrompt, BaixarVideoUrlEDescrever, BuscarUrlEResponder,
-  ConsultarMetricas, ConsultarStatus, EnfileirarMidia, EnviarReacao,
-  EnviarResposta, ExcluirPrompt, GerarEEnviar, LimparHistorico, ListarGrupos,
-  ListarPrompts, ListarUsuarios, MidiaVideo, NaoResponder, ResetarWhatsApp,
-  SalvarConfig, SalvarPrompt, SnapshotHistorico, SolicitarPareamento,
+  ConsultarMetricas, ConsultarStatus, DesbloquearChat, EnfileirarMidia,
+  EnviarReacao, EnviarResposta, ExcluirPrompt, GerarEEnviar, LimparHistorico,
+  ListarGrupos, ListarPrompts, ListarUsuarios, MidiaVideo, NaoResponder,
+  ResetarWhatsApp, SalvarConfig, SalvarPrompt, SnapshotHistorico,
+  SolicitarPareamento,
 }
 import dominio/config
 import dominio/erro.{type Erro}
@@ -33,6 +35,7 @@ import portas/mensageiro_porta.{type MensageiroPorta}
 import portas/prompt_porta.{type PromptPorta}
 import portas/transacao_porta.{type TransacaoPorta}
 import portas/usuario_porta.{type UsuarioPorta}
+import shell/anti_spam.{type AntiSpam}
 import shell/arquivos_temporarios
 import shell/entrega_auditada
 import shell/fila_midia.{type FilasMidia}
@@ -62,6 +65,7 @@ pub type Portas {
     grupos: GrupoPorta,
     transacoes: TransacaoPorta,
     providers_config: ProvidersConfig,
+    anti_spam: AntiSpam,
   )
 }
 
@@ -123,13 +127,67 @@ pub fn handle(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
             }
             Ok(False) -> {
               let _ = portas.transacoes.marcar_recebida(msg_id)
-              processar_mensagem(msg, portas)
+              processar_mensagem_com_anti_spam(msg, portas)
             }
-            Error(_) -> processar_mensagem(msg, portas)
+            Error(_) -> processar_mensagem_com_anti_spam(msg, portas)
           }
         }
-        option.None -> processar_mensagem(msg, portas)
+        option.None -> processar_mensagem_com_anti_spam(msg, portas)
       }
+  }
+}
+
+fn processar_mensagem_com_anti_spam(
+  msg: Mensagem,
+  portas: Portas,
+) -> Result(Nil, Erro) {
+  let trace_id = extrair_trace_id(msg)
+  case
+    anti_spam.verificar(portas.anti_spam, msg.chat_id, msg.remetente, msg.corpo)
+  {
+    core_anti_spam.Permitido -> processar_mensagem(msg, portas)
+
+    core_anti_spam.AvisoLimite(motivo) -> {
+      logging.log(
+        logging.Warning,
+        "[trace:"
+          <> trace_id
+          <> "] Rate limit acionado para "
+          <> msg.chat_id
+          <> ": "
+          <> motivo,
+      )
+      limpar_midia_se_descartada(msg)
+      let _ = portas.mensageiro.enviar(msg.chat_id, motivo)
+      Ok(Nil)
+    }
+
+    core_anti_spam.Silenciado(notificar_admin) -> {
+      logging.log(
+        logging.Warning,
+        "[trace:"
+          <> trace_id
+          <> "] Mensagem descartada silenciosamente por quarentena anti-spam: "
+          <> msg.chat_id,
+      )
+      limpar_midia_se_descartada(msg)
+      case notificar_admin {
+        option.Some(alerta) -> {
+          let admin_id =
+            get_env("TELEGRAM_ADMIN_CHAT_ID")
+            |> result.unwrap(or: "")
+          case admin_id != "" {
+            True -> {
+              let _ = portas.mensageiro.enviar("tg:" <> admin_id, alerta)
+              Nil
+            }
+            False -> Nil
+          }
+        }
+        option.None -> Nil
+      }
+      Ok(Nil)
+    }
   }
 }
 
@@ -670,6 +728,7 @@ fn executar_acao(
           let mem_proc = metricas.memoria_processos_mb()
           let proc_count = metricas.contagem_processos()
           let estado_metricas = metricas.consultar(portas.metricas)
+          let silenciados = anti_spam.contar_silenciados(portas.anti_spam)
           let total_midias =
             estado_metricas.imagens
             + estado_metricas.audios
@@ -703,6 +762,9 @@ fn executar_acao(
             <> "`\n"
             <> "• Mídias processadas: `"
             <> int.to_string(total_midias)
+            <> "`\n"
+            <> "• Chats em quarentena (anti-spam): `"
+            <> int.to_string(silenciados)
             <> "`"
           let _ = portas.mensageiro.enviar(chat_id, corpo)
           Ok(Nil)
@@ -757,6 +819,51 @@ fn executar_acao(
                   chat_id,
                   "❌ Falha ao solicitar reset do WhatsApp: " <> motivo,
                 )
+              Ok(Nil)
+            }
+          }
+        }
+      }
+    }
+
+    DesbloquearChat(chat_id, alvo) -> {
+      let admin_id =
+        get_env("TELEGRAM_ADMIN_CHAT_ID")
+        |> result.unwrap(or: "")
+      let eh_admin =
+        admin_id != ""
+        && !msg.em_grupo
+        && msg.remetente == "tg:" <> admin_id
+        && msg.chat_id == "tg:" <> admin_id
+      case eh_admin {
+        False -> {
+          let _ =
+            portas.mensageiro.enviar(
+              chat_id,
+              "⛔ Comando restrito ao administrador.",
+            )
+          Ok(Nil)
+        }
+        True -> {
+          case string.trim(alvo) {
+            "" -> {
+              let _ =
+                portas.mensageiro.enviar(
+                  chat_id,
+                  "⚠️ Informe o chat_id a ser desbloqueado.\nEx: `.unban 5531999990000`",
+                )
+              Ok(Nil)
+            }
+            alvo_id -> {
+              let desbloqueou = anti_spam.desbloquear(portas.anti_spam, alvo_id)
+              let resposta = case desbloqueou {
+                True -> "✅ Chat `" <> alvo_id <> "` desbloqueado com sucesso!"
+                False ->
+                  "ℹ️ O chat `"
+                  <> alvo_id
+                  <> "` não estava em quarentena ou bloqueio."
+              }
+              let _ = portas.mensageiro.enviar(chat_id, resposta)
               Ok(Nil)
             }
           }

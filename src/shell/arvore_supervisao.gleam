@@ -8,6 +8,7 @@ import gleam/otp/actor
 import gleam/otp/static_supervisor
 import portas/mensageiro_porta.{type MensageiroPorta}
 import portas/transacao_porta.{type TransacaoPorta}
+import shell/anti_spam
 import shell/cache_ia
 import shell/circuit_breaker
 import shell/fila_midia
@@ -25,6 +26,7 @@ pub type ProcessosSupervisionados {
     fila: fila_midia.FilasMidia,
     fila_offline: Subject(fila_offline.Mensagem),
     manutencao: Subject(manutencao.MensagemManutencao),
+    anti_spam: Subject(anti_spam.MensagemAntiSpam),
   )
 }
 
@@ -35,17 +37,25 @@ pub fn iniciar(
   #(static_supervisor.Supervisor, ProcessosSupervisionados),
   actor.StartError,
 ) {
-  iniciar_com_intervalo_manutencao(
-    transacoes,
-    mensageiro,
-    manutencao.intervalo_padrao_ms,
-  )
+  iniciar_completo(transacoes, mensageiro, manutencao.intervalo_padrao_ms, "")
 }
 
 pub fn iniciar_com_intervalo_manutencao(
   transacoes: TransacaoPorta,
   mensageiro: MensageiroPorta,
   intervalo_manutencao_ms: Int,
+) -> Result(
+  #(static_supervisor.Supervisor, ProcessosSupervisionados),
+  actor.StartError,
+) {
+  iniciar_completo(transacoes, mensageiro, intervalo_manutencao_ms, "")
+}
+
+pub fn iniciar_completo(
+  transacoes: TransacaoPorta,
+  mensageiro: MensageiroPorta,
+  intervalo_manutencao_ms: Int,
+  admin_chat_id: String,
 ) -> Result(
   #(static_supervisor.Supervisor, ProcessosSupervisionados),
   actor.StartError,
@@ -62,6 +72,7 @@ pub fn iniciar_com_intervalo_manutencao(
   let name_fila_stk = process.new_name("amelie_fila_sticker")
   let name_fila_offline = process.new_name("amelie_fila_offline")
   let name_manutencao = process.new_name("amelie_manutencao")
+  let name_anti_spam = process.new_name("amelie_anti_spam")
 
   let procs =
     ProcessosSupervisionados(
@@ -79,6 +90,7 @@ pub fn iniciar_com_intervalo_manutencao(
       ),
       fila_offline: process.named_subject(name_fila_offline),
       manutencao: process.named_subject(name_manutencao),
+      anti_spam: process.named_subject(name_anti_spam),
     )
 
   let builder =
@@ -104,6 +116,10 @@ pub fn iniciar_com_intervalo_manutencao(
       transacoes,
       intervalo_manutencao_ms,
       name_manutencao,
+    ))
+    |> static_supervisor.add(anti_spam.supervisionado(
+      name_anti_spam,
+      admin_chat_id,
     ))
 
   case static_supervisor.start(builder) {
