@@ -221,13 +221,21 @@ pub fn handle_imagem_desativada_retorna_ok_test() {
 pub fn extrair_trace_id_test() {
   let msg_com_id = fixtures.mensagem_texto("com id")
   handler_mensagem.extrair_trace_id(msg_com_id)
-  |> should.equal("MSG001")
+  |> should.equal("MSG00")
+
+  // ID longo típico do WhatsApp (ex: 3EB02...)
+  let msg_whatsapp =
+    Mensagem(..msg_com_id, message_id: option.Some("3EB0286653E6E8F95418C0"))
+  handler_mensagem.extrair_trace_id(msg_whatsapp)
+  |> should.equal("3EB02")
 
   let msg_sem_id = Mensagem(..msg_com_id, message_id: option.None)
   handler_mensagem.extrair_trace_id(msg_sem_id)
-  |> should.equal(
+  |> should.equal(string.slice(
     "req_" <> int.to_string(msg_sem_id.timestamp) <> "_" <> msg_sem_id.remetente,
-  )
+    0,
+    5,
+  ))
 }
 
 pub fn handle_com_rate_limit_envia_aviso_ao_usuario_test() {

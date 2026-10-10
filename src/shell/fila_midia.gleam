@@ -157,7 +157,7 @@ fn processar(
 
 fn tag_trace(msg: Mensagem) -> String {
   case msg.message_id {
-    option.Some(id) if id != "" -> " [trace:" <> id <> "]"
+    option.Some(id) if id != "" -> " [" <> string.slice(id, 0, 5) <> "]"
     _ -> ""
   }
 }
