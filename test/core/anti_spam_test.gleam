@@ -3,6 +3,7 @@
 
 import core/anti_spam.{
   AvisoLimite, Permitido, Silenciado, avaliar, contar_silenciados, desbloquear,
+  extrair_telefone, formatar_identificador, formatar_numero_telefone,
   limpar_inativos, novo_estado, peso_mensagem,
 }
 import dominio/mensagem.{Audio, Imagem, Texto, Video}
@@ -205,4 +206,61 @@ pub fn contar_silenciados_e_limpar_inativos_test() {
   let e_limpo = limpar_inativos(e6, t0 + 10_000, 3_600_000)
   contar_silenciados(e_limpo, t0 + 10_000)
   |> should.equal(1)
+}
+
+pub fn extrair_telefone_test() {
+  // Chat privado WhatsApp (mesmo chat_id e remetente)
+  extrair_telefone(
+    "5511999998888@s.whatsapp.net",
+    "5511999998888@s.whatsapp.net",
+  )
+  |> should.equal("+55 (11) 99999-8888")
+
+  // Chat com remetente vazio (usa chat_id)
+  extrair_telefone("5511999998888@c.us", "")
+  |> should.equal("+55 (11) 99999-8888")
+
+  // Mensagem em grupo: extrai o remetente específico
+  extrair_telefone("120363024@g.us", "5521988887777:2@s.whatsapp.net")
+  |> should.equal("+55 (21) 98888-7777")
+
+  // Fixo WhatsApp BR
+  extrair_telefone("553133334444@s.whatsapp.net", "")
+  |> should.equal("+55 (31) 3333-4444")
+
+  // LID em grupo
+  extrair_telefone("120363024@g.us", "123456789@lid")
+  |> should.equal("LID: 123456789")
+
+  // Telegram
+  extrair_telefone("tg:987654321", "tg:987654321")
+  |> should.equal("Telegram: 987654321")
+}
+
+pub fn formatar_identificador_e_numero_test() {
+  // Celular BR (13 dígitos)
+  formatar_identificador("5511999998888@s.whatsapp.net")
+  |> should.equal("+55 (11) 99999-8888")
+
+  // Fixo BR (12 dígitos)
+  formatar_identificador("553133334444@c.us")
+  |> should.equal("+55 (31) 3333-4444")
+
+  // LID
+  formatar_identificador("123456789@lid")
+  |> should.equal("LID: 123456789")
+
+  // Telegram
+  formatar_identificador("tg:987654321")
+  |> should.equal("Telegram: 987654321")
+
+  // Formatar número puro
+  formatar_numero_telefone("5511999998888")
+  |> should.equal("+55 (11) 99999-8888")
+
+  formatar_numero_telefone("553133334444")
+  |> should.equal("+55 (31) 3333-4444")
+
+  formatar_numero_telefone("14155552671")
+  |> should.equal("+14155552671")
 }

@@ -53,6 +53,7 @@ pub fn processar_updates_avanca_offset_e_despacha_test() {
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: portas_fake.anti_spam_ok(),
+      spammers: portas_fake.spammer_noop(),
     )
 
   let json =
@@ -92,6 +93,7 @@ pub fn despachar_arquivo_muito_grande_notifica_usuario_test() {
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: portas_fake.anti_spam_ok(),
+      spammers: portas_fake.spammer_noop(),
     )
 
   let evento = telegram_webhook.EventoArquivoMuitoGrande(9999, "tg:887766", 25)

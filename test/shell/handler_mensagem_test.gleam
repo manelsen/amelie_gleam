@@ -50,6 +50,7 @@ pub fn handle_texto_envia_para_whatsapp_test() {
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
+      spammers: portas_fake.spammer_noop(),
     )
   let _ = handler_mensagem.handle(msg, portas)
   // Verifica que whatsapp recebeu a mensagem
@@ -82,6 +83,7 @@ pub fn handle_texto_frio_sem_midia_orienta_usuario_test() {
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
+      spammers: portas_fake.spammer_noop(),
     )
   let _ = handler_mensagem.handle(msg, portas)
   let received = process.receive(ref, 1000)
@@ -112,6 +114,7 @@ pub fn handle_texto_marca_transacao_entregue_test() {
       transacoes: portas_fake.transacao_capturar(ref),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
+      spammers: portas_fake.spammer_noop(),
     )
   let result = handler_mensagem.handle(msg, portas)
   result |> should.be_ok
@@ -140,6 +143,7 @@ pub fn handle_texto_falha_atualiza_transacao_test() {
       transacoes: portas_fake.transacao_capturar(ref),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
+      spammers: portas_fake.spammer_noop(),
     )
   let result = handler_mensagem.handle(msg, portas)
   result |> should.be_error
@@ -168,6 +172,7 @@ pub fn handle_erro_config_retorna_erro_test() {
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
+      spammers: portas_fake.spammer_noop(),
     )
   let result = handler_mensagem.handle(msg, portas)
   result |> should.be_error
@@ -193,6 +198,7 @@ pub fn handle_erro_ia_retorna_erro_test() {
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
+      spammers: portas_fake.spammer_noop(),
     )
   let result = handler_mensagem.handle(msg, portas)
   result |> should.be_error
@@ -240,6 +246,7 @@ pub fn handle_com_rate_limit_envia_aviso_ao_usuario_test() {
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
+      spammers: portas_fake.spammer_noop(),
     )
 
   let img1 =
@@ -286,6 +293,7 @@ pub fn handle_com_unban_admin_test() {
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam_actor,
+      spammers: portas_fake.spammer_noop(),
     )
 
   // Mensagem de admin executando .unban
@@ -295,4 +303,46 @@ pub fn handle_com_unban_admin_test() {
   // Não sendo admin configurado no env, rejeita com comando restrito
   let assert Ok(#(_chat_id, texto)) = process.receive(ref, 1000)
   should.be_true(string.contains(texto, "restrito ao administrador"))
+}
+
+pub fn handle_com_rate_limit_registra_incidente_spammer_test() {
+  let ref_msg = process.new_subject()
+  let ref_spam = process.new_subject()
+  let portas =
+    handler_mensagem.Portas(
+      mensageiro: portas_fake.mensageiro_capturar(ref_msg),
+      ia_dispatcher: portas_fake.ia_dispatcher_ok("resposta"),
+      config: portas_fake.config_ok(fixtures.config_padrao()),
+      historico: portas_fake.historico_vazio(),
+      fila: fila_midia.iniciar_todas() |> should.be_ok,
+      prompts: portas_fake.prompt_noop(),
+      metricas: met(),
+      usuarios: portas_fake.usuario_noop(),
+      grupos: portas_fake.grupo_noop(),
+      transacoes: portas_fake.transacao_noop(),
+      providers_config: portas_fake.providers_config_ok(),
+      anti_spam: spam(),
+      spammers: portas_fake.spammer_capturar(ref_spam),
+    )
+
+  let img1 =
+    Mensagem(..fixtures.mensagem_imagem(), message_id: option.Some("IMG_1"))
+  let img2 =
+    Mensagem(..fixtures.mensagem_imagem(), message_id: option.Some("IMG_2"))
+  let img3 =
+    Mensagem(..fixtures.mensagem_imagem(), message_id: option.Some("IMG_3"))
+
+  let _ = handler_mensagem.handle(img1, portas)
+  let _ = handler_mensagem.handle(img2, portas)
+  let _ = handler_mensagem.handle(img3, portas)
+
+  let assert Ok(evento) = process.receive(ref_spam, 1000)
+  case evento {
+    portas_fake.IncidenteRegistrado(chat_id, _remetente, tel, motivo, strike) -> {
+      chat_id |> should.equal(fixtures.chat_id())
+      strike |> should.equal(1)
+      string.contains(motivo, "Calma lá") |> should.be_true
+      string.contains(tel, "+55") |> should.be_true
+    }
+  }
 }

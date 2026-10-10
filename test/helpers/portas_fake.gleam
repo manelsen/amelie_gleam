@@ -12,6 +12,7 @@ import portas/historico_porta.{type HistoricoPorta, HistoricoPorta}
 import portas/ia_porta.{type IAPorta, IAPorta}
 import portas/mensageiro_porta.{type MensageiroPorta, MensageiroPorta}
 import portas/prompt_porta.{type PromptPorta, PromptPorta}
+import portas/spammer_porta.{type SpammerPorta, SpammerPorta}
 import portas/transacao_porta.{type TransacaoPorta, TransacaoPorta}
 import portas/usuario_porta.{type UsuarioPorta, UsuarioPorta}
 import shell/fila_midia
@@ -295,6 +296,40 @@ pub fn transacao_capturar(
   )
 }
 
+pub fn spammer_noop() -> SpammerPorta {
+  SpammerPorta(
+    registrar: fn(_, _, _, _, _) { Ok(Nil) },
+    listar_recentes: fn(_) { Ok([]) },
+    listar_top: fn(_) { Ok([]) },
+    contar: fn() { Ok(0) },
+  )
+}
+
+pub type EventoSpammer {
+  IncidenteRegistrado(
+    chat_id: String,
+    remetente: String,
+    telefone: String,
+    motivo: String,
+    strike: Int,
+  )
+}
+
+pub fn spammer_capturar(ref: process.Subject(EventoSpammer)) -> SpammerPorta {
+  SpammerPorta(
+    registrar: fn(chat_id, remetente, telefone, motivo, strike) {
+      process.send(
+        ref,
+        IncidenteRegistrado(chat_id, remetente, telefone, motivo, strike),
+      )
+      Ok(Nil)
+    },
+    listar_recentes: fn(_) { Ok([]) },
+    listar_top: fn(_) { Ok([]) },
+    contar: fn() { Ok(0) },
+  )
+}
+
 // ---------------------------------------------------------------------------
 import shell/anti_spam
 
@@ -330,5 +365,6 @@ pub fn portas_ok(cfg, resposta_ia: String) -> Portas {
     transacoes: transacao_noop(),
     providers_config: providers_config.padrao(),
     anti_spam: spam,
+    spammers: spammer_noop(),
   )
 }
