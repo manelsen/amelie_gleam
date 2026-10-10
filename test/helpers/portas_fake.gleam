@@ -160,6 +160,15 @@ pub fn historico_vazio() -> HistoricoPorta {
   historico_com([])
 }
 
+pub fn historico_com_midia() -> HistoricoPorta {
+  historico_com([
+    mensagem.TurnoUsuario("[imagem]"),
+    mensagem.TurnoAssistente(
+      "Audiodescrição da imagem: Uma xícara de café sobre a mesa.",
+    ),
+  ])
+}
+
 pub fn historico_com(turnos: List(Turno)) -> HistoricoPorta {
   HistoricoPorta(
     obter: fn(_) { Ok(turnos) },

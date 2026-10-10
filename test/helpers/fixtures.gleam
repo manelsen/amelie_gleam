@@ -155,3 +155,12 @@ pub fn historico_com_turnos() -> List(Turno) {
     TurnoAssistente("Tudo bem! E você?"),
   ]
 }
+
+pub fn historico_com_midia() -> List(Turno) {
+  [
+    TurnoUsuario("[imagem]"),
+    TurnoAssistente(
+      "Audiodescrição da imagem: Uma xícara de café sobre a mesa.",
+    ),
+  ]
+}

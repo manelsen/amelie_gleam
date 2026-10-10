@@ -137,7 +137,7 @@ pub fn fluxo_telegram_conversa_ia_test() {
       config: portas_fake.config_ok(
         config.Config(..fixtures.config_padrao(), chat_id: "tg:555444"),
       ),
-      historico: portas_fake.historico_vazio(),
+      historico: portas_fake.historico_com_midia(),
       fila: filas,
       prompts: portas_fake.prompt_noop(),
       metricas: met,
@@ -160,6 +160,43 @@ pub fn fluxo_telegram_conversa_ia_test() {
   chat_id |> should.equal("tg:555444")
   texto
   |> should.equal("Olá! Sou a Amélie no Telegram. Como posso te ajudar hoje?")
+}
+
+pub fn fluxo_telegram_conversa_ia_sem_midia_orienta_test() {
+  let ref_envio = process.new_subject()
+  let filas = fila_midia.iniciar_todas() |> should.be_ok
+  let met = metricas.iniciar() |> should.be_ok
+
+  let portas =
+    Portas(
+      mensageiro: portas_fake.mensageiro_capturar(ref_envio),
+      ia_dispatcher: portas_fake.ia_dispatcher_ok(
+        "Olá! Sou a Amélie no Telegram. Como posso te ajudar hoje?",
+      ),
+      config: portas_fake.config_ok(
+        config.Config(..fixtures.config_padrao(), chat_id: "tg:555444"),
+      ),
+      historico: portas_fake.historico_vazio(),
+      fila: filas,
+      prompts: portas_fake.prompt_noop(),
+      metricas: met,
+      usuarios: portas_fake.usuario_noop(),
+      grupos: portas_fake.grupo_noop(),
+      transacoes: portas_fake.transacao_noop(),
+      providers_config: portas_fake.providers_config_ok(),
+      anti_spam: portas_fake.anti_spam_ok(),
+    )
+
+  let json =
+    "{\"update_id\":2003,\"message\":{\"message_id\":52,\"date\":0,\"chat\":{\"id\":555444,\"type\":\"private\"},\"text\":\"Me ajuda com um código python?\"}}"
+    |> bit_array.from_string
+
+  let assert Ok(Some(msg)) = telegram_webhook.parsear_update(json)
+  let _ = handler_mensagem.handle(msg, portas)
+
+  let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 1000)
+  chat_id |> should.equal("tg:555444")
+  should.be_true(string.contains(texto, "especializada na análise"))
 }
 
 pub fn parsear_evento_foto_alta_resolucao_test() {

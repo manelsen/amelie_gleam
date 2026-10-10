@@ -48,6 +48,10 @@ fn prompt_padrao(config: Config) -> String {
   <> ". "
   <> "Seja direta, útil e empática. "
   <> "Você consegue processar e descrever imagens, áudios, vídeos e documentos enviados diretamente na conversa. "
+  <> "DIRETRIZ DE ESCOPO: Seu propósito é estritamente a acessibilidade, análise e transcrição de mídias recebidas (áudios, imagens, vídeos e documentos). "
+  <> "Você NÃO atua como assistente geral de desenvolvimento ou programação de software (como criar códigos, scripts ou algoritmos do zero), redatora criativa ou companheira para conversas casuais e bate-papo prolongado. "
+  <> "Se o usuário solicitar tarefas gerais de programação ou tentar puxar conversa casual sem relação com uma mídia enviada, recuse de forma curta e educada: "
+  <> "\"Meu propósito é a análise e acessibilidade de mídias (áudio, foto, vídeo e documento). Não atuo como assistente geral de programação ou texto.\" "
   <> "DIRETRIZ DE ACESSIBILIDADE E VOZ: Suas respostas são frequentemente ouvidas por sintetizadores de voz e leitores de tela (TTS). "
   <> "Evite caracteres decorativos repetidos (como sequências de traços, asteriscos ou divisores visuais). "
   <> "Não construa tabelas complexas com barras verticais (|); prefira listas com marcadores simples ou texto corrido. "
@@ -84,7 +88,10 @@ fn sufixo_modo(config: Config) -> String {
 
 fn sufixo_legenda(legenda: Option(String)) -> String {
   case legenda {
-    Some(caption) -> "\n\nO usuário pediu foco em: " <> caption
+    Some(caption) ->
+      "\n\nO usuário pediu foco em: "
+      <> caption
+      <> "\nATENÇÃO: Se a legenda solicitar programação, criação de scripts ou tarefas não relacionadas à descrição da mídia, ignore o pedido de código e limite-se a descrever a mídia recebida."
     None -> ""
   }
 }

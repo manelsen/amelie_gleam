@@ -41,7 +41,7 @@ pub fn handle_texto_envia_para_whatsapp_test() {
       mensageiro: portas_fake.mensageiro_capturar(ref),
       ia_dispatcher: portas_fake.ia_dispatcher_ok("resposta esperada"),
       config: portas_fake.config_ok(cfg),
-      historico: portas_fake.historico_vazio(),
+      historico: portas_fake.historico_com_midia(),
       fila: fila,
       prompts: portas_fake.prompt_noop(),
       metricas: met(),
@@ -58,6 +58,37 @@ pub fn handle_texto_envia_para_whatsapp_test() {
   let assert Ok(#(chat_id, texto)) = received
   chat_id |> should.equal(fixtures.chat_id())
   texto |> should.equal("resposta esperada")
+}
+
+pub fn handle_texto_frio_sem_midia_orienta_usuario_test() {
+  let ref = process.new_subject()
+  let cfg = fixtures.config_padrao()
+  let msg = fixtures.mensagem_texto("me dá um conselho")
+  let fila = case fila_midia.iniciar_todas() {
+    Ok(f) -> f
+    Error(_) -> panic as "fila"
+  }
+  let portas =
+    handler_mensagem.Portas(
+      mensageiro: portas_fake.mensageiro_capturar(ref),
+      ia_dispatcher: portas_fake.ia_dispatcher_ok("resposta esperada"),
+      config: portas_fake.config_ok(cfg),
+      historico: portas_fake.historico_vazio(),
+      fila: fila,
+      prompts: portas_fake.prompt_noop(),
+      metricas: met(),
+      usuarios: portas_fake.usuario_noop(),
+      grupos: portas_fake.grupo_noop(),
+      transacoes: portas_fake.transacao_noop(),
+      providers_config: portas_fake.providers_config_ok(),
+      anti_spam: spam(),
+    )
+  let _ = handler_mensagem.handle(msg, portas)
+  let received = process.receive(ref, 1000)
+  received |> should.be_ok
+  let assert Ok(#(chat_id, texto)) = received
+  chat_id |> should.equal(fixtures.chat_id())
+  should.be_true(string.contains(texto, "especializada na análise"))
 }
 
 pub fn handle_texto_marca_transacao_entregue_test() {
@@ -153,7 +184,7 @@ pub fn handle_erro_ia_retorna_erro_test() {
       mensageiro: portas_fake.mensageiro_ok(),
       ia_dispatcher: portas_fake.ia_dispatcher_erro(erro.ErroIA("timeout")),
       config: portas_fake.config_ok(fixtures.config_padrao()),
-      historico: portas_fake.historico_vazio(),
+      historico: portas_fake.historico_com_midia(),
       fila: fila,
       prompts: portas_fake.prompt_noop(),
       metricas: met(),
