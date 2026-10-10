@@ -135,10 +135,11 @@ pub fn main() {
   let mensageiro = roteador_mensageiro.criar(whatsapp, telegram)
 
   let #(_supervisor, procs) =
-    arvore_supervisao.iniciar_com_intervalo_manutencao(
+    arvore_supervisao.iniciar_completo(
       transacoes_p,
       mensageiro,
       manutencao_intervalo_ms,
+      telegram_admin_chat_id,
     )
     |> result.lazy_unwrap(fn() {
       panic as "falha ao iniciar árvore de supervisão de processos de suporte"
@@ -172,6 +173,7 @@ pub fn main() {
       grupos: grupos_p,
       transacoes: transacoes_p,
       providers_config: providers_config,
+      anti_spam: procs.anti_spam,
     )
 
   let _ = telegram_poller.iniciar(telegram_bot_token, portas)

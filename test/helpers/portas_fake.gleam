@@ -287,8 +287,16 @@ pub fn transacao_capturar(
 }
 
 // ---------------------------------------------------------------------------
+import shell/anti_spam
+
+// ---------------------------------------------------------------------------
 // Portas completas para testes de integração
 // ---------------------------------------------------------------------------
+
+pub fn anti_spam_ok() -> anti_spam.AntiSpam {
+  let assert Ok(a) = anti_spam.iniciar("")
+  a
+}
 
 pub fn portas_ok(cfg, resposta_ia: String) -> Portas {
   let fila = case fila_midia.iniciar_todas() {
@@ -299,6 +307,7 @@ pub fn portas_ok(cfg, resposta_ia: String) -> Portas {
     Ok(m) -> m
     Error(_) -> panic as "falha ao iniciar métricas nos testes"
   }
+  let spam = anti_spam_ok()
   Portas(
     mensageiro: mensageiro_ok(),
     ia_dispatcher: ia_dispatcher_ok(resposta_ia),
@@ -311,5 +320,6 @@ pub fn portas_ok(cfg, resposta_ia: String) -> Portas {
     grupos: grupo_noop(),
     transacoes: transacao_noop(),
     providers_config: providers_config.padrao(),
+    anti_spam: spam,
   )
 }

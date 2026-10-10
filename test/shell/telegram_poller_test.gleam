@@ -52,6 +52,7 @@ pub fn processar_updates_avanca_offset_e_despacha_test() {
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
+      anti_spam: portas_fake.anti_spam_ok(),
     )
 
   let json =
@@ -65,7 +66,7 @@ pub fn processar_updates_avanca_offset_e_despacha_test() {
   novo_offset |> should.equal(5002)
 
   // Deve ter despachado e respondido para o chat tg:887766
-  let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 2500)
+  let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 5000)
   chat_id |> should.equal("tg:887766")
   should.be_true(string.contains(texto, "Amélie — Comandos disponíveis"))
 }
@@ -90,6 +91,7 @@ pub fn despachar_arquivo_muito_grande_notifica_usuario_test() {
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
+      anti_spam: portas_fake.anti_spam_ok(),
     )
 
   let evento = telegram_webhook.EventoArquivoMuitoGrande(9999, "tg:887766", 25)

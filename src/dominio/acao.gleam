@@ -31,6 +31,7 @@ pub type Acao {
   SolicitarPareamento(chat_id: String, args: String)
   ConsultarStatus(chat_id: String)
   ResetarWhatsApp(chat_id: String, args: String)
+  DesbloquearChat(chat_id: String, alvo: String)
   NaoResponder
 }
 

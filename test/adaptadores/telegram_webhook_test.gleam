@@ -106,6 +106,7 @@ pub fn fluxo_telegram_com_handler_mensagem_test() {
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
+      anti_spam: portas_fake.anti_spam_ok(),
     )
 
   let json =
@@ -144,6 +145,7 @@ pub fn fluxo_telegram_conversa_ia_test() {
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
+      anti_spam: portas_fake.anti_spam_ok(),
     )
 
   let json =
