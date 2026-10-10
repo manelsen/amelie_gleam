@@ -10,23 +10,24 @@ import gleam/string
 import gleeunit/should
 import helpers/fixtures
 
-pub fn processar_texto_simples_test() {
+pub fn processar_texto_frio_sem_midia_orienta_usuario_test() {
   let msg = fixtures.mensagem_texto("Olá, tudo bem?")
   let cfg = fixtures.config_padrao()
   let result = processador.processar(msg, cfg, [])
   result |> should.be_ok
-  let assert Ok([GerarEEnviar(para: _, prompt: prompt)]) = result
-  string.contains(prompt, "Olá, tudo bem?") |> should.be_true
+  let assert Ok([EnviarResposta(para: _, corpo: corpo)]) = result
+  string.contains(corpo, "especializada na análise e acessibilidade de mídias")
+  |> should.be_true
 }
 
-pub fn processar_texto_com_historico_test() {
-  let msg = fixtures.mensagem_texto("Como vai?")
+pub fn processar_texto_com_midia_no_historico_test() {
+  let msg = fixtures.mensagem_texto("O que tem na foto?")
   let cfg = fixtures.config_padrao()
-  let hist = fixtures.historico_com_turnos()
+  let hist = fixtures.historico_com_midia()
   let result = processador.processar(msg, cfg, hist)
   result |> should.be_ok
   let assert Ok([GerarEEnviar(para: _, prompt: prompt)]) = result
-  string.contains(prompt, "Olá") |> should.be_true
+  string.contains(prompt, "O que tem na foto?") |> should.be_true
 }
 
 pub fn processar_texto_vazio_retorna_erro_test() {
@@ -40,7 +41,8 @@ pub fn processar_texto_longo_test() {
   let texto_longo = string.repeat("a", 4097)
   let msg = fixtures.mensagem_texto(texto_longo)
   let cfg = fixtures.config_padrao()
-  let result = processador.processar(msg, cfg, [])
+  let hist = fixtures.historico_com_midia()
+  let result = processador.processar(msg, cfg, hist)
   result |> should.be_ok
   let assert Ok([GerarEEnviar(para: _, prompt: prompt)]) = result
   string.contains(prompt, texto_longo) |> should.be_true
@@ -160,9 +162,23 @@ pub fn processar_grupo_com_mencao_processa_test() {
       menciona_bot: True,
     )
   let cfg = fixtures.config_padrao()
-  let result = processador.processar(msg, cfg, [])
+  let result = processador.processar(msg, cfg, fixtures.historico_com_midia())
   result |> should.be_ok
   let assert Ok([GerarEEnviar(_, _)]) = result
+}
+
+pub fn processar_grupo_com_mencao_sem_midia_orienta_test() {
+  let msg =
+    mensagem.Mensagem(
+      ..fixtures.mensagem_texto("@amelie como está?"),
+      em_grupo: True,
+      menciona_bot: True,
+    )
+  let cfg = fixtures.config_padrao()
+  let result = processador.processar(msg, cfg, [])
+  result |> should.be_ok
+  let assert Ok([EnviarResposta(_, texto)]) = result
+  should.be_true(string.contains(texto, "especializada na análise"))
 }
 
 // ---------------------------------------------------------------------------

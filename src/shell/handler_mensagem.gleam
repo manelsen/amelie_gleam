@@ -249,7 +249,19 @@ fn processar_mensagem(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
 fn handle_interno(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
   use cfg <- result.try(portas.config.obter(msg.chat_id))
   use hist <- result.try(portas.historico.obter(msg.chat_id))
-  use acoes <- result.try(processador.processar(msg, cfg, hist))
+  let admin_id =
+    get_env("TELEGRAM_ADMIN_CHAT_ID")
+    |> result.unwrap(or: "")
+  let eh_admin =
+    admin_id != ""
+    && {
+      msg.chat_id == "tg:" <> admin_id || msg.remetente == "tg:" <> admin_id
+    }
+  let hist_efetivo = case eh_admin {
+    True -> [TurnoUsuario("[admin]"), ..hist]
+    False -> hist
+  }
+  use acoes <- result.try(processador.processar(msg, cfg, hist_efetivo))
   let vai_enfileirar_video =
     list.any(acoes, fn(a) {
       case a {
@@ -355,6 +367,11 @@ fn executar_acao(
         logging.Info,
         "Enfileirando mídia para processamento no chat " <> chat_id,
       )
+      let _ =
+        portas.historico.adicionar(
+          chat_id,
+          TurnoUsuario(extrair_texto_usuario(msg)),
+        )
       let ia_porta =
         ia_dispatcher.como_porta(ia_dispatcher.IADispatcherPorta(
           dispatcher: portas.ia_dispatcher,
@@ -599,6 +616,11 @@ fn executar_acao(
                     caminho_temp: caminho,
                     mime: "video/mp4",
                   ),
+                )
+              let _ =
+                portas.historico.adicionar(
+                  chat_id,
+                  TurnoUsuario("[vídeo: " <> url <> "]"),
                 )
               let _ =
                 fila_midia.enfileirar(

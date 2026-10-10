@@ -82,12 +82,45 @@ fn processar_texto(
               ])
           }
         option.None -> {
-          let prompt = builder.montar(texto_val, config, historico)
-          Ok([GerarEEnviar(para: config.chat_id, prompt: prompt)])
+          case tem_midia_no_historico(historico) {
+            True -> {
+              let prompt = builder.montar(texto_val, config, historico)
+              Ok([GerarEEnviar(para: config.chat_id, prompt: prompt)])
+            }
+            False -> {
+              let msg_explicativa =
+                "👋 Olá! Eu sou a Amélie, especializada na análise e acessibilidade de mídias (áudios, imagens, vídeos e documentos).\n\n"
+                <> "Para iniciar uma conversa, envie uma mídia (áudio, foto, vídeo ou documento) ou um link de vídeo. "
+                <> "Não atuo como assistente geral de texto ou programação."
+              Ok([EnviarResposta(para: config.chat_id, corpo: msg_explicativa)])
+            }
+          }
         }
       }
     }
   }
+}
+
+pub fn tem_midia_no_historico(historico: List(Turno)) -> Bool {
+  list.any(historico, fn(t) {
+    case t {
+      mensagem.TurnoUsuario(conteudo) ->
+        string.contains(conteudo, "[imagem]")
+        || string.contains(conteudo, "[áudio]")
+        || string.contains(conteudo, "[vídeo]")
+        || string.contains(conteudo, "[documento")
+        || string.contains(conteudo, "[sticker]")
+        || string.contains(conteudo, "[admin]")
+        || string.contains(conteudo, "http://")
+        || string.contains(conteudo, "https://")
+      mensagem.TurnoAssistente(conteudo) ->
+        string.contains(conteudo, "Audiodescrição da imagem")
+        || string.contains(conteudo, "Transcrição do áudio")
+        || string.contains(conteudo, "Audiodescrição do vídeo")
+        || string.contains(conteudo, "Transcrição do vídeo")
+        || string.contains(conteudo, "[admin]")
+    }
+  })
 }
 
 fn e_url_video(url: String) -> Bool {
