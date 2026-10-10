@@ -72,17 +72,18 @@ pub type Portas {
 }
 
 pub fn extrair_trace_id(msg: Mensagem) -> String {
-  case msg.message_id {
+  let id = case msg.message_id {
     option.Some(id) if id != "" -> id
     _ -> "req_" <> int.to_string(msg.timestamp) <> "_" <> msg.remetente
   }
+  string.slice(id, 0, 5)
 }
 
 pub fn handle(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
   let trace_id = extrair_trace_id(msg)
   logging.log(
     logging.Info,
-    "[trace:"
+    "["
       <> trace_id
       <> "] Mensagem recebida do chat "
       <> msg.chat_id
@@ -100,7 +101,7 @@ pub fn handle(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
     True -> {
       logging.log(
         logging.Info,
-        "[trace:"
+        "["
           <> trace_id
           <> "] Mensagem ignorada por ser muito antiga (ts="
           <> int.to_string(msg.timestamp)
@@ -119,7 +120,7 @@ pub fn handle(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
             Ok(True) -> {
               logging.log(
                 logging.Info,
-                "[trace:"
+                "["
                   <> trace_id
                   <> "] Mensagem ja processada, ignorando: "
                   <> msg_id,
@@ -165,7 +166,7 @@ fn processar_mensagem_com_anti_spam(
         )
       logging.log(
         logging.Warning,
-        "[trace:"
+        "["
           <> trace_id
           <> "] Rate limit acionado para "
           <> tel
@@ -191,7 +192,7 @@ fn processar_mensagem_com_anti_spam(
         )
       logging.log(
         logging.Warning,
-        "[trace:"
+        "["
           <> trace_id
           <> "] Mensagem descartada silenciosamente por quarentena anti-spam: "
           <> tel
@@ -234,7 +235,7 @@ fn processar_mensagem(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
   let trace_id = extrair_trace_id(msg)
   logging.log(
     logging.Info,
-    "[trace:" <> trace_id <> "] Processando mensagem: " <> msg.chat_id,
+    "[" <> trace_id <> "] Processando mensagem: " <> msg.chat_id,
   )
 
   let _ = portas.usuarios.registrar(msg.chat_id)
@@ -257,7 +258,7 @@ fn processar_mensagem(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
       // Log do erro no servidor
       logging.log(
         logging.Warning,
-        "[trace:"
+        "["
           <> trace_id
           <> "] Erro ao processar mensagem de "
           <> msg.remetente
@@ -320,7 +321,7 @@ fn executar_acao(
       let trace_id = extrair_trace_id(msg)
       logging.log(
         logging.Info,
-        "[trace:" <> trace_id <> "] Enviando texto gerado pela IA para " <> para,
+        "[" <> trace_id <> "] Enviando texto gerado pela IA para " <> para,
       )
       use resposta <- result.try(ia_dispatcher.gerar_texto(
         portas.ia_dispatcher,
