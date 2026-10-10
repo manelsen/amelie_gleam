@@ -32,9 +32,9 @@ de integração entre os processos Gleam e Go.
 
 - Dispatcher para múltiplos provedores: Google Gemini e OpenRouter.
 - Seleção de provedor e modelo por chat.
-- `gemini-3.8-flash` como modelo padrão e na compactação de histórico.
-- Migração automática de configurações no antigo padrão
-  `gemini-3.1-flash-lite`; escolhas explícitas por outros modelos são preservadas.
+- `gemini-3.5-flash-lite` como modelo padrão e na compactação de histórico.
+- Migração automática de configurações nos padrões antigos
+  `gemini-3.8-flash` e `gemini-3.1-flash-lite`; escolhas explícitas por outros modelos são preservadas.
 - Processamento de texto, imagem, áudio, vídeo e documentos.
 - Upload e polling de arquivos pela Gemini File API.
 - Cache de respostas por prompt/modelo com TTL e limite de entradas.
@@ -144,7 +144,7 @@ de integração entre os processos Gleam e Go.
   - Análise estruturada de documentos e PDFs (foco prioritário em contas, faturas, boletos, código de barras/PIX copia-e-cola e contratos).
   - Compactação inteligente de histórico e comando `.resumo` / `/resumo` preservando contexto essencial.
 - [ ] Decidir se a seleção de modelos antigos/OpenRouter continuará exposta por
-  chat ou se produção ficará restrita ao `gemini-3.8-flash`.
+  chat ou se produção ficará restrita ao `gemini-3.5-flash-lite`.
 - [ ] Adicionar plugins/ferramentas com permissões e limites explícitos.
 - [ ] Avaliar modelos locais via Ollama depois de estabilizar observabilidade e
   operação multi-canal.

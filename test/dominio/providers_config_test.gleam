@@ -12,11 +12,11 @@ pub fn ler_arquivo_yaml_test() {
 
 pub fn validar_modelo_yaml_test() {
   let assert Ok(cfg) = providers_config.ler_arquivo("./config/providers.yaml")
-  providers_config.validar_modelo(cfg, "gemini", "gemini-3.8-flash")
+  providers_config.validar_modelo(cfg, "gemini", "gemini-3.5-flash-lite")
   |> should.be_ok
 }
 
-pub fn modelo_padrao_e_gemini_3_8_flash_test() {
+pub fn modelo_padrao_e_gemini_3_5_flash_lite_test() {
   let cfg = config.padrao("chat")
-  cfg.modelo |> should.equal("gemini-3.8-flash")
+  cfg.modelo |> should.equal("gemini-3.5-flash-lite")
 }

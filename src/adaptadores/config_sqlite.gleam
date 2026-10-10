@@ -12,7 +12,7 @@ import sqlight
 const schema = "CREATE TABLE IF NOT EXISTS configs (
   chat_id TEXT PRIMARY KEY,
   provedor TEXT NOT NULL DEFAULT 'gemini',
-  modelo TEXT NOT NULL DEFAULT 'gemini-3.8-flash',
+  modelo TEXT NOT NULL DEFAULT 'gemini-3.5-flash-lite',
   historico_max INTEGER NOT NULL DEFAULT 50,
   prompt_sistema TEXT NOT NULL DEFAULT '',
   audio_ativo INTEGER NOT NULL DEFAULT 1,
@@ -39,7 +39,7 @@ pub fn criar(conn: sqlight.Connection) -> ConfigPorta {
     )
   let _ =
     sqlight.exec(
-      "UPDATE configs SET modelo = 'gemini-3.8-flash' WHERE provedor = 'gemini' AND modelo = 'gemini-3.1-flash-lite'",
+      "UPDATE configs SET modelo = 'gemini-3.5-flash-lite' WHERE provedor = 'gemini' AND modelo IN ('gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash-lite')",
       conn,
     )
   ConfigPorta(

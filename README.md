@@ -72,7 +72,7 @@ Se você preferir ligar ou desligar o processamento de certos arquivos na conver
 ### Comandos avançados de inteligência artificial
 
 - `.modelo` ou `/modelo`: Informa qual motor de inteligência artificial e modelo estão ativos na sua conversa.
-- `.modelo provedor/modelo`: Troca o modelo utilizado (por exemplo: `.modelo gemini/gemini-2.5-pro` ou `.modelo gemini/gemini-3.8-flash`).
+- `.modelo provedor/modelo`: Troca o modelo utilizado (por exemplo: `.modelo gemini/gemini-2.5-pro` ou `.modelo gemini/gemini-3.5-flash-lite`).
 
 ### Comandos de administração remota (Telegram)
 

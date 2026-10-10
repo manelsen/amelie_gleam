@@ -16,7 +16,7 @@ Funcionalidades migradas e ativas no `amelie_gleam`:
   - Figurinhas / Stickers (WebP estático, figurinhas animadas convertidas para MP4 via PIL/ffmpeg ou grade de quadros via `webpmux`/`dwebp`, além de fallback textual por metadados).
   - Links de redes sociais (extração e descrição de vídeos de YouTube, Instagram e TikTok via `yt-dlp`).
 - **Persistência SQLite:**
-  - Configuração por chat com migração automática para `gemini-3.8-flash`.
+  - Configuração por chat com migração automática para `gemini-3.5-flash-lite`.
   - Histórico de turnos com limite configurável.
   - Auditoria transacional de entregas (`transacoes`) para deduplicação e retry.
   - Registro de usuários, grupos e prompts nomeados.
@@ -49,7 +49,7 @@ Funcionalidades migradas e ativas no `amelie_gleam`:
 
 - [x] Expor seleção de `provedor` e `modelo` por comando com persistência (`.modelo provedor/modelo`).
 - [x] Validação de provedores e modelos a partir de `config/providers.yaml`.
-- [x] Migração automática de configurações legadas para o novo padrão `gemini-3.8-flash`.
+- [x] Migração automática de configurações legadas para o novo padrão `gemini-3.5-flash-lite`.
 
 ### 3. Resiliência de entrega
 
@@ -92,7 +92,7 @@ Funcionalidades migradas e ativas no `amelie_gleam`:
 ### P1 — Concluído ✅
 - Citação de resposta e fallback.
 - Detecção e leitura de URLs em mensagens.
-- Provedor configurável (`.modelo`) e migração para `gemini-3.8-flash`.
+- Provedor configurável (`.modelo`) e migração para `gemini-3.5-flash-lite`.
 - Circuit Breaker, Cache de IA e telemetria BEAM.
 
 ### P2 — Multicanal e Operação — Concluído ✅
