@@ -5,6 +5,7 @@ import adaptadores/historico_sqlite
 import adaptadores/openrouter_http
 import adaptadores/prompt_sqlite
 import adaptadores/roteador_mensageiro
+import adaptadores/spammer_sqlite
 import adaptadores/telegram_http
 import adaptadores/telegram_webhook
 import adaptadores/transacao_sqlite
@@ -130,6 +131,7 @@ pub fn main() {
   let usuarios_p = usuario_sqlite.criar(conn)
   let grupos_p = grupo_sqlite.criar(conn)
   let transacoes_p = transacao_sqlite.criar(conn)
+  let spammers_p = spammer_sqlite.criar(conn)
   let whatsapp = whatsmeow_http.criar(bridge_url)
   let telegram = telegram_http.criar(telegram_bot_token)
   let mensageiro = roteador_mensageiro.criar(whatsapp, telegram)
@@ -174,6 +176,7 @@ pub fn main() {
       transacoes: transacoes_p,
       providers_config: providers_config,
       anti_spam: procs.anti_spam,
+      spammers: spammers_p,
     )
 
   let _ = telegram_poller.iniciar(telegram_bot_token, portas)

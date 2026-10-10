@@ -32,6 +32,7 @@ pub type Acao {
   ConsultarStatus(chat_id: String)
   ResetarWhatsApp(chat_id: String, args: String)
   DesbloquearChat(chat_id: String, alvo: String)
+  ConsultarSpammers(chat_id: String)
   NaoResponder
 }
 

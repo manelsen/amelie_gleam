@@ -3,12 +3,14 @@
 
 import dominio/config
 import dominio/mensagem
+import dominio/spammer.{ResumoSpammer}
 import gleam/erlang/process
 import gleam/string
 import gleeunit/should
 import helpers/env
 import helpers/fixtures
 import helpers/portas_fake
+import portas/spammer_porta.{SpammerPorta}
 import shell/fila_midia
 import shell/handler_mensagem.{Portas}
 import shell/metricas
@@ -43,6 +45,7 @@ pub fn audio_off_persiste_config_test() {
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
+      spammers: portas_fake.spammer_noop(),
     )
   let msg = fixtures.mensagem_comando("audio", "off")
   let _ = handler_mensagem.handle(msg, portas)
@@ -67,6 +70,7 @@ pub fn audio_on_persiste_config_test() {
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
+      spammers: portas_fake.spammer_noop(),
     )
   let msg = fixtures.mensagem_comando("audio", "on")
   let _ = handler_mensagem.handle(msg, portas)
@@ -91,6 +95,7 @@ pub fn audio_toggle_sem_argumento_persiste_config_test() {
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
+      spammers: portas_fake.spammer_noop(),
     )
   // config_padrao tem audio_ativo: True; sem argumento, alterna para False
   let msg = fixtures.mensagem_comando("audio", "")
@@ -116,6 +121,7 @@ pub fn reset_limpa_historico_test() {
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
+      spammers: portas_fake.spammer_noop(),
     )
   let msg = fixtures.mensagem_comando("reset", "")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -140,6 +146,7 @@ pub fn cego_persiste_config_test() {
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
+      spammers: portas_fake.spammer_noop(),
     )
   let msg = fixtures.mensagem_comando("cego", "")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -167,6 +174,7 @@ pub fn longo_persiste_config_test() {
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
+      spammers: portas_fake.spammer_noop(),
     )
   let msg = fixtures.mensagem_comando("longo", "")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -191,6 +199,7 @@ pub fn curto_persiste_config_test() {
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
+      spammers: portas_fake.spammer_noop(),
     )
   let msg = fixtures.mensagem_comando("curto", "")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -215,6 +224,7 @@ pub fn legenda_on_persiste_config_test() {
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
+      spammers: portas_fake.spammer_noop(),
     )
   let msg = fixtures.mensagem_comando("legenda", "on")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -242,6 +252,7 @@ pub fn parear_bloqueado_para_nao_admin_test() {
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
+      spammers: portas_fake.spammer_noop(),
     )
   let msg =
     mensagem.Mensagem(
@@ -275,6 +286,7 @@ pub fn status_bloqueado_para_nao_admin_test() {
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
+      spammers: portas_fake.spammer_noop(),
     )
   let msg =
     mensagem.Mensagem(
@@ -309,6 +321,7 @@ pub fn status_permitido_para_admin_test() {
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
+      spammers: portas_fake.spammer_noop(),
     )
   let msg =
     mensagem.Mensagem(
@@ -343,6 +356,7 @@ pub fn reset_whatsapp_bloqueado_para_nao_admin_test() {
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
+      spammers: portas_fake.spammer_noop(),
     )
   let msg =
     mensagem.Mensagem(
@@ -377,6 +391,7 @@ pub fn reset_whatsapp_permitido_para_admin_test() {
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
+      spammers: portas_fake.spammer_noop(),
     )
   let msg =
     mensagem.Mensagem(
@@ -413,6 +428,7 @@ pub fn resumo_historico_curto_avisa_usuario_test() {
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
+      spammers: portas_fake.spammer_noop(),
     )
   let msg = fixtures.mensagem_comando("resumo", "")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -473,6 +489,7 @@ pub fn resumo_historico_com_turnos_gera_resumo_test() {
       transacoes: portas_fake.transacao_noop(),
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
+      spammers: portas_fake.spammer_noop(),
     )
   let msg = fixtures.mensagem_comando("resumo", "")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -481,4 +498,87 @@ pub fn resumo_historico_com_turnos_gera_resumo_test() {
   string.contains(texto, "Resumo da conversa:") |> should.be_true
   string.contains(texto, "Discussão sobre tarefas e decisões.")
   |> should.be_true
+}
+
+pub fn spammers_rejeita_nao_admin_test() {
+  use <- env.com_variavel("TELEGRAM_ADMIN_CHAT_ID", "999")
+  let envios = process.new_subject()
+  let cfg = config.Config(..fixtures.config_padrao(), chat_id: "tg:111")
+  let portas =
+    Portas(
+      ..portas_fake.portas_ok(cfg, "unused"),
+      mensageiro: portas_fake.mensageiro_capturar(envios),
+    )
+  let msg =
+    mensagem.Mensagem(
+      ..fixtures.mensagem_comando("spammers", ""),
+      chat_id: "tg:111",
+      remetente: "tg:111",
+      em_grupo: False,
+    )
+  handler_mensagem.handle(msg, portas) |> should.be_ok
+  let assert Ok(#(_, texto)) = process.receive(envios, 1000)
+  string.contains(texto, "restrito ao administrador") |> should.be_true
+}
+
+pub fn spammers_admin_lista_registros_test() {
+  use <- env.com_variavel("TELEGRAM_ADMIN_CHAT_ID", "123456")
+  let envios = process.new_subject()
+  let cfg = config.Config(..fixtures.config_padrao(), chat_id: "tg:123456")
+  let spammer_fake =
+    SpammerPorta(
+      registrar: fn(_, _, _, _, _) { Ok(Nil) },
+      listar_recentes: fn(_) { Ok([]) },
+      listar_top: fn(_) {
+        Ok([
+          ResumoSpammer(
+            telefone: "+55 (11) 99999-8888",
+            total_incidentes: 4,
+            ultimo_strike: 3,
+            ultimo_incidente_em: 1_700_000_000,
+          ),
+        ])
+      },
+      contar: fn() { Ok(1) },
+    )
+  let portas =
+    Portas(
+      ..portas_fake.portas_ok(cfg, "unused"),
+      mensageiro: portas_fake.mensageiro_capturar(envios),
+      spammers: spammer_fake,
+    )
+  let msg =
+    mensagem.Mensagem(
+      ..fixtures.mensagem_comando("spammers", ""),
+      chat_id: "tg:123456",
+      remetente: "tg:123456",
+      em_grupo: False,
+    )
+  handler_mensagem.handle(msg, portas) |> should.be_ok
+  let assert Ok(#(_, texto)) = process.receive(envios, 1000)
+  string.contains(texto, "Spammers Registrados (Top 10)") |> should.be_true
+  string.contains(texto, "+55 (11) 99999-8888") |> should.be_true
+  string.contains(texto, "4 ocorrência(s)") |> should.be_true
+}
+
+pub fn spammers_admin_lista_vazia_test() {
+  use <- env.com_variavel("TELEGRAM_ADMIN_CHAT_ID", "123456")
+  let envios = process.new_subject()
+  let cfg = config.Config(..fixtures.config_padrao(), chat_id: "tg:123456")
+  let portas =
+    Portas(
+      ..portas_fake.portas_ok(cfg, "unused"),
+      mensageiro: portas_fake.mensageiro_capturar(envios),
+      spammers: portas_fake.spammer_noop(),
+    )
+  let msg =
+    mensagem.Mensagem(
+      ..fixtures.mensagem_comando("spammers", ""),
+      chat_id: "tg:123456",
+      remetente: "tg:123456",
+      em_grupo: False,
+    )
+  handler_mensagem.handle(msg, portas) |> should.be_ok
+  let assert Ok(#(_, texto)) = process.receive(envios, 1000)
+  string.contains(texto, "Nenhum incidente registrado") |> should.be_true
 }

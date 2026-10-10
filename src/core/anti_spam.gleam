@@ -8,6 +8,7 @@ import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/string
 
 // ---------------------------------------------------------------------------
 // Constantes de calibração
@@ -123,8 +124,8 @@ pub fn avaliar(
 
       // 2. Verificar se o chat está sob cooldown/quarentena ativa
       case agora_ms < reg.quarentena_ate_ms {
-        True -> avaliar_em_quarentena(estado, chat_id, reg, agora_ms)
-        False -> avaliar_livre(estado, chat_id, reg, peso, agora_ms)
+        True -> avaliar_em_quarentena(estado, chat_id, remetente, reg, agora_ms)
+        False -> avaliar_livre(estado, chat_id, remetente, reg, peso, agora_ms)
       }
     }
   }
@@ -133,6 +134,7 @@ pub fn avaliar(
 fn avaliar_em_quarentena(
   estado: EstadoAntiSpam,
   chat_id: String,
+  remetente: String,
   reg: RegistroChat,
   agora_ms: Int,
 ) -> #(EstadoAntiSpam, DecisaoAntiSpam) {
@@ -146,8 +148,12 @@ fn avaliar_em_quarentena(
     False ->
       case reg.strikes == 2 {
         True -> {
+          let tel = extrair_telefone(chat_id, remetente)
           let alerta =
             "🚨 *[Anti-Spam] Chat silenciado por 30m por reincidência durante timeout*\n"
+            <> "• Telefone: `"
+            <> tel
+            <> "`\n"
             <> "• Chat: `"
             <> chat_id
             <> "`\n"
@@ -181,6 +187,7 @@ fn avaliar_em_quarentena(
 fn avaliar_livre(
   estado: EstadoAntiSpam,
   chat_id: String,
+  remetente: String,
   reg: RegistroChat,
   peso: Float,
   agora_ms: Int,
@@ -201,8 +208,12 @@ fn avaliar_livre(
   case list.length(novos_recentes) >= limite_msgs_flood {
     True -> {
       // Disparo imediato de flood automatizado -> pula direto para Strike 3
+      let tel = extrair_telefone(chat_id, remetente)
       let alerta =
         "🚨 *[Anti-Spam] Chat silenciado por 30m por flood volumétrico*\n"
+        <> "• Telefone: `"
+        <> tel
+        <> "`\n"
         <> "• Chat: `"
         <> chat_id
         <> "`\n"
@@ -293,4 +304,74 @@ pub fn limpar_inativos(
     agora_ms < reg.quarentena_ate_ms
     || agora_ms - reg.ultimo_ts_ms < ttl_inatividade_ms
   })
+}
+
+// ---------------------------------------------------------------------------
+// Extração e normalização de telefone de origem
+// ---------------------------------------------------------------------------
+
+pub fn extrair_telefone(chat_id: String, remetente: String) -> String {
+  let alvo = case remetente != "" && remetente != chat_id {
+    True -> remetente
+    False -> chat_id
+  }
+  formatar_identificador(alvo)
+}
+
+pub fn formatar_identificador(jid: String) -> String {
+  case string.starts_with(jid, "tg:") {
+    True -> "Telegram: " <> string.drop_start(jid, 3)
+    False -> {
+      let #(usuario_com_dev, servidor) = case string.split_once(jid, "@") {
+        Ok(#(u, s)) -> #(u, s)
+        Error(_) -> #(jid, "")
+      }
+      let usuario = case string.split_once(usuario_com_dev, ":") {
+        Ok(#(u, _dev)) -> u
+        Error(_) -> usuario_com_dev
+      }
+
+      case servidor {
+        "lid" -> "LID: " <> usuario
+        "g.us" -> "Grupo: " <> usuario
+        _ -> formatar_numero_telefone(usuario)
+      }
+    }
+  }
+}
+
+pub fn formatar_numero_telefone(numero: String) -> String {
+  let digitos =
+    numero
+    |> string.to_graphemes()
+    |> list.filter(fn(g) { string.contains("0123456789", g) })
+    |> string.join("")
+
+  let len = string.length(digitos)
+  case string.starts_with(digitos, "55") {
+    True -> {
+      case len {
+        // Celular padrão: 55 + DDD (2) + 9 dígitos = 13 dígitos
+        13 -> {
+          let ddd = string.slice(digitos, 2, 2)
+          let parte1 = string.slice(digitos, 4, 5)
+          let parte2 = string.slice(digitos, 9, 4)
+          "+55 (" <> ddd <> ") " <> parte1 <> "-" <> parte2
+        }
+        // Fixo ou antigo: 55 + DDD (2) + 8 dígitos = 12 dígitos
+        12 -> {
+          let ddd = string.slice(digitos, 2, 2)
+          let parte1 = string.slice(digitos, 4, 4)
+          let parte2 = string.slice(digitos, 8, 4)
+          "+55 (" <> ddd <> ") " <> parte1 <> "-" <> parte2
+        }
+        _ -> "+" <> digitos
+      }
+    }
+    False ->
+      case len > 0 {
+        True -> "+" <> digitos
+        False -> numero
+      }
+  }
 }

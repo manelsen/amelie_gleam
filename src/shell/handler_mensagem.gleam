@@ -9,10 +9,10 @@ import core/processador
 import core/prompt/builder
 import dominio/acao.{
   AlterarModelo, AtivarPrompt, BaixarVideoUrlEDescrever, BuscarUrlEResponder,
-  ConsultarMetricas, ConsultarStatus, DesbloquearChat, EnfileirarMidia,
-  EnviarReacao, EnviarResposta, ExcluirPrompt, GerarEEnviar, LimparHistorico,
-  ListarGrupos, ListarPrompts, ListarUsuarios, MidiaVideo, NaoResponder,
-  ResetarWhatsApp, SalvarConfig, SalvarPrompt, SnapshotHistorico,
+  ConsultarMetricas, ConsultarSpammers, ConsultarStatus, DesbloquearChat,
+  EnfileirarMidia, EnviarReacao, EnviarResposta, ExcluirPrompt, GerarEEnviar,
+  LimparHistorico, ListarGrupos, ListarPrompts, ListarUsuarios, MidiaVideo,
+  NaoResponder, ResetarWhatsApp, SalvarConfig, SalvarPrompt, SnapshotHistorico,
   SolicitarPareamento,
 }
 import dominio/config
@@ -33,6 +33,7 @@ import portas/grupo_porta.{type GrupoPorta}
 import portas/historico_porta.{type HistoricoPorta}
 import portas/mensageiro_porta.{type MensageiroPorta}
 import portas/prompt_porta.{type PromptPorta}
+import portas/spammer_porta.{type SpammerPorta}
 import portas/transacao_porta.{type TransacaoPorta}
 import portas/usuario_porta.{type UsuarioPorta}
 import shell/anti_spam.{type AntiSpam}
@@ -66,6 +67,7 @@ pub type Portas {
     transacoes: TransacaoPorta,
     providers_config: ProvidersConfig,
     anti_spam: AntiSpam,
+    spammers: SpammerPorta,
   )
 }
 
@@ -148,13 +150,28 @@ fn processar_mensagem_com_anti_spam(
     core_anti_spam.Permitido -> processar_mensagem(msg, portas)
 
     core_anti_spam.AvisoLimite(motivo) -> {
+      let tel = core_anti_spam.extrair_telefone(msg.chat_id, msg.remetente)
+      let strike = case string.contains(motivo, "5 minutos") {
+        True -> 2
+        False -> 1
+      }
+      let _ =
+        portas.spammers.registrar(
+          msg.chat_id,
+          msg.remetente,
+          tel,
+          motivo,
+          strike,
+        )
       logging.log(
         logging.Warning,
         "[trace:"
           <> trace_id
           <> "] Rate limit acionado para "
+          <> tel
+          <> " ("
           <> msg.chat_id
-          <> ": "
+          <> "): "
           <> motivo,
       )
       limpar_midia_se_descartada(msg)
@@ -163,12 +180,24 @@ fn processar_mensagem_com_anti_spam(
     }
 
     core_anti_spam.Silenciado(notificar_admin) -> {
+      let tel = core_anti_spam.extrair_telefone(msg.chat_id, msg.remetente)
+      let _ =
+        portas.spammers.registrar(
+          msg.chat_id,
+          msg.remetente,
+          tel,
+          "Quarentena / Blackhole",
+          3,
+        )
       logging.log(
         logging.Warning,
         "[trace:"
           <> trace_id
           <> "] Mensagem descartada silenciosamente por quarentena anti-spam: "
-          <> msg.chat_id,
+          <> tel
+          <> " ("
+          <> msg.chat_id
+          <> ")",
       )
       limpar_midia_se_descartada(msg)
       case notificar_admin {
@@ -886,6 +915,66 @@ fn executar_acao(
                   <> "` não estava em quarentena ou bloqueio."
               }
               let _ = portas.mensageiro.enviar(chat_id, resposta)
+              Ok(Nil)
+            }
+          }
+        }
+      }
+    }
+
+    ConsultarSpammers(chat_id) -> {
+      let admin_id =
+        get_env("TELEGRAM_ADMIN_CHAT_ID")
+        |> result.unwrap(or: "")
+      let eh_admin =
+        admin_id != ""
+        && !msg.em_grupo
+        && msg.remetente == "tg:" <> admin_id
+        && msg.chat_id == "tg:" <> admin_id
+      case eh_admin {
+        False -> {
+          let _ =
+            portas.mensageiro.enviar(
+              chat_id,
+              "⛔ Comando restrito ao administrador.",
+            )
+          Ok(Nil)
+        }
+        True -> {
+          case portas.spammers.listar_top(10) {
+            Ok([]) -> {
+              let _ =
+                portas.mensageiro.enviar(
+                  chat_id,
+                  "🛡️ *Anti-Spam:* Nenhum incidente registrado no banco de dados.",
+                )
+              Ok(Nil)
+            }
+            Ok(lista) -> {
+              let linhas =
+                list.map(lista, fn(spammer) {
+                  "• `"
+                  <> spammer.telefone
+                  <> "` — "
+                  <> int.to_string(spammer.total_incidentes)
+                  <> " ocorrência(s) (strike máx: "
+                  <> int.to_string(spammer.ultimo_strike)
+                  <> ")"
+                })
+                |> string.join("\n")
+              let resposta =
+                "🛡️ *Spammers Registrados (Top 10):*\n\n"
+                <> linhas
+                <> "\n\n💡 Use `.unban <chat_id_ou_telefone>` para liberar."
+              let _ = portas.mensageiro.enviar(chat_id, resposta)
+              Ok(Nil)
+            }
+            Error(_) -> {
+              let _ =
+                portas.mensageiro.enviar(
+                  chat_id,
+                  "Erro ao consultar spammers no banco de dados.",
+                )
               Ok(Nil)
             }
           }

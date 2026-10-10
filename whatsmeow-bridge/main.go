@@ -555,6 +555,20 @@ func (b *Bridge) processMessage(evt *events.Message) {
 	inGroup := evt.Info.IsGroup
 	timestamp := evt.Info.Timestamp.Unix()
 
+	// Se o remetente for um LID (identificador mascarado), tenta resolver o número real via LIDStore do whatsmeow
+	if b.client != nil && b.client.Store != nil && b.client.Store.LIDs != nil {
+		if evt.Info.Sender.Server == types.HiddenUserServer {
+			if pn, err := b.client.Store.LIDs.GetPNForLID(context.Background(), evt.Info.Sender.ToNonAD()); err == nil && !pn.IsEmpty() {
+				from = pn.String()
+			}
+		}
+		if !inGroup && evt.Info.Chat.Server == types.HiddenUserServer {
+			if pn, err := b.client.Store.LIDs.GetPNForLID(context.Background(), evt.Info.Chat.ToNonAD()); err == nil && !pn.IsEmpty() {
+				chatID = pn.String()
+			}
+		}
+	}
+
 	var groupName string
 	if inGroup {
 		groupName = evt.Info.PushName
