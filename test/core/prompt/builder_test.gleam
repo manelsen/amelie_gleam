@@ -69,6 +69,9 @@ pub fn montar_para_video_test() {
   let cfg = fixtures.config_padrao()
   let prompt = builder.montar_para_video(cfg, None)
   string.contains(prompt, "vídeo") |> should.be_true
+  string.contains(prompt, "TRANSCRIÇÃO OBRIGATÓRIA DAS FALAS E ÁUDIO")
+  |> should.be_true
+  string.contains(prompt, "NÃO resuma as falas") |> should.be_true
   string.contains(prompt, "NUNCA deduza ou invente falas") |> should.be_true
 }
 
