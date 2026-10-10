@@ -165,10 +165,10 @@ pub fn montar_para_video_com_audio(
     False ->
       "\n- ATENÇÃO AO ÁUDIO: Este vídeo é MUDO ou uma animação/GIF SEM ÁUDIO. NÃO invente, não deduza e não alucine falas, músicas, gritos, sons ou ruídos com base na ação visual. Não faça NENHUMA menção a som, silêncio, áudio ou fala na sua resposta. Descreva exclusivamente as ações e elementos visuais observáveis."
     True ->
-      "\n- Incorpore o que é dito ou narrado no áudio apenas se for audível na gravação, integrando fala e descrição visual. NUNCA deduza ou invente falas ou sons baseando-se apenas em gestos ou instrumentos visíveis."
+      "\n- TRANSCRIÇÃO OBRIGATÓRIA DAS FALAS E ÁUDIO: Se houver qualquer fala, diálogo, narração ou explicação audível na gravação, é OBRIGATÓRIO transcrever na íntegra tudo o que for dito pelo(s) falante(s). NÃO resuma as falas, NÃO omita o que foi dito e NÃO reduza o discurso a descrições genéricas como 'falando com o interlocutor' — transcreva as palavras reais faladas. Na resposta, inclua uma seção clara \"Transcrição da fala:\" contendo o texto falado transcrito. A concisão do modo curto aplica-se apenas aos detalhes visuais, NUNCA à transcrição das falas. NUNCA deduza ou invente falas ou sons baseando-se apenas em gestos ou instrumentos visíveis."
   }
   contexto
-  <> "Faça a audiodescrição deste vídeo em "
+  <> "Faça a audiodescrição e a transcrição deste vídeo em "
   <> config.idioma
   <> ". REGRAS:"
   <> "\n- Descreva ações, personagens, cenários e mudanças de cena em sequência cronológica."
