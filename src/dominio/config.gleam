@@ -27,7 +27,7 @@ pub fn padrao(chat_id: String) -> Config {
   Config(
     chat_id: chat_id,
     provedor: "gemini",
-    modelo: "gemini-3.8-flash",
+    modelo: "gemini-3.5-flash-lite",
     historico_max: 50,
     prompt_sistema: None,
     audio_ativo: True,

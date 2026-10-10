@@ -105,7 +105,7 @@ amelie_gleam.gleam — Entry point: wires adapters → ports → Mist HTTP serve
 - `dominio/mensagem.Mensagem` — chat_id, remetente, corpo (`Conteudo`), timestamp, em_grupo, menciona_bot, legenda.
 - `dominio/mensagem.Conteudo` — `Texto | Imagem | Audio | Video | Documento | Sticker | MidiaIndisponivel | Comando`.
 - `dominio/acao.Acao` — `GerarEEnviar | BuscarUrlEResponder | BaixarVideoUrlEDescrever | EnviarResposta | EnviarReacao | EnfileirarMidia | SalvarConfig | LimparHistorico | AlterarModelo | SnapshotHistorico | NaoResponder`.
-- `dominio/config.Config` — per-chat configuration (provedor, modelo default `gemini-3.8-flash`, historico_max, media toggles, modo_descricao).
+- `dominio/config.Config` — per-chat configuration (provedor, modelo default `gemini-3.5-flash-lite`, historico_max, media toggles, modo_descricao).
 - `shell/handler_mensagem.Portas` — record bundling all active port implementations.
 
 ### Ports (Abstract interfaces as record-of-functions)
@@ -126,7 +126,7 @@ amelie_gleam.gleam — Entry point: wires adapters → ports → Mist HTTP serve
 - `adaptadores/roteador_mensageiro` → routes calls to `whatsmeow_http` or `telegram_http` based on `chat_id` prefix (`tg:` vs WhatsApp JID).
 - `adaptadores/gemini_http` → implements `IAPorta` (Google Gemini REST & File API).
 - `adaptadores/openrouter_http` → implements `IAPorta` (OpenRouter API).
-- `adaptadores/config_sqlite` → implements `ConfigPorta` (includes auto-migration to `gemini-3.8-flash`).
+- `adaptadores/config_sqlite` → implements `ConfigPorta` (includes auto-migration to `gemini-3.5-flash-lite`).
 - `adaptadores/historico_sqlite` → implements `HistoricoPorta`.
 - `adaptadores/transacao_sqlite` → implements `TransacaoPorta`.
 - `adaptadores/usuario_sqlite`, `grupo_sqlite`, `prompt_sqlite` → SQLite storage.

@@ -3,20 +3,17 @@ import dominio/config
 import gleeunit/should
 import sqlight
 
-pub fn migrar_antigo_modelo_padrao_para_gemini_3_8_test() {
+pub fn migrar_antigo_modelo_padrao_para_gemini_3_5_flash_lite_test() {
   use conn <- sqlight.with_connection("file:config_model_migration?mode=memory")
   let porta = config_sqlite.criar(conn)
   let antiga =
-    config.Config(
-      ..config.padrao("chat-antigo"),
-      modelo: "gemini-3.1-flash-lite",
-    )
+    config.Config(..config.padrao("chat-antigo"), modelo: "gemini-3.8-flash")
   let assert Ok(Nil) = porta.salvar(antiga)
 
   let porta_migrada = config_sqlite.criar(conn)
   let assert Ok(atual) = porta_migrada.obter("chat-antigo")
 
-  atual.modelo |> should.equal("gemini-3.8-flash")
+  atual.modelo |> should.equal("gemini-3.5-flash-lite")
 }
 
 pub fn migracao_preserva_modelo_escolhido_test() {

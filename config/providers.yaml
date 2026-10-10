@@ -2,6 +2,7 @@ providers:
   gemini:
     name: "Google Gemini"
     models:
+      - "gemini-3.5-flash-lite"
       - "gemini-3.8-flash"
       - "gemini-2.5-flash-lite"
       - "gemini-2.5-pro"
