@@ -38,6 +38,7 @@ import portas/prompt_porta.{type PromptPorta}
 import portas/spammer_porta.{type SpammerPorta}
 import portas/transacao_porta.{type TransacaoPorta}
 import portas/usuario_porta.{type UsuarioPorta}
+import portas/video_contexto_porta.{type VideoContextoPorta}
 import shell/anti_spam.{type AntiSpam}
 import shell/arquivos_temporarios
 import shell/entrega_auditada
@@ -70,6 +71,7 @@ pub type Portas {
     providers_config: ProvidersConfig,
     anti_spam: AntiSpam,
     spammers: SpammerPorta,
+    video_contexto: VideoContextoPorta,
   )
 }
 
@@ -345,34 +347,144 @@ fn executar_acao_autorizada(
   case acao {
     GerarEEnviar(para, prompt) -> {
       let trace_id = extrair_trace_id(msg)
-      logging.log(
-        logging.Info,
-        "["
-          <> trace_id
-          <> "] Enviando texto gerado pela IA para "
-          <> privacidade.mascarar_id(para),
-      )
-      use resposta <- result.try(ia_dispatcher.gerar_texto(
-        portas.ia_dispatcher,
-        prompt,
-        hist,
-        cfg.provedor,
-        cfg.modelo,
-      ))
-      let resposta_limpa = acessibilidade.sanitizar_saida_voz(resposta)
-      use _ <- result.try(entregar(
-        para,
-        "amelie",
-        "ia_texto",
-        resposta_limpa,
-        msg,
-        portas,
-      ))
-      use _ <- result.try(portas.historico.adicionar(
-        msg.chat_id,
-        TurnoUsuario(extrair_texto_usuario(msg)),
-      ))
-      portas.historico.adicionar(msg.chat_id, TurnoAssistente(resposta_limpa))
+      let agora_s = now_ms() / 1000
+
+      case portas.video_contexto.obter(para) {
+        Ok(option.Some(ctx)) -> {
+          let expirado = agora_s - ctx.criado_em >= 1800
+          case expirado {
+            True -> {
+              let _ = portas.video_contexto.remover(para)
+              let _ =
+                ia_dispatcher.deletar_arquivo(
+                  portas.ia_dispatcher,
+                  ctx.uri,
+                  cfg.provedor,
+                )
+              entregar(
+                para,
+                "amelie",
+                "texto",
+                "👋 O período de dúvidas sobre o vídeo anterior expirou (30 min). Por favor, envie uma nova mídia (áudio, foto, vídeo ou documento) para continuar!",
+                msg,
+                portas,
+              )
+            }
+            False -> {
+              case ctx.perguntas_restantes <= 0 {
+                True -> {
+                  let _ = portas.video_contexto.remover(para)
+                  let _ =
+                    ia_dispatcher.deletar_arquivo(
+                      portas.ia_dispatcher,
+                      ctx.uri,
+                      cfg.provedor,
+                    )
+                  entregar(
+                    para,
+                    "amelie",
+                    "texto",
+                    "👋 Já encerramos as dúvidas sobre este vídeo. Para continuar, envie uma nova mídia (áudio, foto, vídeo ou documento)!",
+                    msg,
+                    portas,
+                  )
+                }
+                False -> {
+                  let texto_usuario = extrair_texto_usuario(msg)
+                  let prompt_followup =
+                    builder.montar_followup_video(cfg, hist, texto_usuario)
+                  logging.log(
+                    logging.Info,
+                    "["
+                      <> trace_id
+                      <> "] Respondendo dúvida de follow-up sobre vídeo para "
+                      <> privacidade.mascarar_id(para)
+                      <> " ("
+                      <> int.to_string(ctx.perguntas_restantes)
+                      <> " pergunta(s) restante(s))",
+                  )
+                  use resposta <- result.try(ia_dispatcher.processar_video(
+                    portas.ia_dispatcher,
+                    ctx.uri,
+                    prompt_followup,
+                    cfg.provedor,
+                    cfg.modelo,
+                  ))
+                  let resposta_limpa =
+                    acessibilidade.sanitizar_saida_voz(resposta)
+                  use _ <- result.try(entregar(
+                    para,
+                    "amelie",
+                    "ia_texto",
+                    resposta_limpa,
+                    msg,
+                    portas,
+                  ))
+                  use _ <- result.try(portas.historico.adicionar(
+                    msg.chat_id,
+                    TurnoUsuario(texto_usuario),
+                  ))
+                  let _ =
+                    portas.historico.adicionar(
+                      msg.chat_id,
+                      TurnoAssistente(resposta_limpa),
+                    )
+                  let restantes =
+                    portas.video_contexto.decrementar_perguntas(para)
+                    |> result.unwrap(or: 0)
+                  case restantes <= 0 {
+                    True -> {
+                      let _ = portas.video_contexto.remover(para)
+                      let _ =
+                        ia_dispatcher.deletar_arquivo(
+                          portas.ia_dispatcher,
+                          ctx.uri,
+                          cfg.provedor,
+                        )
+                      Nil
+                    }
+                    False -> Nil
+                  }
+                  Ok(Nil)
+                }
+              }
+            }
+          }
+        }
+        _ -> {
+          logging.log(
+            logging.Info,
+            "["
+              <> trace_id
+              <> "] Enviando texto gerado pela IA para "
+              <> privacidade.mascarar_id(para),
+          )
+          use resposta <- result.try(ia_dispatcher.gerar_texto(
+            portas.ia_dispatcher,
+            prompt,
+            hist,
+            cfg.provedor,
+            cfg.modelo,
+          ))
+          let resposta_limpa = acessibilidade.sanitizar_saida_voz(resposta)
+          use _ <- result.try(entregar(
+            para,
+            "amelie",
+            "ia_texto",
+            resposta_limpa,
+            msg,
+            portas,
+          ))
+          use _ <- result.try(portas.historico.adicionar(
+            msg.chat_id,
+            TurnoUsuario(extrair_texto_usuario(msg)),
+          ))
+          portas.historico.adicionar(
+            msg.chat_id,
+            TurnoAssistente(resposta_limpa),
+          )
+        }
+      }
     }
 
     BuscarUrlEResponder(para, texto, url) -> {
@@ -419,7 +531,21 @@ fn executar_acao_autorizada(
 
     SalvarConfig(nova_cfg) -> portas.config.salvar(nova_cfg)
 
-    LimparHistorico(chat_id) -> portas.historico.limpar(chat_id)
+    LimparHistorico(chat_id) -> {
+      case portas.video_contexto.remover(chat_id) {
+        Ok(option.Some(uri)) -> {
+          let _ =
+            ia_dispatcher.deletar_arquivo(
+              portas.ia_dispatcher,
+              uri,
+              cfg.provedor,
+            )
+          Nil
+        }
+        _ -> Nil
+      }
+      portas.historico.limpar(chat_id)
+    }
 
     EnfileirarMidia(chat_id, tipo) -> {
       logging.log(
@@ -447,6 +573,8 @@ fn executar_acao_autorizada(
         ia_porta,
         portas.mensageiro,
         portas.transacoes,
+        portas.historico,
+        portas.video_contexto,
       )
     }
 
@@ -693,6 +821,8 @@ fn executar_acao_autorizada(
                   ia_porta,
                   portas.mensageiro,
                   portas.transacoes,
+                  portas.historico,
+                  portas.video_contexto,
                 )
               Nil
             }
