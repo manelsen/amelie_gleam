@@ -101,6 +101,11 @@ fn processar_texto(
   }
 }
 
+/// Turno que o shell insere no histórico efetivo do administrador. Só conta
+/// por igualdade exata: um usuário comum não consegue gravar um turno que
+/// seja exatamente este texto antes de destravar a conversa.
+pub const marcador_admin = "[admin]"
+
 pub fn tem_midia_no_historico(historico: List(Turno)) -> Bool {
   list.any(historico, fn(t) {
     case t {
@@ -110,7 +115,7 @@ pub fn tem_midia_no_historico(historico: List(Turno)) -> Bool {
         || string.contains(conteudo, "[vídeo]")
         || string.contains(conteudo, "[documento")
         || string.contains(conteudo, "[sticker]")
-        || string.contains(conteudo, "[admin]")
+        || conteudo == marcador_admin
         || string.contains(conteudo, "http://")
         || string.contains(conteudo, "https://")
       mensagem.TurnoAssistente(conteudo) ->
@@ -118,7 +123,6 @@ pub fn tem_midia_no_historico(historico: List(Turno)) -> Bool {
         || string.contains(conteudo, "Transcrição do áudio")
         || string.contains(conteudo, "Audiodescrição do vídeo")
         || string.contains(conteudo, "Transcrição do vídeo")
-        || string.contains(conteudo, "[admin]")
     }
   })
 }
