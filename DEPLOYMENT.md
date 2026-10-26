@@ -163,6 +163,14 @@ proxy HTTPS que exponha **somente** `/webhook/telegram` e configure o mesmo
 continua funcionando. `TELEGRAM_ADMIN_CHAT_ID` vazio desabilita comandos remotos;
 quando configurado, eles exigem mensagem privada do próprio administrador.
 
+`GET /health` sem autenticação devolve só o status agregado (`ok`, `degraded` ou
+`error`). O detalhe (estado do WhatsApp, métricas da BEAM, erro do SQLite) exige o
+cabeçalho `X-Amelie-Bridge-Token` com o mesmo `BRIDGE_TOKEN`:
+
+```bash
+curl -s -H "X-Amelie-Bridge-Token: $BRIDGE_TOKEN" http://127.0.0.1:4001/health
+```
+
 O spool de mídia do bridge mudou para `MEDIA_TEMP_DIR`, um diretório 0700. Apenas
 arquivos regulares diretamente nele, com nomes gerados pelo bridge, sem links e
 com até 50 MiB são aceitos. Mídias antigas pendentes em `/tmp/amelie_midia_*` serão

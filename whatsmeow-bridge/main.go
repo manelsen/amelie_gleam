@@ -230,6 +230,7 @@ type Bridge struct {
 	pendingMediaRetries map[string]mediaRetryPending
 	mediaRetryAttempts  map[string]int
 	queueDB             *sql.DB
+	groupNames          *groupNameCache
 }
 
 type mediaRetryPending struct {
@@ -261,6 +262,7 @@ func NewBridge(cfg Config) (*Bridge, error) {
 		client:              client,
 		pendingMediaRetries: make(map[string]mediaRetryPending),
 		mediaRetryAttempts:  make(map[string]int),
+		groupNames:          newGroupNameCache(),
 	}
 
 	if err := b.initQueueDB(); err != nil {
@@ -545,6 +547,23 @@ func (b *Bridge) availabilityError() *APIError {
 	return nil
 }
 
+// lookupGroupName devolve o nome do grupo, com cache. Vazio quando não há
+// cliente ou cache (testes) ou quando a consulta ao WhatsApp falha.
+func (b *Bridge) lookupGroupName(chat types.JID) string {
+	if b.groupNames == nil || b.client == nil {
+		return ""
+	}
+	return b.groupNames.get(chat.String(), func() (string, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		info, err := b.client.GetGroupInfo(ctx, chat)
+		if err != nil {
+			return "", err
+		}
+		return info.Name, nil
+	})
+}
+
 func (b *Bridge) processMessage(evt *events.Message) {
 	if evt.Info.IsFromMe {
 		return
@@ -571,7 +590,7 @@ func (b *Bridge) processMessage(evt *events.Message) {
 
 	var groupName string
 	if inGroup {
-		groupName = evt.Info.PushName
+		groupName = b.lookupGroupName(evt.Info.Chat)
 	}
 
 	payload := IncomingWebhook{
@@ -765,7 +784,18 @@ func (b *Bridge) downloadMediaBytes(
 	ctx, cancel := context.WithTimeout(context.Background(), mediaDownloadTimeout(kind))
 	defer cancel()
 
-	data, err := b.client.Download(ctx, msg)
+	// O tamanho declarado pode mentir; o limitedFile é que limita de fato.
+	if declaredMediaTooLarge(msg) {
+		log.Printf("%s recusado antes do download: tamanho declarado acima de 50 MiB", kind)
+		return nil, false
+	}
+	data, err := downloadIntoLimitedFile(func(f *limitedFile) error {
+		return b.client.DownloadToFile(ctx, msg, f)
+	})
+	if errors.Is(err, errMediaTooLarge) {
+		log.Printf("%s descartado: download passou de 50 MiB", kind)
+		return nil, false
+	}
 	if err == nil {
 		if len(data) == 0 {
 			log.Printf("%s vazio recebido do WhatsApp: chat=%s mime=%s arquivo=%q", kind, evt.Info.Chat.String(), mime, fileName)
@@ -804,16 +834,27 @@ func (b *Bridge) downloadStickerBytes(
 		ctx, cancel := context.WithTimeout(context.Background(), mediaDownloadTimeout("figurinha"))
 		defer cancel()
 
-		data, err := b.client.DownloadMediaWithPath(
-			ctx,
-			sticker.GetDirectPath(),
-			sticker.GetFileEncSHA256(),
-			sticker.GetFileSHA256(),
-			sticker.GetMediaKey(),
-			whatsmeow.MediaImage,
-			"sticker",
-			false,
-		)
+		if declaredMediaTooLarge(sticker) {
+			log.Printf("figurinha recusada antes do download: tamanho declarado acima de 50 MiB")
+			return nil, false
+		}
+		data, err := downloadIntoLimitedFile(func(f *limitedFile) error {
+			return b.client.DownloadMediaWithPathToFile(
+				ctx,
+				sticker.GetDirectPath(),
+				sticker.GetFileEncSHA256(),
+				sticker.GetFileSHA256(),
+				sticker.GetMediaKey(),
+				whatsmeow.MediaImage,
+				"sticker",
+				false,
+				f,
+			)
+		})
+		if errors.Is(err, errMediaTooLarge) {
+			log.Printf("figurinha descartada: download passou de 50 MiB")
+			return nil, false
+		}
 		if err == nil {
 			if len(data) == 0 {
 				log.Printf("figurinha vazia recebida do WhatsApp com mms-type=sticker: chat=%s mime=%s", evt.Info.Chat.String(), mime)
@@ -1492,6 +1533,8 @@ func (b *Bridge) initQueueDB() error {
 }
 
 func (b *Bridge) enqueueAndDeliver(payload IncomingWebhook) error {
+	// Único ponto por onde todo payload passa a caminho do Gleam.
+	payload.Mime = sanitizeMime(payload.Mime)
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return err

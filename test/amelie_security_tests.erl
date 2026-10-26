@@ -71,6 +71,18 @@ constant_time_comparison_test() ->
     ?assert(amelie_gleam_ffi:constant_time_equal(<<"abc">>, <<"abc">>)),
     ?assertNot(amelie_gleam_ffi:constant_time_equal(<<"abc">>, <<"abd">>)).
 
+safe_mime_test() ->
+    ?assertEqual(<<"image/jpeg">>, amelie_gleam_ffi:safe_mime(<<"image/jpeg">>)),
+    ?assertEqual(<<"audio/ogg">>, amelie_gleam_ffi:safe_mime(<<"audio/ogg; codecs=opus">>)),
+    ?assertEqual(<<"video/mp4">>, amelie_gleam_ffi:safe_mime(<<"Video/MP4">>)),
+    %% Injeção no multipart: CRLF e aspas não passam.
+    ?assertEqual(<<"application/octet-stream">>,
+                 amelie_gleam_ffi:safe_mime(<<"video/mp4\r\nX-Injetado: 1">>)),
+    ?assertEqual(<<"application/octet-stream">>,
+                 amelie_gleam_ffi:safe_mime(<<"video/mp4\"}},\"x\":{\"y\":\"">>)),
+    ?assertEqual(<<"application/octet-stream">>, amelie_gleam_ffi:safe_mime(<<"semtipo">>)),
+    ?assertEqual(<<"application/octet-stream">>, amelie_gleam_ffi:safe_mime(not_binary)).
+
 with_temp(F) ->
     Dir = "/tmp/amelie-security-" ++ integer_to_list(erlang:unique_integer([positive])),
     ok = file:make_dir(Dir),

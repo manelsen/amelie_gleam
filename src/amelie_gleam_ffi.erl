@@ -6,7 +6,7 @@
          strip_timestamps/1, ytdlp_download/1, video_tem_audio/1,
          constant_time_equal/2, validate_bridge_media/1, read_bridge_media/1,
          cache_key/3, write_private_media/1, limpar_midias_antigas/1,
-         delete_file/1, ensure_applications_started/0]).
+         delete_file/1, ensure_applications_started/0, safe_mime/1]).
 
 %% Lê arquivo do disco.
 %% Retorna {ok, Binary} | {error, Binary} — Result(BitArray, String) no Gleam.
@@ -186,7 +186,10 @@ ensure_applications_started() ->
 
 %% Faz upload multipart de arquivo para a Gemini File API.
 %% Retorna {ok, ResponseBody} | {error, Reason}.
-upload_file(ApiKey, FilePath, MimeType) ->
+upload_file(ApiKey, FilePath, RawMimeType) ->
+    %% O MIME vem do remetente (WhatsApp ou Telegram) e é concatenado no JSON
+    %% e no cabeçalho do multipart: só passa se for tipo/subtipo simples.
+    MimeType = safe_mime(RawMimeType),
     case file:read_file(FilePath) of
         {error, Reason} -> {error, atom_to_binary(Reason, utf8)};
         {ok, FileData} ->
@@ -204,9 +207,10 @@ upload_file(ApiKey, FilePath, MimeType) ->
                 FileData, <<"\r\n">>,
                 <<"--">>, BoundaryBin, <<"--\r\n">>
             ]),
-            URL = "https://generativelanguage.googleapis.com/upload/v1beta/files?key="
-                  ++ binary_to_list(ApiKey),
-            Headers = [{"x-goog-upload-protocol", "multipart"}],
+            %% A chave vai no cabeçalho, nunca na URL: URL aparece em logs e erros.
+            URL = "https://generativelanguage.googleapis.com/upload/v1beta/files",
+            Headers = [{"x-goog-upload-protocol", "multipart"},
+                       {"x-goog-api-key", binary_to_list(ApiKey)}],
             ContentType = "multipart/related; boundary=" ++ Boundary,
             Opts = [{timeout, 120000}, {connect_timeout, 10000},
                     {autoredirect, false},
@@ -227,6 +231,21 @@ upload_file(ApiKey, FilePath, MimeType) ->
                     {error, Msg}
             end
     end.
+
+%% Normaliza (sem parâmetros, minúsculas) e aceita só MIME no formato
+%% tipo/subtipo com caracteres de token. Qualquer outra coisa vira
+%% application/octet-stream. Mesma regra de sanitizeMime na ponte Go.
+safe_mime(Raw) when is_binary(Raw) ->
+    [Base | _] = binary:split(Raw, <<";">>),
+    Mime = string:lowercase(string:trim(Base)),
+    case byte_size(Mime) =< 127 andalso
+         re:run(Mime, <<"^[a-z0-9][a-z0-9.+-]*/[a-z0-9][a-z0-9.+-]*$">>,
+                [{capture, none}]) =:= match of
+        true -> Mime;
+        false -> <<"application/octet-stream">>
+    end;
+safe_mime(_) ->
+    <<"application/octet-stream">>.
 
 %% Spawna função em processo isolado (sem link).
 spawn_fn(F) ->

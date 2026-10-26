@@ -234,7 +234,17 @@ fn handle_request(
           handle_bridge_event(req, telegram_bot_token, telegram_admin_chat_id)
         },
       )
-    "/health" -> handle_health(conn, bridge_url, telegram_bot_token)
+    "/health" ->
+      case
+        seguranca_http.autorizado(
+          req,
+          seguranca_http.cabecalho_bridge,
+          bridge_token,
+        )
+      {
+        True -> handle_health(conn, bridge_url, telegram_bot_token)
+        False -> handle_health_publico(conn, bridge_url)
+      }
     _ -> json_response(404, "{\"error\":\"not found\"}")
   }
 }
@@ -330,6 +340,29 @@ pub fn handle_health(
     |> json.to_string
 
   json_response(http_code, body)
+}
+
+/// Healthcheck sem autenticação: só o status agregado. O detalhe (estado do
+/// WhatsApp, métricas da BEAM, mensagem de erro do SQLite) exige o mesmo
+/// token da ponte, em `x-amelie-bridge-token`.
+pub fn handle_health_publico(
+  conn: sqlight.Connection,
+  bridge_url: String,
+) -> response.Response(ResponseData) {
+  let sqlite_ok = case sqlight.exec("SELECT 1;", conn) {
+    Ok(_) -> True
+    Error(_) -> False
+  }
+  let wa_logado = case whatsmeow_http.checar_status(bridge_url) {
+    Ok(whatsmeow_http.StatusBridge(_, logado)) -> logado
+    Error(_) -> False
+  }
+  let #(codigo, status) = case sqlite_ok, wa_logado {
+    False, _ -> #(503, "error")
+    True, True -> #(200, "ok")
+    True, False -> #(200, "degraded")
+  }
+  json_response(codigo, "{\"status\":\"" <> status <> "\"}")
 }
 
 type BridgeEvento {
