@@ -38,11 +38,9 @@ fn processar_filtrado(
   config: Config,
   historico: List(Turno),
 ) -> Result(List(Acao), Erro) {
-  // Em grupos, ignora mensagens que não mencionam o bot (exceto comandos)
-  use <- bool.guard(
-    msg.em_grupo && !msg.menciona_bot && !mensagem.e_comando(msg),
-    Ok([NaoResponder]),
-  )
+  // A Amélie não atua em grupos. A ponte já descarta e sai do grupo; isto é
+  // a segunda camada, para nenhuma mensagem de grupo gerar resposta.
+  use <- bool.guard(msg.em_grupo, Ok([NaoResponder]))
 
   case msg.corpo {
     Texto(body) -> processar_texto(body, config, historico)

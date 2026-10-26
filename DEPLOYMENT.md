@@ -47,6 +47,13 @@ docker compose logs -f
 - **Via QR Code:** Abra o WhatsApp → *Aparelhos Conectados* → *Conectar um aparelho* e escaneie o código gerado no terminal.
 - **Via Pairing Code:** Defina a variável `MOBILE_NUMBER` no seu `.env` com seu número completo (ex: `5531999990000`) e confirme o código de pareamento no celular.
 
+### Grupos
+
+A Amélie atende só conversas privadas. Se alguém a adicionar a um grupo do
+WhatsApp, ela sai sozinha e não processa nada do que chega dali. Como camada
+extra, no celular do número do bot, ajuste *Configurações → Privacidade → Grupos*
+para *Meus contatos*: isso impede que estranhos a coloquem em grupos.
+
 ### Comandos Úteis
 
 ```bash

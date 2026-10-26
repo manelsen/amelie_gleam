@@ -100,6 +100,10 @@ amelie_gleam.gleam — Entry point: wires adapters → ports → Mist HTTP serve
    - `BuscarUrlEResponder`: fetches public web content through the bridge’s authenticated `/fetch` endpoint, with DNS pinning, redirect checks, time and size limits.
    - `BaixarVideoUrlEDescrever`: returns an explicit disabled-feature message; downloading external video links is disabled for SSRF protection.
 
+### Conversas privadas apenas
+
+A Amélie só atende conversas privadas, nos dois canais. No WhatsApp, a ponte decide pelo servidor do JID do chat (`chat_policy.go`): privado é processado; grupo (`g.us`) é descartado e a Amélie sai do grupo, inclusive no evento `JoinedGroup`; qualquer outro (broadcast, status, canal) é só descartado. `IsGroup` não serve para isso, pois também é `true` para broadcast. No Telegram, `telegram_webhook` recusa grupos. O `core/processador` responde `NaoResponder` a qualquer mensagem com `em_grupo`, como segunda camada.
+
 ### Key Types
 
 - `dominio/mensagem.Mensagem` — chat_id, remetente, corpo (`Conteudo`), timestamp, em_grupo, menciona_bot, legenda.
