@@ -230,7 +230,6 @@ type Bridge struct {
 	pendingMediaRetries map[string]mediaRetryPending
 	mediaRetryAttempts  map[string]int
 	queueDB             *sql.DB
-	groupNames          *groupNameCache
 }
 
 type mediaRetryPending struct {
@@ -262,7 +261,6 @@ func NewBridge(cfg Config) (*Bridge, error) {
 		client:              client,
 		pendingMediaRetries: make(map[string]mediaRetryPending),
 		mediaRetryAttempts:  make(map[string]int),
-		groupNames:          newGroupNameCache(),
 	}
 
 	if err := b.initQueueDB(); err != nil {
@@ -547,23 +545,6 @@ func (b *Bridge) availabilityError() *APIError {
 	return nil
 }
 
-// lookupGroupName devolve o nome do grupo, com cache. Vazio quando não há
-// cliente ou cache (testes) ou quando a consulta ao WhatsApp falha.
-func (b *Bridge) lookupGroupName(chat types.JID) string {
-	if b.groupNames == nil || b.client == nil {
-		return ""
-	}
-	return b.groupNames.get(chat.String(), func() (string, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		info, err := b.client.GetGroupInfo(ctx, chat)
-		if err != nil {
-			return "", err
-		}
-		return info.Name, nil
-	})
-}
-
 func (b *Bridge) processMessage(evt *events.Message) {
 	if evt.Info.IsFromMe {
 		return
@@ -590,7 +571,7 @@ func (b *Bridge) processMessage(evt *events.Message) {
 
 	var groupName string
 	if inGroup {
-		groupName = b.lookupGroupName(evt.Info.Chat)
+		groupName = evt.Info.PushName
 	}
 
 	payload := IncomingWebhook{
