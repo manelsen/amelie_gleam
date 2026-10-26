@@ -45,7 +45,7 @@ docker compose logs -f
 ```
 
 - **Via QR Code:** Abra o WhatsApp → *Aparelhos Conectados* → *Conectar um aparelho* e escaneie o código gerado no terminal.
-- **Via Pairing Code:** Defina a variável `MOBILE_NUMBER` no seu `.env` com seu número completo (ex: `5531999990000`) e confirme o código de pareamento no celular.
+- **Via Pairing Code:** Defina a variável `MOBILE_NUMBER` no seu `.env` com seu número completo (ex: `5531999990000`) e confirme o código de pareamento no celular. O código chega ao administrador pelo Telegram (`TELEGRAM_ADMIN_CHAT_ID`) e não aparece no log, porque quem lê os logs poderia vincular um aparelho à conta. Sem Telegram configurado, defina `PAIRING_CODE_IN_LOG=1` para exibi-lo no log durante o pareamento e remova a variável depois.
 
 ### Comandos Úteis
 
@@ -70,6 +70,7 @@ docker compose exec amelie sh   # Acessar shell interno para depuração
 | `BRIDGE_HOST` | `127.0.0.1` | Interface de escuta do bridge; mantenha privada |
 | `MEDIA_TEMP_DIR` | `/tmp/amelie-media` | Diretório compartilhado entre bridge e Gleam, com permissão 0700 |
 | `MOBILE_NUMBER` | — | Número de telefone para Pairing Code (ex: `5531999990000`) |
+| `PAIRING_CODE_IN_LOG` | — | `1` exibe o código de pareamento no log. Use só durante o pareamento sem Telegram |
 | `DB_PATH` | `/data/amelie.sqlite` | Caminho do SQLite da aplicação Gleam |
 | `BRIDGE_DB_PATH` | `/data/bridge/whatsapp.db` | Caminho do SQLite de sessão do WhatsApp |
 | `PORT` | `4000` | Porta HTTP da aplicação Gleam (acessível no host em `127.0.0.1:4001`) |

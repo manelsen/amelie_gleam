@@ -5,6 +5,7 @@ import adaptadores/whatsmeow_http
 import core/acessibilidade
 import core/anti_spam as core_anti_spam
 import core/ia_dispatcher
+import core/privacidade
 import core/processador
 import core/prompt/builder
 import dominio/acao.{
@@ -86,9 +87,9 @@ pub fn handle(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
     "["
       <> trace_id
       <> "] Mensagem recebida do chat "
-      <> msg.chat_id
+      <> privacidade.mascarar_id(msg.chat_id)
       <> " (remetente: "
-      <> msg.remetente
+      <> privacidade.mascarar_id(msg.remetente)
       <> ")",
   )
 
@@ -106,7 +107,7 @@ pub fn handle(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
           <> "] Mensagem ignorada por ser muito antiga (ts="
           <> int.to_string(msg.timestamp)
           <> "): "
-          <> msg.chat_id,
+          <> privacidade.mascarar_id(msg.chat_id),
       )
       limpar_midia_se_descartada(msg)
       Ok(Nil)
@@ -169,9 +170,9 @@ fn processar_mensagem_com_anti_spam(
         "["
           <> trace_id
           <> "] Rate limit acionado para "
-          <> tel
+          <> privacidade.mascarar_id(tel)
           <> " ("
-          <> msg.chat_id
+          <> privacidade.mascarar_id(msg.chat_id)
           <> "): "
           <> motivo,
       )
@@ -195,9 +196,9 @@ fn processar_mensagem_com_anti_spam(
         "["
           <> trace_id
           <> "] Mensagem descartada silenciosamente por quarentena anti-spam: "
-          <> tel
+          <> privacidade.mascarar_id(tel)
           <> " ("
-          <> msg.chat_id
+          <> privacidade.mascarar_id(msg.chat_id)
           <> ")",
       )
       limpar_midia_se_descartada(msg)
@@ -235,7 +236,10 @@ fn processar_mensagem(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
   let trace_id = extrair_trace_id(msg)
   logging.log(
     logging.Info,
-    "[" <> trace_id <> "] Processando mensagem: " <> msg.chat_id,
+    "["
+      <> trace_id
+      <> "] Processando mensagem: "
+      <> privacidade.mascarar_id(msg.chat_id),
   )
 
   let _ = portas.usuarios.registrar(msg.chat_id)
@@ -261,7 +265,7 @@ fn processar_mensagem(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
         "["
           <> trace_id
           <> "] Erro ao processar mensagem de "
-          <> msg.remetente
+          <> privacidade.mascarar_id(msg.remetente)
           <> ": "
           <> erro.descricao(e),
       )
@@ -321,7 +325,10 @@ fn executar_acao(
       let trace_id = extrair_trace_id(msg)
       logging.log(
         logging.Info,
-        "[" <> trace_id <> "] Enviando texto gerado pela IA para " <> para,
+        "["
+          <> trace_id
+          <> "] Enviando texto gerado pela IA para "
+          <> privacidade.mascarar_id(para),
       )
       use resposta <- result.try(ia_dispatcher.gerar_texto(
         portas.ia_dispatcher,
@@ -395,7 +402,8 @@ fn executar_acao(
     EnfileirarMidia(chat_id, tipo) -> {
       logging.log(
         logging.Info,
-        "Enfileirando mídia para processamento no chat " <> chat_id,
+        "Enfileirando mídia para processamento no chat "
+          <> privacidade.mascarar_id(chat_id),
       )
       let _ =
         portas.historico.adicionar(
@@ -515,7 +523,8 @@ fn executar_acao(
     SnapshotHistorico(chat_id) -> {
       logging.log(
         logging.Info,
-        "Fazendo snapshot e resumo do histórico do chat " <> chat_id,
+        "Fazendo snapshot e resumo do histórico do chat "
+          <> privacidade.mascarar_id(chat_id),
       )
       use hist <- result.try(portas.historico.obter(chat_id))
 
