@@ -9,8 +9,26 @@ services:
       - TZ=America/Sao_Paulo
       - DB_PATH=/data/amelie.sqlite
       - BRIDGE_DB_PATH=/data/bridge/whatsapp.db
+      # Sistema de arquivos só leitura: o crash dump da BEAM vai para o tmpfs.
+      - ERL_CRASH_DUMP=/tmp/erl_crash.dump
     volumes:
       - ./db:/data
+    # Endurecimento: os parsers de mídia processam conteúdo de terceiros.
+    # Só /data (volume) e /tmp (memória) aceitam escrita.
+    read_only: true
+    tmpfs:
+      # Spool de mídia (até 50 MiB por arquivo) e quadros de figurinha animada.
+      - /tmp:mode=1777,size=1g
+    cap_drop:
+      - ALL
+    cap_add:
+      # Só o entrypoint usa, antes de cair para o usuário "amelie":
+      # CHOWN para ajustar o volume antigo, SETUID/SETGID para o su-exec.
+      - CHOWN
+      - SETUID
+      - SETGID
+    security_opt:
+      - no-new-privileges:true
     extra_hosts:
       - "a.whatsapp.net:57.144.249.32"
     ports:
