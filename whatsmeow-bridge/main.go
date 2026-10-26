@@ -19,7 +19,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	osExec "os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -719,21 +718,15 @@ func (b *Bridge) processMessage(evt *events.Message) {
 			}
 		}
 		if sticker.GetIsAnimated() {
-			if videoPath, convOK := convertAnimatedStickerToMP4(data); convOK {
-				payload.Tipo = "video"
-				payload.Mime = "video/mp4"
-				payload.Caminho = videoPath
-				payload.Dados = ""
-				log.Printf("Figurinha animada convertida para MP4: chat=%s mensagem=%s caminho=%s", chatID, evt.Info.ID, videoPath)
-			} else if sheet, sheetMime, sheetOK := convertAnimatedStickerToContactSheet(data); sheetOK {
-				data = sheet
-				payload.Mime = sheetMime
-				log.Printf("Figurinha animada convertida em grade de quadros: chat=%s mensagem=%s bytes=%d", chatID, evt.Info.ID, len(data))
-			} else {
-				log.Printf("Figurinha animada será processada como sticker WebP: chat=%s mensagem=%s", chatID, evt.Info.ID)
+			// A conversão chama processos externos sobre conteúdo de terceiros.
+			// Fora do handler, para não segurar as mensagens dos outros usuários.
+			if tryAcquireStickerSlot() {
+				go b.deliverAnimatedSticker(payload, data, evt.Info.Chat, evt.Info.ID)
+				return
 			}
+			log.Printf("Limite de conversões simultâneas atingido; figurinha animada segue como WebP estático: chat=%s mensagem=%s", chatID, evt.Info.ID)
 		}
-		if payload.Caminho == "" && !b.attachMediaFile(&payload, "sticker", "", data) {
+		if !b.attachMediaFile(&payload, "sticker", "", data) {
 			return
 		}
 	} else {
@@ -1131,7 +1124,44 @@ func stickerMetadataFallbackText(sticker *waProto.StickerMessage) string {
 const maxAnimatedStickerFrames = 16
 const animatedStickerTileSize = 320
 
-func convertAnimatedStickerToMP4(data []byte) (string, bool) {
+// deliverAnimatedSticker converte e entrega uma figurinha animada fora do
+// handler de eventos. Deve ser chamada com uma vaga já reservada por
+// tryAcquireStickerSlot; libera a vaga ao terminar. A conversão inteira
+// respeita stickerConversionTimeout. Se MP4 e grade falharem, a figurinha
+// segue como WebP estático, como antes.
+func (b *Bridge) deliverAnimatedSticker(payload IncomingWebhook, data []byte, chat types.JID, messageID types.MessageID) {
+	defer releaseStickerSlot()
+	defer b.clearMediaRetryState(chat, messageID)
+
+	ctx, cancel := context.WithTimeout(context.Background(), stickerConversionTimeout)
+	defer cancel()
+
+	if videoPath, ok := convertAnimatedStickerToMP4(ctx, data); ok {
+		payload.Tipo = "video"
+		payload.Mime = "video/mp4"
+		payload.Caminho = videoPath
+		payload.Dados = ""
+		log.Printf("Figurinha animada convertida para MP4: chat=%s mensagem=%s caminho=%s", payload.ChatID, messageID, videoPath)
+	} else if sheet, sheetMime, ok := convertAnimatedStickerToContactSheet(ctx, data); ok {
+		data = sheet
+		payload.Mime = sheetMime
+		log.Printf("Figurinha animada convertida em grade de quadros: chat=%s mensagem=%s bytes=%d", payload.ChatID, messageID, len(data))
+	} else {
+		log.Printf("Figurinha animada será processada como sticker WebP: chat=%s mensagem=%s", payload.ChatID, messageID)
+	}
+
+	if payload.Caminho == "" && !b.attachMediaFile(&payload, "sticker", "", data) {
+		return
+	}
+	if err := b.enqueueAndDeliver(payload); err != nil {
+		log.Printf("Erro ao enfileirar figurinha animada: chat=%s mensagem=%s erro=%v", payload.ChatID, messageID, err)
+	}
+}
+
+// convertAnimatedStickerToMP4 converte uma figurinha WebP animada em MP4 no
+// spool privado. Todo processo externo respeita o prazo de ctx, e o script
+// recusa formato que não seja WebP, canvas grande demais e quadros demais.
+func convertAnimatedStickerToMP4(ctx context.Context, data []byte) (string, bool) {
 	dir, err := os.MkdirTemp("", "amelie_sticker_anim_*")
 	if err != nil {
 		log.Printf("Falha ao criar diretório temporário para vídeo de figurinha animada: %v", err)
@@ -1152,7 +1182,12 @@ func convertAnimatedStickerToMP4(data []byte) (string, bool) {
 	}
 
 	framesDir := filepath.Join(dir, "frames")
-	out, err := osExec.Command("python3", scriptPath, inputPath, framesDir).CombinedOutput()
+	out, err := runMediaCommand(
+		ctx,
+		"python3", "-I", scriptPath, inputPath, framesDir,
+		strconv.Itoa(maxStickerDecodeFrames),
+		strconv.Itoa(maxStickerCanvasPixels),
+	)
 	if err != nil {
 		log.Printf("Falha ao decodificar ANIM/ANMF da figurinha: erro=%v saida=%s", err, strings.TrimSpace(string(out)))
 		return "", false
@@ -1170,7 +1205,8 @@ func convertAnimatedStickerToMP4(data []byte) (string, bool) {
 	outputPath := output.Name()
 	output.Close()
 
-	out, err = osExec.Command(
+	out, err = runMediaCommand(
+		ctx,
 		"ffmpeg",
 		"-y",
 		"-hide_banner",
@@ -1182,7 +1218,7 @@ func convertAnimatedStickerToMP4(data []byte) (string, bool) {
 		"-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
 		"-movflags", "+faststart",
 		outputPath,
-	).CombinedOutput()
+	)
 	if err != nil {
 		os.Remove(outputPath)
 		log.Printf("Falha ao converter figurinha animada para MP4: erro=%v saida=%s", err, strings.TrimSpace(string(out)))
@@ -1199,63 +1235,11 @@ func convertAnimatedStickerToMP4(data []byte) (string, bool) {
 	return outputPath, true
 }
 
-const animatedWebPToFramesScript = `
-import os
-import sys
-from PIL import Image
-
-def concat_quote(path):
-    return "'" + path.replace("'", "'\\''") + "'"
-
-def frame_duration_seconds(image):
-    duration_ms = image.info.get("duration") or 100
-    try:
-        duration_ms = int(duration_ms)
-    except Exception:
-        duration_ms = 100
-    duration_ms = max(20, min(duration_ms, 2000))
-    return duration_ms / 1000.0
-
-def main():
-    if len(sys.argv) != 3:
-        raise SystemExit("uso: decode_webp_animation.py entrada.webp diretorio_frames")
-
-    input_path = sys.argv[1]
-    frames_dir = sys.argv[2]
-    os.makedirs(frames_dir, exist_ok=True)
-
-    image = Image.open(input_path)
-    frame_count = getattr(image, "n_frames", 1)
-    if frame_count < 2:
-        raise SystemExit("WebP sem animação útil")
-
-    paths = []
-    durations = []
-    for index in range(frame_count):
-        image.seek(index)
-        frame = image.convert("RGBA")
-        background = Image.new("RGBA", frame.size, (128, 128, 128, 255))
-        background.alpha_composite(frame)
-        output_path = os.path.join(frames_dir, f"frame_{index:05d}.png")
-        background.convert("RGB").save(output_path)
-        paths.append(output_path)
-        durations.append(frame_duration_seconds(image))
-
-    concat_path = os.path.join(frames_dir, "frames.txt")
-    with open(concat_path, "w", encoding="utf-8") as concat:
-        concat.write("ffconcat version 1.0\n")
-        for path, duration in zip(paths, durations):
-            concat.write(f"file {concat_quote(path)}\n")
-            concat.write(f"duration {duration:.3f}\n")
-        concat.write(f"file {concat_quote(paths[-1])}\n")
-
-    print(f"frames={len(paths)}")
-
-if __name__ == "__main__":
-    main()
-`
-
-func convertAnimatedStickerToContactSheet(data []byte) ([]byte, string, bool) {
+// convertAnimatedStickerToContactSheet monta uma grade PNG com até
+// maxAnimatedStickerFrames quadros da figurinha. Todo processo externo
+// respeita o prazo de ctx, e canvas acima do limite é recusado antes de
+// qualquer decodificação.
+func convertAnimatedStickerToContactSheet(ctx context.Context, data []byte) ([]byte, string, bool) {
 	dir, err := os.MkdirTemp("", "amelie_sticker_frames_*")
 	if err != nil {
 		log.Printf("Falha ao criar diretório temporário para figurinha animada: %v", err)
@@ -1269,9 +1253,14 @@ func convertAnimatedStickerToContactSheet(data []byte) ([]byte, string, bool) {
 		return nil, "", false
 	}
 
-	infoOut, err := osExec.Command("webpmux", "-info", inputPath).CombinedOutput()
+	infoOut, err := runMediaCommand(ctx, "webpmux", "-info", inputPath)
 	if err != nil {
 		log.Printf("Falha ao inspecionar figurinha animada com webpmux: erro=%v saida=%s", err, strings.TrimSpace(string(infoOut)))
+		return nil, "", false
+	}
+	width, height, ok := parseWebPMuxCanvasSize(string(infoOut))
+	if !ok || !stickerCanvasAllowed(width, height) {
+		log.Printf("Figurinha animada recusada: canvas %dx%d fora do limite", width, height)
 		return nil, "", false
 	}
 	frameCount, ok := parseWebPMuxFrameCount(string(infoOut))
@@ -1285,13 +1274,13 @@ func convertAnimatedStickerToContactSheet(data []byte) ([]byte, string, bool) {
 		webpPath := filepath.Join(dir, fmt.Sprintf("frame_%03d.webp", pos+1))
 		pngPath := filepath.Join(dir, fmt.Sprintf("frame_%03d.png", pos+1))
 
-		out, err := osExec.Command("webpmux", "-get", "frame", strconv.Itoa(frameIndex), inputPath, "-o", webpPath).CombinedOutput()
+		out, err := runMediaCommand(ctx, "webpmux", "-get", "frame", strconv.Itoa(frameIndex), inputPath, "-o", webpPath)
 		if err != nil {
 			log.Printf("Falha ao extrair quadro %d/%d da figurinha: erro=%v saida=%s", frameIndex, frameCount, err, strings.TrimSpace(string(out)))
 			return nil, "", false
 		}
 
-		out, err = osExec.Command("dwebp", "-quiet", webpPath, "-o", pngPath).CombinedOutput()
+		out, err = runMediaCommand(ctx, "dwebp", "-quiet", webpPath, "-o", pngPath)
 		if err != nil {
 			log.Printf("Falha ao converter quadro %d da figurinha para PNG: erro=%v saida=%s", frameIndex, err, strings.TrimSpace(string(out)))
 			return nil, "", false
@@ -1309,7 +1298,8 @@ func convertAnimatedStickerToContactSheet(data []byte) ([]byte, string, bool) {
 		cols,
 		rows,
 	)
-	out, err := osExec.Command(
+	out, err := runMediaCommand(
+		ctx,
 		"ffmpeg",
 		"-y",
 		"-hide_banner",
@@ -1319,7 +1309,7 @@ func convertAnimatedStickerToContactSheet(data []byte) ([]byte, string, bool) {
 		"-frames:v", "1",
 		"-vf", filter,
 		outputPath,
-	).CombinedOutput()
+	)
 	if err != nil {
 		log.Printf("Falha ao montar grade de quadros da figurinha: erro=%v saida=%s", err, strings.TrimSpace(string(out)))
 		return nil, "", false
