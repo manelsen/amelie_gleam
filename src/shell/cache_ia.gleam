@@ -10,6 +10,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
 import gleam/otp/supervision
 import gleam/result
+import shell/sistema
 
 // 1 hora em ms
 const ttl_ms = 3_600_000
@@ -74,7 +75,7 @@ fn buscar(estado: Estado, chave: String) -> Option(String) {
   case dict.get(estado, chave) {
     Error(_) -> None
     Ok(entrada) ->
-      case now_ms() < entrada.expira_em {
+      case sistema.agora_ms() < entrada.expira_em {
         True -> Some(entrada.valor)
         False -> None
       }
@@ -82,7 +83,7 @@ fn buscar(estado: Estado, chave: String) -> Option(String) {
 }
 
 fn inserir(estado: Estado, chave: String, valor: String) -> Estado {
-  let agora = now_ms()
+  let agora = sistema.agora_ms()
   let estado = case dict.size(estado) >= max_entradas {
     True -> {
       let estado_limpo = dict.filter(estado, fn(_k, v) { agora < v.expira_em })
@@ -123,6 +124,3 @@ pub fn obter(cache: CacheIA, k: String) -> Option(String) {
 pub fn guardar(cache: CacheIA, k: String, valor: String) -> Nil {
   process.send(cache, Guardar(k, valor))
 }
-
-@external(erlang, "amelie_gleam_ffi", "now_ms")
-fn now_ms() -> Int

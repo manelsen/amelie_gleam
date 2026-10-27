@@ -34,6 +34,7 @@ import shell/handler_mensagem.{type Portas, Portas}
 import shell/ia_resiliente
 import shell/metricas
 import shell/seguranca_http
+import shell/sistema
 import shell/telegram_poller
 import sqlight
 
@@ -43,12 +44,6 @@ import logging
 // ---------------------------------------------------------------------------
 // FFI — variáveis de ambiente
 // ---------------------------------------------------------------------------
-
-@external(erlang, "amelie_gleam_ffi", "get_env")
-fn get_env(name: String) -> Result(String, Nil)
-
-@external(erlang, "amelie_gleam_ffi", "spawn_fn")
-fn spawn_fn(f: fn() -> a) -> Nil
 
 @external(erlang, "amelie_gleam_ffi", "read_bridge_media")
 fn read_file(path: String) -> Result(BitArray, String)
@@ -76,34 +71,17 @@ pub fn main() {
   let assert True = string.byte_size(bridge_token) >= 32
     as "Defina BRIDGE_TOKEN com pelo menos 32 caracteres aleatórios"
 
-  let gemini_api_key =
-    get_env("GEMINI_API_KEY")
-    |> result.unwrap(or: "")
-  let openrouter_api_key =
-    get_env("OPENROUTER_API_KEY")
-    |> result.unwrap(or: "")
-  let telegram_bot_token =
-    get_env("TELEGRAM_BOT_TOKEN")
-    |> result.unwrap(or: "")
-  let telegram_secret_token =
-    get_env("TELEGRAM_SECRET_TOKEN")
-    |> result.unwrap(or: "")
-  let telegram_admin_chat_id =
-    get_env("TELEGRAM_ADMIN_CHAT_ID")
-    |> result.unwrap(or: "")
+  let gemini_api_key = sistema.ler_env_ou("GEMINI_API_KEY", "")
+  let openrouter_api_key = sistema.ler_env_ou("OPENROUTER_API_KEY", "")
+  let telegram_bot_token = sistema.ler_env_ou("TELEGRAM_BOT_TOKEN", "")
+  let telegram_secret_token = sistema.ler_env_ou("TELEGRAM_SECRET_TOKEN", "")
+  let telegram_admin_chat_id = sistema.ler_env_ou("TELEGRAM_ADMIN_CHAT_ID", "")
 
-  let bridge_url =
-    get_env("WHATSMEOW_URL")
-    |> result.unwrap(or: "http://localhost:8080")
-  let db_path =
-    get_env("DB_PATH")
-    |> result.unwrap(or: "./db/amelie.sqlite")
-  let port_str =
-    get_env("PORT")
-    |> result.unwrap(or: "4000")
+  let bridge_url = sistema.url_ponte()
+  let db_path = sistema.ler_env_ou("DB_PATH", "./db/amelie.sqlite")
+  let port_str = sistema.ler_env_ou("PORT", "4000")
   let offline_retry_interval_str =
-    get_env("OFFLINE_RETRY_INTERVAL_MS")
-    |> result.unwrap(or: "30000")
+    sistema.ler_env_ou("OFFLINE_RETRY_INTERVAL_MS", "30000")
   let port =
     int.parse(port_str)
     |> result.unwrap(or: 4000)
@@ -111,8 +89,7 @@ pub fn main() {
     int.parse(offline_retry_interval_str)
     |> result.unwrap(or: 30_000)
   let manutencao_intervalo_str =
-    get_env("MANUTENCAO_INTERVALO_MS")
-    |> result.unwrap(or: "3600000")
+    sistema.ler_env_ou("MANUTENCAO_INTERVALO_MS", "3600000")
   let manutencao_intervalo_ms =
     int.parse(manutencao_intervalo_str)
     |> result.unwrap(or: 3_600_000)
@@ -500,7 +477,7 @@ fn handle_webhook(
         Ok(webhook) -> {
           // Processa em processo isolado — webhook retorna imediatamente.
           // Evita bloquear o Mist durante chamadas à IA (2-10s).
-          spawn_fn(fn() {
+          sistema.disparar(fn() {
             handler_mensagem.handle(carregar_midia(webhook), portas)
           })
           json_response(202, "{\"ok\":true}")

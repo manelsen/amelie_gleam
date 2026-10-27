@@ -2,7 +2,7 @@
 -include_lib("kernel/include/file.hrl").
 -export([read_file/1, get_env/1, now_ms/0,
          sha256_hex/1, memoria_total_mb/0, memoria_processos_mb/0,
-         contagem_processos/0, spawn_fn/1, upload_file/3,
+         contagem_processos/0, upload_file/3,
          strip_timestamps/1, video_tem_audio/1,
          constant_time_equal/2, validate_bridge_media/1, read_bridge_media/1,
          cache_key/3, write_private_media/1, limpar_midias_antigas/1,
@@ -243,11 +243,6 @@ safe_mime(Raw) when is_binary(Raw) ->
     end;
 safe_mime(_) ->
     <<"application/octet-stream">>.
-
-%% Spawna função em processo isolado (sem link).
-spawn_fn(F) ->
-    erlang:spawn(F),
-    nil.
 
 %% Lê variável de ambiente.
 %% Retorna {ok, Binary} | {error, nil} — Result(String, Nil) no Gleam.

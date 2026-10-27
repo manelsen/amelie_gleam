@@ -154,8 +154,7 @@ Messages starting with `.` or `/` (or without prefix where supported) are parsed
 ### FFI
 
 `src/amelie_gleam_ffi.erl` provides Erlang FFI for:
-- `get_env/1` — OS environment variables.
-- `spawn_fn/1` — asynchronous OTP process spawning.
+- `get_env/1`, `now_ms/0` — OS environment variables and wall clock. Shell modules use them only through `shell/sistema` (`ler_env`, `ler_env_ou`, `agora_ms`, `agora_s`, `admin_chat_id`, `url_ponte`), which also offers `disparar` for unlinked processes; don't redeclare these externals elsewhere.
 - `read_file/1` and `delete_file/1` — temporary media file reading and cleanup.
 - `total_memory/0`, `processes_memory/0`, `process_count/0` — BEAM runtime metrics.
 

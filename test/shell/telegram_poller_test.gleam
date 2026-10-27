@@ -67,8 +67,10 @@ pub fn processar_updates_avanca_offset_e_despacha_test() {
   // O novo offset deve ser update_id + 1 = 5002
   novo_offset |> should.equal(5002)
 
-  // Deve ter despachado e respondido para o chat tg:887766
-  let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 5000)
+  // Deve ter despachado e respondido para o chat tg:887766.
+  // Antes de responder, o poller chama sendChatAction na API real do Telegram,
+  // que pode levar até o timeout do httpc (30 s); o gleeunit dá 50 s por teste.
+  let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 35_000)
   chat_id |> should.equal("tg:887766")
   should.be_true(string.contains(texto, "Amélie — Comandos disponíveis"))
 }

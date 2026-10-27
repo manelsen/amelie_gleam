@@ -27,10 +27,8 @@ import portas/mensageiro_porta.{type MensageiroPorta}
 import portas/transacao_porta.{type TransacaoPorta}
 import portas/video_contexto_porta.{type VideoContextoPorta}
 import shell/entrega_auditada
+import shell/sistema
 import simplifile
-
-@external(erlang, "amelie_gleam_ffi", "now_ms")
-fn now_ms() -> Int
 
 pub type FilaMidia =
   Subject(MensagemFila)
@@ -403,7 +401,7 @@ fn processar_video(
                 _ -> Nil
               }
               // Salva o novo vídeo com cota de 2 perguntas de follow-up
-              let agora_s = now_ms() / 1000
+              let agora_s = sistema.agora_ms() / 1000
               let _ =
                 video_contexto.salvar(VideoContexto(
                   chat_id: chat_id,

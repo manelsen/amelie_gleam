@@ -17,6 +17,7 @@ import gleam/string
 import logging
 import shell/arquivos_temporarios
 import shell/handler_mensagem.{type Portas}
+import shell/sistema
 
 const base_url = "https://api.telegram.org"
 
@@ -30,11 +31,8 @@ pub fn iniciar(bot_token: String, portas: Portas) -> Nil {
   }
 }
 
-@external(erlang, "amelie_gleam_ffi", "spawn_fn")
-fn spawn_fn(f: fn() -> a) -> Nil
-
 fn spawn_poller(bot_token: String, offset: Int, portas: Portas) -> Nil {
-  spawn_fn(fn() { loop(bot_token, offset, portas) })
+  sistema.disparar(fn() { loop(bot_token, offset, portas) })
 }
 
 fn loop(bot_token: String, offset: Int, portas: Portas) -> Nil {
@@ -129,7 +127,7 @@ pub fn despachar_evento(
 ) -> Nil {
   case evento {
     telegram_webhook.EventoMensagemPronta(_, msg) -> {
-      spawn_fn(fn() {
+      sistema.disparar(fn() {
         let _ =
           telegram_http.enviar_chat_action(bot_token, msg.chat_id, "typing")
         let _ = handler_mensagem.handle(msg, portas)
@@ -137,7 +135,7 @@ pub fn despachar_evento(
       })
     }
     telegram_webhook.EventoFotoParaBaixar(_, base, file_id) -> {
-      spawn_fn(fn() {
+      sistema.disparar(fn() {
         reagir_se_possivel(base, portas)
         let _ =
           telegram_http.enviar_chat_action(
@@ -171,7 +169,7 @@ pub fn despachar_evento(
       })
     }
     telegram_webhook.EventoAudioParaBaixar(_, base, file_id, mime) -> {
-      spawn_fn(fn() {
+      sistema.disparar(fn() {
         reagir_se_possivel(base, portas)
         let _ =
           telegram_http.enviar_chat_action(
@@ -204,7 +202,7 @@ pub fn despachar_evento(
       })
     }
     telegram_webhook.EventoVideoParaBaixar(_, base, file_id, mime) -> {
-      spawn_fn(fn() {
+      sistema.disparar(fn() {
         reagir_se_possivel(base, portas)
         let _ =
           telegram_http.enviar_chat_action(
@@ -263,7 +261,7 @@ pub fn despachar_evento(
       mime,
       file_name,
     ) -> {
-      spawn_fn(fn() {
+      sistema.disparar(fn() {
         reagir_se_possivel(base, portas)
         let _ =
           telegram_http.enviar_chat_action(
@@ -304,7 +302,7 @@ pub fn despachar_evento(
       })
     }
     telegram_webhook.EventoStickerParaBaixar(_, base, file_id, mime) -> {
-      spawn_fn(fn() {
+      sistema.disparar(fn() {
         reagir_se_possivel(base, portas)
         let _ =
           telegram_http.enviar_chat_action(
@@ -341,7 +339,7 @@ pub fn despachar_evento(
       })
     }
     telegram_webhook.EventoArquivoMuitoGrande(_, chat_id, tamanho_mb) -> {
-      spawn_fn(fn() {
+      sistema.disparar(fn() {
         let msg_aviso =
           "Não consegui baixar o arquivo do Telegram. O limite suportado pelo bot é de 20 MB (este arquivo possui cerca de "
           <> int.to_string(tamanho_mb)
