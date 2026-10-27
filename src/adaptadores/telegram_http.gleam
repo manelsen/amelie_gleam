@@ -1,6 +1,7 @@
 // Adaptador HTTP para a Telegram Bot API.
 // Implementa MensageiroPorta e TelegramPorta chamando api.telegram.org.
 
+import adaptadores/telegram_webhook
 import dominio/erro.{type Erro}
 import gleam/dynamic/decode
 import gleam/http
@@ -69,7 +70,18 @@ pub fn obter_updates(bot_token: String, offset: Int) -> RespostaPolling {
     Error(_) -> FalhaPolling(aviso: None, esperar_ms: 2000)
     Ok(req) ->
       case httpc.send(request.set_method(req, http.Get)) {
-        Ok(resp) if resp.status == 200 -> NovosUpdates(resp.body)
+        Ok(resp) if resp.status == 200 ->
+          case telegram_webhook.extrair_updates(resp.body) {
+            Ok(eventos) -> NovosUpdates(eventos)
+            Error(e) ->
+              FalhaPolling(
+                aviso: Some(
+                  "Telegram poller: falha ao extrair updates: "
+                  <> erro.descricao(e),
+                ),
+                esperar_ms: 1000,
+              )
+          }
         Ok(resp) if resp.status == 409 ->
           case string.contains(resp.body, "webhook is active") {
             True -> WebhookAtivo

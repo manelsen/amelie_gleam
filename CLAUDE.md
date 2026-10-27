@@ -116,7 +116,7 @@ A Amélie só atende conversas privadas, nos dois canais. No WhatsApp, a ponte d
 
 ### Ports (Abstract interfaces as record-of-functions)
 
-`shell/` and `core/` reach external services only through these ports; `amelie_gleam.gleam` is the only place that builds adapters. `dominio/provedores_config` only parses YAML text — the entry point reads `config/providers.yaml`.
+`shell/` reaches external services only through these ports; `amelie_gleam.gleam` is the only place that builds adapters. Allowed imports per layer: `dominio` → `dominio`; `portas` → `dominio`; `core` → `core`, `dominio` (never `portas`); `adaptadores` → `adaptadores`, `dominio`, `portas`; `shell` → `shell`, `core`, `dominio`, `portas` (never `adaptadores`). `shell/despachante_ia` routes AI calls to the configured provider's `IAPorta`. `dominio/provedores_config` only parses YAML text — the entry point reads `config/providers.yaml`.
 
 
 - `portas/mensageiro_porta.MensageiroPorta` — send messages and reactions (WhatsApp bridge, Telegram).

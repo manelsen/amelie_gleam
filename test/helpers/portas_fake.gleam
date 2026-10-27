@@ -1,4 +1,3 @@
-import core/despachante_ia
 import dominio/config
 import dominio/erro.{type Erro}
 import dominio/mensagem.{type Turno}
@@ -20,6 +19,7 @@ import portas/telegram_porta.{type AcaoChat, type TelegramPorta, TelegramPorta}
 import portas/transacao_porta.{type TransacaoPorta, TransacaoPorta}
 import portas/usuario_porta.{type UsuarioPorta, UsuarioPorta}
 import portas/video_contexto_porta.{type VideoContextoPorta, VideoContextoPorta}
+import shell/despachante_ia
 import shell/fila_midia
 import shell/metricas
 import shell/tratador_mensagem.{type Portas, Portas}

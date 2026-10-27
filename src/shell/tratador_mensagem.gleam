@@ -4,7 +4,6 @@
 import core/acessibilidade
 import core/anti_spam as core_anti_spam
 import core/autorizacao
-import core/despachante_ia
 import core/privacidade
 import core/processador
 import core/prompt/montador
@@ -43,6 +42,7 @@ import portas/usuario_porta.{type UsuarioPorta}
 import portas/video_contexto_porta.{type VideoContextoPorta}
 import shell/anti_spam.{type AntiSpam}
 import shell/arquivos_temporarios
+import shell/despachante_ia
 import shell/entrega_auditada
 import shell/extrator_url
 import shell/fila_midia.{type FilasMidia}
