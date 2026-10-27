@@ -10,6 +10,7 @@ import adaptadores/telegram_http
 import adaptadores/telegram_webhook
 import adaptadores/transacao_sqlite
 import adaptadores/usuario_sqlite
+import adaptadores/video_contexto_sqlite
 import adaptadores/whatsmeow_http
 import core/ia_dispatcher
 import core/privacidade
@@ -133,6 +134,7 @@ pub fn main() {
   let grupos_p = grupo_sqlite.criar(conn)
   let transacoes_p = transacao_sqlite.criar(conn)
   let spammers_p = spammer_sqlite.criar(conn)
+  let video_contexto_p = video_contexto_sqlite.criar(conn)
   let whatsapp = whatsmeow_http.criar(bridge_url)
   let telegram = telegram_http.criar(telegram_bot_token)
   let mensageiro = roteador_mensageiro.criar(whatsapp, telegram)
@@ -178,6 +180,7 @@ pub fn main() {
       providers_config: providers_config,
       anti_spam: procs.anti_spam,
       spammers: spammers_p,
+      video_contexto: video_contexto_p,
     )
 
   let _ = telegram_poller.iniciar(telegram_bot_token, portas)

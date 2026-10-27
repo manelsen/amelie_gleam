@@ -4,8 +4,10 @@ import dominio/erro.{type Erro}
 import dominio/mensagem.{type Turno}
 import dominio/providers_config
 import dominio/transacao
+import dominio/video_contexto.{type VideoContexto}
 import gleam/erlang/process
-import gleam/option.{None, Some}
+import gleam/int
+import gleam/option.{type Option, None, Some}
 import portas/config_porta.{type ConfigPorta, ConfigPorta}
 import portas/grupo_porta.{type GrupoPorta, GrupoPorta}
 import portas/historico_porta.{type HistoricoPorta, HistoricoPorta}
@@ -15,6 +17,7 @@ import portas/prompt_porta.{type PromptPorta, PromptPorta}
 import portas/spammer_porta.{type SpammerPorta, SpammerPorta}
 import portas/transacao_porta.{type TransacaoPorta, TransacaoPorta}
 import portas/usuario_porta.{type UsuarioPorta, UsuarioPorta}
+import portas/video_contexto_porta.{type VideoContextoPorta, VideoContextoPorta}
 import shell/fila_midia
 import shell/handler_mensagem.{type Portas, Portas}
 import shell/metricas
@@ -331,6 +334,65 @@ pub fn spammer_capturar(ref: process.Subject(EventoSpammer)) -> SpammerPorta {
 }
 
 // ---------------------------------------------------------------------------
+// Contexto de vídeo fake
+// ---------------------------------------------------------------------------
+
+pub fn video_contexto_noop() -> VideoContextoPorta {
+  VideoContextoPorta(
+    obter: fn(_) { Ok(None) },
+    salvar: fn(_) { Ok(Nil) },
+    decrementar_perguntas: fn(_) { Ok(0) },
+    remover: fn(_) { Ok(None) },
+    limpar_expirados: fn(_) { Ok([]) },
+  )
+}
+
+pub fn video_contexto_com(ctx: Option(VideoContexto)) -> VideoContextoPorta {
+  VideoContextoPorta(
+    obter: fn(_) { Ok(ctx) },
+    salvar: fn(_) { Ok(Nil) },
+    decrementar_perguntas: fn(_) { Ok(1) },
+    remover: fn(_) { Ok(option.map(ctx, fn(c) { c.uri })) },
+    limpar_expirados: fn(_) { Ok([]) },
+  )
+}
+
+pub type EventoVideoContexto {
+  VideoObtido(chat_id: String)
+  VideoSalvo(VideoContexto)
+  VideoPerguntasDecrementadas(chat_id: String)
+  VideoRemovido(chat_id: String)
+}
+
+pub fn video_contexto_capturar(
+  ctx: Option(VideoContexto),
+  ref: process.Subject(EventoVideoContexto),
+) -> VideoContextoPorta {
+  VideoContextoPorta(
+    obter: fn(chat_id) {
+      process.send(ref, VideoObtido(chat_id))
+      Ok(ctx)
+    },
+    salvar: fn(c) {
+      process.send(ref, VideoSalvo(c))
+      Ok(Nil)
+    },
+    decrementar_perguntas: fn(chat_id) {
+      process.send(ref, VideoPerguntasDecrementadas(chat_id))
+      Ok(case ctx {
+        Some(c) -> int.max(0, c.perguntas_restantes - 1)
+        None -> 0
+      })
+    },
+    remover: fn(chat_id) {
+      process.send(ref, VideoRemovido(chat_id))
+      Ok(option.map(ctx, fn(c) { c.uri }))
+    },
+    limpar_expirados: fn(_) { Ok([]) },
+  )
+}
+
+// ---------------------------------------------------------------------------
 import shell/anti_spam
 
 // ---------------------------------------------------------------------------
@@ -366,5 +428,6 @@ pub fn portas_ok(cfg, resposta_ia: String) -> Portas {
     providers_config: providers_config.padrao(),
     anti_spam: spam,
     spammers: spammer_noop(),
+    video_contexto: video_contexto_noop(),
   )
 }

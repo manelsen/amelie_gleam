@@ -10,7 +10,10 @@ import dominio/acao.{
 }
 import dominio/config.{type Config}
 import dominio/erro.{type Erro}
-import dominio/mensagem.{type Mensagem, Audio, Documento, Imagem, Video}
+import dominio/mensagem.{
+  type Mensagem, Audio, Documento, Imagem, TurnoAssistente, TurnoUsuario, Video,
+}
+import dominio/video_contexto.{VideoContexto}
 import gleam/erlang/process.{type Subject}
 import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
@@ -18,11 +21,16 @@ import gleam/otp/supervision
 import gleam/result
 import gleam/string
 import logging
+import portas/historico_porta.{type HistoricoPorta}
 import portas/ia_porta.{type IAPorta}
 import portas/mensageiro_porta.{type MensageiroPorta}
 import portas/transacao_porta.{type TransacaoPorta}
+import portas/video_contexto_porta.{type VideoContextoPorta}
 import shell/entrega_auditada
 import simplifile
+
+@external(erlang, "amelie_gleam_ffi", "now_ms")
+fn now_ms() -> Int
 
 pub type FilaMidia =
   Subject(MensagemFila)
@@ -46,6 +54,8 @@ pub type MensagemFila {
     ia: IAPorta,
     mensageiro: MensageiroPorta,
     transacoes: TransacaoPorta,
+    historico: HistoricoPorta,
+    video_contexto: VideoContextoPorta,
   )
   Parar
 }
@@ -58,9 +68,29 @@ pub fn iniciar_uma_actor(
     |> actor.on_message(fn(state, msg) {
       case msg {
         Parar -> actor.stop()
-        Enfileirar(chat_id, mensagem, tipo, cfg, ia, mensageiro, transacoes) -> {
+        Enfileirar(
+          chat_id,
+          mensagem,
+          tipo,
+          cfg,
+          ia,
+          mensageiro,
+          transacoes,
+          historico,
+          video_contexto,
+        ) -> {
           case
-            processar(chat_id, mensagem, tipo, cfg, ia, mensageiro, transacoes)
+            processar(
+              chat_id,
+              mensagem,
+              tipo,
+              cfg,
+              ia,
+              mensageiro,
+              transacoes,
+              historico,
+              video_contexto,
+            )
           {
             Ok(_) -> Nil
             Error(e) ->
@@ -120,6 +150,8 @@ pub fn enfileirar(
   ia: IAPorta,
   mensageiro: MensageiroPorta,
   transacoes: TransacaoPorta,
+  historico: HistoricoPorta,
+  video_contexto: VideoContextoPorta,
 ) -> Result(Nil, Erro) {
   let fila = case tipo {
     MidiaImagem -> filas.imagem
@@ -130,7 +162,17 @@ pub fn enfileirar(
   }
   process.send(
     fila,
-    Enfileirar(chat_id, msg, tipo, cfg, ia, mensageiro, transacoes),
+    Enfileirar(
+      chat_id,
+      msg,
+      tipo,
+      cfg,
+      ia,
+      mensageiro,
+      transacoes,
+      historico,
+      video_contexto,
+    ),
   )
   Ok(Nil)
 }
@@ -143,16 +185,45 @@ fn processar(
   ia: IAPorta,
   mensageiro: MensageiroPorta,
   transacoes: TransacaoPorta,
+  historico: HistoricoPorta,
+  video_contexto: VideoContextoPorta,
 ) -> Result(Nil, Erro) {
   case tipo {
     MidiaImagem ->
-      processar_imagem(chat_id, msg, cfg, ia, mensageiro, transacoes)
-    MidiaAudio -> processar_audio(chat_id, msg, cfg, ia, mensageiro, transacoes)
-    MidiaVideo -> processar_video(chat_id, msg, cfg, ia, mensageiro, transacoes)
+      processar_imagem(chat_id, msg, cfg, ia, mensageiro, transacoes, historico)
+    MidiaAudio ->
+      processar_audio(chat_id, msg, cfg, ia, mensageiro, transacoes, historico)
+    MidiaVideo ->
+      processar_video(
+        chat_id,
+        msg,
+        cfg,
+        ia,
+        mensageiro,
+        transacoes,
+        historico,
+        video_contexto,
+      )
     MidiaDocumento ->
-      processar_documento(chat_id, msg, cfg, ia, mensageiro, transacoes)
+      processar_documento(
+        chat_id,
+        msg,
+        cfg,
+        ia,
+        mensageiro,
+        transacoes,
+        historico,
+      )
     MidiaSticker ->
-      processar_sticker(chat_id, msg, cfg, ia, mensageiro, transacoes)
+      processar_sticker(
+        chat_id,
+        msg,
+        cfg,
+        ia,
+        mensageiro,
+        transacoes,
+        historico,
+      )
   }
 }
 
@@ -170,6 +241,7 @@ fn processar_imagem(
   ia: IAPorta,
   mensageiro: MensageiroPorta,
   transacoes: TransacaoPorta,
+  historico: HistoricoPorta,
 ) -> Result(Nil, Erro) {
   case msg.corpo {
     Imagem(mime: mime, dados: dados) -> {
@@ -196,7 +268,15 @@ fn processar_imagem(
           <> privacidade.mascarar_id(chat_id),
       )
       reagir(msg, "🆗", mensageiro)
-      entregar(chat_id, "imagem", resposta, msg, mensageiro, transacoes)
+      entregar(
+        chat_id,
+        "imagem",
+        resposta,
+        msg,
+        mensageiro,
+        transacoes,
+        historico,
+      )
     }
     _ -> Ok(Nil)
   }
@@ -209,6 +289,7 @@ fn processar_audio(
   ia: IAPorta,
   mensageiro: MensageiroPorta,
   transacoes: TransacaoPorta,
+  historico: HistoricoPorta,
 ) -> Result(Nil, Erro) {
   case msg.corpo {
     Audio(mime: mime, dados: dados) -> {
@@ -236,7 +317,15 @@ fn processar_audio(
           <> privacidade.mascarar_id(chat_id),
       )
       reagir(msg, "🆗", mensageiro)
-      entregar(chat_id, "audio", resposta, msg, mensageiro, transacoes)
+      entregar(
+        chat_id,
+        "audio",
+        resposta,
+        msg,
+        mensageiro,
+        transacoes,
+        historico,
+      )
     }
     _ -> Ok(Nil)
   }
@@ -249,6 +338,8 @@ fn processar_video(
   ia: IAPorta,
   mensageiro: MensageiroPorta,
   transacoes: TransacaoPorta,
+  historico: HistoricoPorta,
+  video_contexto: VideoContextoPorta,
 ) -> Result(Nil, Erro) {
   case msg.corpo {
     Video(caminho_temp: caminho, mime: mime) -> {
@@ -289,18 +380,49 @@ fn processar_video(
             ))
             Ok(resposta)
           }
-          let _ = ia.deletar_arquivo(uri)
           let _ = simplifile.delete_file(caminho)
-          use resposta <- result.try(processamento)
-          logging.log(
-            logging.Info,
-            "[Vídeo]"
-              <> tag_trace(msg)
-              <> " Concluído para "
-              <> privacidade.mascarar_id(chat_id),
-          )
-          reagir(msg, "🆗", mensageiro)
-          entregar(chat_id, "video", resposta, msg, mensageiro, transacoes)
+          case processamento {
+            Error(e) -> {
+              let _ = ia.deletar_arquivo(uri)
+              Error(e)
+            }
+            Ok(resposta) -> {
+              logging.log(
+                logging.Info,
+                "[Vídeo]"
+                  <> tag_trace(msg)
+                  <> " Concluído para "
+                  <> privacidade.mascarar_id(chat_id),
+              )
+              // Deleta vídeo anterior deste chat se existir para não acumular
+              case video_contexto.remover(chat_id) {
+                Ok(Some(uri_antigo)) -> {
+                  let _ = ia.deletar_arquivo(uri_antigo)
+                  Nil
+                }
+                _ -> Nil
+              }
+              // Salva o novo vídeo com cota de 2 perguntas de follow-up
+              let agora_s = now_ms() / 1000
+              let _ =
+                video_contexto.salvar(VideoContexto(
+                  chat_id: chat_id,
+                  uri: uri,
+                  perguntas_restantes: 2,
+                  criado_em: agora_s,
+                ))
+              reagir(msg, "🆗", mensageiro)
+              entregar(
+                chat_id,
+                "video",
+                resposta,
+                msg,
+                mensageiro,
+                transacoes,
+                historico,
+              )
+            }
+          }
         }
       }
     }
@@ -315,6 +437,7 @@ fn processar_documento(
   ia: IAPorta,
   mensageiro: MensageiroPorta,
   transacoes: TransacaoPorta,
+  historico: HistoricoPorta,
 ) -> Result(Nil, Erro) {
   case msg.corpo {
     Documento(mime: mime, dados: dados, nome: _nome) -> {
@@ -341,7 +464,15 @@ fn processar_documento(
           <> privacidade.mascarar_id(chat_id),
       )
       reagir(msg, "🆗", mensageiro)
-      entregar(chat_id, "documento", resposta, msg, mensageiro, transacoes)
+      entregar(
+        chat_id,
+        "documento",
+        resposta,
+        msg,
+        mensageiro,
+        transacoes,
+        historico,
+      )
     }
     _ -> Ok(Nil)
   }
@@ -354,6 +485,7 @@ fn processar_sticker(
   ia: IAPorta,
   mensageiro: MensageiroPorta,
   transacoes: TransacaoPorta,
+  historico: HistoricoPorta,
 ) -> Result(Nil, Erro) {
   case msg.corpo {
     mensagem.Sticker(mime: mime, dados: dados) -> {
@@ -381,7 +513,15 @@ fn processar_sticker(
           <> privacidade.mascarar_id(chat_id),
       )
       reagir(msg, "🆗", mensageiro)
-      entregar(chat_id, "sticker", resposta, msg, mensageiro, transacoes)
+      entregar(
+        chat_id,
+        "sticker",
+        resposta,
+        msg,
+        mensageiro,
+        transacoes,
+        historico,
+      )
     }
     _ -> Ok(Nil)
   }
@@ -398,7 +538,7 @@ fn reagir(msg: Mensagem, emoji: String, mensageiro: MensageiroPorta) -> Nil {
   }
 }
 
-// Entrega citando a mensagem original quando possível.
+// Entrega citando a mensagem original quando possível e grava no histórico.
 fn entregar(
   chat_id: String,
   tipo: String,
@@ -406,8 +546,31 @@ fn entregar(
   msg: Mensagem,
   mensageiro: MensageiroPorta,
   transacoes: TransacaoPorta,
+  historico: HistoricoPorta,
 ) -> Result(Nil, Erro) {
+  let rotulo_usuario = case tipo {
+    "imagem" ->
+      case msg.legenda {
+        option.Some(l) -> "[imagem] " <> l
+        option.None -> "[imagem]"
+      }
+    "audio" -> "[áudio]"
+    "video" ->
+      case msg.legenda {
+        option.Some(l) -> "[vídeo] " <> l
+        option.None -> "[vídeo]"
+      }
+    "documento" ->
+      case msg.legenda {
+        option.Some(l) -> "[documento] " <> l
+        option.None -> "[documento]"
+      }
+    "sticker" -> "[sticker]"
+    _ -> "[" <> tipo <> "]"
+  }
+  let _ = historico.adicionar(chat_id, TurnoUsuario(rotulo_usuario))
   let resposta_sanitizada = acessibilidade.sanitizar_saida_voz(resposta)
+  let _ = historico.adicionar(chat_id, TurnoAssistente(resposta_sanitizada))
   case msg.message_id {
     option.Some(mid) ->
       entrega_auditada.enviar_citando(

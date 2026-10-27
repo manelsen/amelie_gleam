@@ -271,3 +271,29 @@ pub fn montar_para_sticker_animado(
   <> sem_introducao()
   <> "\nInicie sua resposta exatamente com \"Audiodescrição do sticker\" e finalize com \"Fim da audiodescrição\"."
 }
+
+pub fn montar_followup_video(
+  config: Config,
+  historico: List(Turno),
+  pergunta: String,
+) -> String {
+  let cabecalho =
+    "Você é Amélie, uma assistente de IA no WhatsApp focada em acessibilidade e análise de mídias. "
+    <> "Responda em "
+    <> config.idioma
+    <> ".\n\n"
+    <> "CONTEXTO: O usuário enviou o vídeo anexado anteriormente e agora fez uma pergunta de acompanhamento sobre ele.\n\n"
+    <> "DIRETRIZ ESTRITA DE ESCOPO:\n"
+    <> "- Responda APENAS se a mensagem do usuário for uma pergunta, dúvida ou comentário diretamente relacionado aos elementos visuais, falas, áudios, pessoas ou acontecimentos deste vídeo.\n"
+    <> "- Se a mensagem do usuário for sobre qualquer outro assunto (como redação, melhoria de texto, programação, conhecimentos gerais, bate-papo casual ou tarefas desvinculadas do vídeo), RECUSE educadamente com a frase exata:\n"
+    <> "\"Só posso tirar dúvidas diretamente relacionadas ao vídeo enviado. Para outros assuntos ou tarefas de texto, utilize o ChatGPT ou DeepSeek.\"\n\n"
+    <> "DIRETRIZ DE RESPOSTA:\n"
+    <> "- Se a dúvida for sobre o vídeo, seja concisa, direta, objetiva e útil.\n"
+    <> "- Não invente fatos que não estejam presentes no vídeo."
+
+  let hist_str = montar_historico(historico, config.historico_max)
+
+  [cabecalho, hist_str, "Pergunta do usuário sobre o vídeo: " <> pergunta]
+  |> list.filter(fn(s) { s != "" })
+  |> string.join("\n\n")
+}

@@ -46,6 +46,7 @@ pub fn audio_off_persiste_config_test() {
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
+      video_contexto: portas_fake.video_contexto_noop(),
     )
   let msg = fixtures.mensagem_comando("audio", "off")
   let _ = handler_mensagem.handle(msg, portas)
@@ -71,6 +72,7 @@ pub fn audio_on_persiste_config_test() {
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
+      video_contexto: portas_fake.video_contexto_noop(),
     )
   let msg = fixtures.mensagem_comando("audio", "on")
   let _ = handler_mensagem.handle(msg, portas)
@@ -96,6 +98,7 @@ pub fn audio_toggle_sem_argumento_persiste_config_test() {
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
+      video_contexto: portas_fake.video_contexto_noop(),
     )
   // config_padrao tem audio_ativo: True; sem argumento, alterna para False
   let msg = fixtures.mensagem_comando("audio", "")
@@ -122,6 +125,7 @@ pub fn reset_limpa_historico_test() {
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
+      video_contexto: portas_fake.video_contexto_noop(),
     )
   let msg = fixtures.mensagem_comando("reset", "")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -147,6 +151,7 @@ pub fn cego_persiste_config_test() {
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
+      video_contexto: portas_fake.video_contexto_noop(),
     )
   let msg = fixtures.mensagem_comando("cego", "")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -175,6 +180,7 @@ pub fn longo_persiste_config_test() {
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
+      video_contexto: portas_fake.video_contexto_noop(),
     )
   let msg = fixtures.mensagem_comando("longo", "")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -200,6 +206,7 @@ pub fn curto_persiste_config_test() {
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
+      video_contexto: portas_fake.video_contexto_noop(),
     )
   let msg = fixtures.mensagem_comando("curto", "")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -225,6 +232,7 @@ pub fn legenda_on_persiste_config_test() {
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
+      video_contexto: portas_fake.video_contexto_noop(),
     )
   let msg = fixtures.mensagem_comando("legenda", "on")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -253,6 +261,7 @@ pub fn parear_bloqueado_para_nao_admin_test() {
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
+      video_contexto: portas_fake.video_contexto_noop(),
     )
   let msg =
     mensagem.Mensagem(
@@ -287,6 +296,7 @@ pub fn status_bloqueado_para_nao_admin_test() {
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
+      video_contexto: portas_fake.video_contexto_noop(),
     )
   let msg =
     mensagem.Mensagem(
@@ -322,6 +332,7 @@ pub fn status_permitido_para_admin_test() {
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
+      video_contexto: portas_fake.video_contexto_noop(),
     )
   let msg =
     mensagem.Mensagem(
@@ -357,6 +368,7 @@ pub fn reset_whatsapp_bloqueado_para_nao_admin_test() {
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
+      video_contexto: portas_fake.video_contexto_noop(),
     )
   let msg =
     mensagem.Mensagem(
@@ -392,6 +404,7 @@ pub fn reset_whatsapp_permitido_para_admin_test() {
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
+      video_contexto: portas_fake.video_contexto_noop(),
     )
   let msg =
     mensagem.Mensagem(
@@ -429,6 +442,7 @@ pub fn resumo_historico_curto_avisa_usuario_test() {
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
+      video_contexto: portas_fake.video_contexto_noop(),
     )
   let msg = fixtures.mensagem_comando("resumo", "")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -504,6 +518,7 @@ pub fn resumo_historico_com_turnos_gera_resumo_test() {
       providers_config: portas_fake.providers_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
+      video_contexto: portas_fake.video_contexto_noop(),
     )
   let msg = fixtures.mensagem_comando("resumo", "")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -584,6 +599,7 @@ pub fn spammers_admin_lista_vazia_test() {
       ..portas_fake.portas_ok(cfg, "unused"),
       mensageiro: portas_fake.mensageiro_capturar(envios),
       spammers: portas_fake.spammer_noop(),
+      video_contexto: portas_fake.video_contexto_noop(),
     )
   let msg =
     mensagem.Mensagem(
