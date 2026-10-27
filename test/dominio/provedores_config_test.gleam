@@ -4,6 +4,7 @@ import dominio/provedores_config
 import gleam/dict
 import gleam/list
 import gleeunit/should
+import helpers/fixtures
 import simplifile
 
 fn ler_yaml() -> provedores_config.ProvedoresConfig {
@@ -26,7 +27,7 @@ pub fn validar_modelo_yaml_test() {
 }
 
 pub fn modelo_padrao_e_gemini_3_5_flash_lite_test() {
-  let cfg = config.padrao("chat")
+  let cfg = config.padrao(fixtures.id("chat@c.us"))
   cfg.modelo |> should.equal("gemini-3.5-flash-lite")
 }
 

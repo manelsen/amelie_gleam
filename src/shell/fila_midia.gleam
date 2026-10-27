@@ -10,6 +10,7 @@ import dominio/acao.{
 }
 import dominio/config.{type Config}
 import dominio/erro.{type Erro}
+import dominio/id_chat.{type IdChat}
 import dominio/mensagem.{
   type Mensagem, Audio, Documento, Imagem, TurnoAssistente, TurnoUsuario, Video,
 }
@@ -58,7 +59,7 @@ pub type Contexto {
 }
 
 pub type MensagemFila {
-  Enfileirar(chat_id: String, msg: Mensagem, tipo: TipoMidia, ctx: Contexto)
+  Enfileirar(chat_id: IdChat, msg: Mensagem, tipo: TipoMidia, ctx: Contexto)
   Parar
 }
 
@@ -76,7 +77,7 @@ pub fn iniciar_uma_actor(
         Enfileirar(chat_id, mensagem, tipo, ctx) -> {
           processar(chat_id, mensagem, tipo, ctx)
           |> sistema.registrar_falha(
-            "Erro ao processar mídia em " <> privacidade.mascarar_id(chat_id),
+            "Erro ao processar mídia em " <> privacidade.mascarar(chat_id),
           )
           actor.continue(state)
         }
@@ -119,7 +120,7 @@ pub fn iniciar_todas() -> Result(FilasMidia, actor.StartError) {
 
 pub fn enfileirar(
   filas: FilasMidia,
-  chat_id: String,
+  chat_id: IdChat,
   msg: Mensagem,
   tipo: TipoMidia,
   ctx: Contexto,
@@ -138,7 +139,7 @@ pub fn enfileirar(
 /// Escolhe como a IA descreve cada mídia; o resto do roteiro é comum a todas.
 /// Um tipo que não bate com o corpo da mensagem é ignorado.
 fn processar(
-  chat_id: String,
+  chat_id: IdChat,
   msg: Mensagem,
   tipo: TipoMidia,
   ctx: Contexto,
@@ -178,7 +179,7 @@ fn processar(
 /// Roteiro comum: avisa com ⌛, pede a descrição à IA e, se der certo,
 /// marca 🆗 e entrega a resposta citando a mensagem original.
 fn descrever(
-  chat_id: String,
+  chat_id: IdChat,
   msg: Mensagem,
   tipo: TipoMidia,
   ctx: Contexto,
@@ -187,15 +188,13 @@ fn descrever(
   let prefixo = "[" <> rotulo_log(tipo) <> "]" <> tag_trace(msg)
   logging.log(
     logging.Info,
-    prefixo
-      <> " Iniciando processamento para "
-      <> privacidade.mascarar_id(chat_id),
+    prefixo <> " Iniciando processamento para " <> privacidade.mascarar(chat_id),
   )
   reagir(msg, "⌛", ctx.mensageiro)
   use resposta <- result.try(gerar())
   logging.log(
     logging.Info,
-    prefixo <> " Concluído para " <> privacidade.mascarar_id(chat_id),
+    prefixo <> " Concluído para " <> privacidade.mascarar(chat_id),
   )
   reagir(msg, "🆗", ctx.mensageiro)
   entregar(chat_id, tipo, resposta, msg, ctx)
@@ -204,7 +203,7 @@ fn descrever(
 /// Sobe o vídeo para a IA, pede a descrição e guarda o arquivo para as
 /// perguntas de acompanhamento. O arquivo local é apagado logo após o upload.
 fn descrever_video(
-  chat_id: String,
+  chat_id: IdChat,
   caminho: String,
   mime: String,
   msg: Mensagem,
@@ -248,7 +247,7 @@ fn prompt_video(cfg: Config, legenda: Option(String), caminho: String) -> String
 
 /// Troca o vídeo de referência do chat: apaga o anterior no provedor, para
 /// não acumular arquivos, e guarda o novo com a cota de perguntas.
-fn lembrar_video(chat_id: String, uri: String, ctx: Contexto) -> Nil {
+fn lembrar_video(chat_id: IdChat, uri: String, ctx: Contexto) -> Nil {
   case ctx.video_contexto.remover(chat_id) {
     Ok(Some(uri_antigo)) ->
       ctx.ia.deletar_arquivo(uri_antigo)
@@ -310,7 +309,7 @@ fn reagir(msg: Mensagem, emoji: String, mensageiro: MensageiroPorta) -> Nil {
 
 // Entrega citando a mensagem original quando possível e grava no histórico.
 fn entregar(
-  chat_id: String,
+  chat_id: IdChat,
   tipo: TipoMidia,
   resposta: String,
   msg: Mensagem,

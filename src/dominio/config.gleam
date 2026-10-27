@@ -1,3 +1,4 @@
+import dominio/id_chat.{type IdChat}
 import dominio/provedor.{type Provedor}
 import gleam/option.{type Option, None}
 
@@ -9,7 +10,7 @@ pub type ModoDescricao {
 
 pub type Config {
   Config(
-    chat_id: String,
+    chat_id: IdChat,
     provedor: Provedor,
     modelo: String,
     historico_max: Int,
@@ -24,7 +25,7 @@ pub type Config {
   )
 }
 
-pub fn padrao(chat_id: String) -> Config {
+pub fn padrao(chat_id: IdChat) -> Config {
   Config(
     chat_id: chat_id,
     provedor: provedor.Gemini,

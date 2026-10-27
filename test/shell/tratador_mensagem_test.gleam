@@ -1,4 +1,5 @@
 import dominio/erro
+import dominio/id_chat.{type IdChat}
 import dominio/mensagem.{Mensagem}
 import dominio/video_contexto.{VideoContexto}
 import gleam/erlang/process
@@ -248,7 +249,10 @@ pub fn extrair_trace_id_test() {
   let msg_sem_id = Mensagem(..msg_com_id, message_id: option.None)
   tratador_mensagem.extrair_trace_id(msg_sem_id)
   |> should.equal(string.slice(
-    "req_" <> int.to_string(msg_sem_id.timestamp) <> "_" <> msg_sem_id.remetente,
+    "req_"
+      <> int.to_string(msg_sem_id.timestamp)
+      <> "_"
+      <> id_chat.para_texto(msg_sem_id.remetente),
     0,
     5,
   ))
@@ -294,7 +298,7 @@ pub fn tratar_com_rate_limit_envia_aviso_ao_usuario_test() {
   should.be_true(string.contains(aviso, "Calma lá"))
 }
 
-fn buscar_aviso(ref: process.Subject(#(String, String))) -> String {
+fn buscar_aviso(ref: process.Subject(#(IdChat, String))) -> String {
   let assert Ok(#(_chat_id, texto)) = process.receive(ref, 1000)
   case string.contains(texto, "Calma lá") {
     True -> texto

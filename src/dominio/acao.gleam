@@ -2,34 +2,35 @@
 // O shell as executa.
 
 import dominio/config.{type Config}
+import dominio/id_chat.{type IdChat}
 
 pub type Acao {
-  GerarEEnviar(para: String, prompt: String)
+  GerarEEnviar(para: IdChat, prompt: String)
   // Busca conteúdo da URL e injeta no prompt antes de chamar a IA.
-  BuscarUrlEResponder(para: String, texto: String, url: String)
-  EnviarResposta(para: String, corpo: String)
-  EnfileirarMidia(chat_id: String, tipo: TipoMidia)
+  BuscarUrlEResponder(para: IdChat, texto: String, url: String)
+  EnviarResposta(para: IdChat, corpo: String)
+  EnfileirarMidia(chat_id: IdChat, tipo: TipoMidia)
   SalvarConfig(config: Config)
-  LimparHistorico(chat_id: String)
+  LimparHistorico(chat_id: IdChat)
   // Prompts nomeados
-  SalvarPrompt(chat_id: String, nome: String, texto: String)
-  ExcluirPrompt(chat_id: String, nome: String)
-  AtivarPrompt(chat_id: String, nome: String)
-  ListarPrompts(chat_id: String)
+  SalvarPrompt(chat_id: IdChat, nome: String, texto: String)
+  ExcluirPrompt(chat_id: IdChat, nome: String)
+  AtivarPrompt(chat_id: IdChat, nome: String)
+  ListarPrompts(chat_id: IdChat)
   // Métricas
-  ConsultarMetricas(chat_id: String)
-  ListarUsuarios(chat_id: String)
-  ListarGrupos(chat_id: String)
+  ConsultarMetricas(chat_id: IdChat)
+  ListarUsuarios(chat_id: IdChat)
+  ListarGrupos(chat_id: IdChat)
   // Modelo/provedor
-  AlterarModelo(chat_id: String, provedor: String, modelo: String)
+  AlterarModelo(chat_id: IdChat, provedor: String, modelo: String)
   // Manutenção
-  SnapshotHistorico(chat_id: String)
+  SnapshotHistorico(chat_id: IdChat)
   // Administração / WhatsApp bridge
-  SolicitarPareamento(chat_id: String, args: String)
-  ConsultarStatus(chat_id: String)
-  ResetarWhatsApp(chat_id: String, args: String)
-  DesbloquearChat(chat_id: String, alvo: String)
-  ConsultarSpammers(chat_id: String)
+  SolicitarPareamento(chat_id: IdChat, args: String)
+  ConsultarStatus(chat_id: IdChat)
+  ResetarWhatsApp(chat_id: IdChat, args: String)
+  DesbloquearChat(chat_id: IdChat, alvo: String)
+  ConsultarSpammers(chat_id: IdChat)
   NaoResponder
 }
 

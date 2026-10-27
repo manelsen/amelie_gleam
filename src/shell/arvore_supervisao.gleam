@@ -3,7 +3,9 @@
 // Garante auto-recuperação transparente (let it crash) com estratégia OneForOne
 // e subjects nomeados (named_subject) para comunicação estável entre reinícios.
 
+import dominio/id_chat.{type IdChat}
 import gleam/erlang/process.{type Subject}
+import gleam/option.{type Option, None}
 import gleam/otp/actor
 import gleam/otp/static_supervisor
 import portas/mensageiro_porta.{type MensageiroPorta}
@@ -37,7 +39,7 @@ pub fn iniciar(
   #(static_supervisor.Supervisor, ProcessosSupervisionados),
   actor.StartError,
 ) {
-  iniciar_completo(transacoes, mensageiro, manutencao.intervalo_padrao_ms, "")
+  iniciar_completo(transacoes, mensageiro, manutencao.intervalo_padrao_ms, None)
 }
 
 pub fn iniciar_com_intervalo_manutencao(
@@ -48,14 +50,14 @@ pub fn iniciar_com_intervalo_manutencao(
   #(static_supervisor.Supervisor, ProcessosSupervisionados),
   actor.StartError,
 ) {
-  iniciar_completo(transacoes, mensageiro, intervalo_manutencao_ms, "")
+  iniciar_completo(transacoes, mensageiro, intervalo_manutencao_ms, None)
 }
 
 pub fn iniciar_completo(
   transacoes: TransacaoPorta,
   mensageiro: MensageiroPorta,
   intervalo_manutencao_ms: Int,
-  admin_chat_id: String,
+  admin_chat_id: Option(IdChat),
 ) -> Result(
   #(static_supervisor.Supervisor, ProcessosSupervisionados),
   actor.StartError,

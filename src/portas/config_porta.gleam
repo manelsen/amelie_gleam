@@ -1,10 +1,11 @@
 import dominio/config.{type Config}
 import dominio/erro.{type Erro}
+import dominio/id_chat.{type IdChat}
 
 pub type ConfigPorta {
   ConfigPorta(
-    obter: fn(String) -> Result(Config, Erro),
+    obter: fn(IdChat) -> Result(Config, Erro),
     salvar: fn(Config) -> Result(Nil, Erro),
-    resetar: fn(String) -> Result(Nil, Erro),
+    resetar: fn(IdChat) -> Result(Nil, Erro),
   )
 }

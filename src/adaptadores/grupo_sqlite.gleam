@@ -1,4 +1,5 @@
 import dominio/erro.{type Erro}
+import dominio/id_chat.{type IdChat}
 import gleam/dynamic/decode
 import gleam/result
 import portas/grupo_porta.{type GrupoPorta, GrupoPorta}
@@ -20,14 +21,14 @@ pub fn criar(conn: sqlight.Connection) -> GrupoPorta {
 
 fn registrar(
   conn: sqlight.Connection,
-  chat_id: String,
+  chat_id: IdChat,
   nome: String,
 ) -> Result(Nil, Erro) {
   sqlight.query(
     "INSERT INTO grupos (chat_id, nome, last_seen) VALUES (?, ?, strftime('%s','now'))
      ON CONFLICT(chat_id) DO UPDATE SET last_seen = excluded.last_seen, nome = excluded.nome",
     on: conn,
-    with: [sqlight.text(chat_id), sqlight.text(nome)],
+    with: [sqlight.text(id_chat.para_texto(chat_id)), sqlight.text(nome)],
     expecting: decode.dynamic,
   )
   |> result.map(fn(_) { Nil })

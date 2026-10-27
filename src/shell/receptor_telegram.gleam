@@ -3,6 +3,7 @@
 // Permite recepção de mensagens sem depender de webhook ou IP público.
 // Toda chamada à Bot API passa pela TelegramPorta.
 
+import dominio/id_chat.{type IdChat}
 import dominio/mensagem.{type Conteudo, type Mensagem, Mensagem}
 import gleam/erlang/process
 import gleam/int
@@ -214,7 +215,7 @@ fn processar(msg: Mensagem, portas: Portas) -> Nil {
   Nil
 }
 
-fn avisar(chat_id: String, texto: String, portas: Portas) -> Nil {
+fn avisar(chat_id: IdChat, texto: String, portas: Portas) -> Nil {
   portas.mensageiro.enviar(chat_id, texto)
   |> sistema.registrar_falha("Falha ao avisar usuário do Telegram")
 }

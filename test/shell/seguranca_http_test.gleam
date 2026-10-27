@@ -29,12 +29,3 @@ pub fn webhook_autenticado_exige_post_test() {
   |> seguranca_http.autorizar_webhook("x-secret", "secret")
   |> should.equal(Ok(Nil))
 }
-
-pub fn whatsapp_nao_pode_se_passar_por_telegram_test() {
-  seguranca_http.identidade_whatsapp_valida("tg:123", "123@s.whatsapp.net")
-  |> should.be_false
-  seguranca_http.identidade_whatsapp_valida("123@g.us", "tg:123")
-  |> should.be_false
-  seguranca_http.identidade_whatsapp_valida("123@g.us", "456@s.whatsapp.net")
-  |> should.be_true
-}

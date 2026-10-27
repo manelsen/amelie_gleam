@@ -1,11 +1,12 @@
 // dominio/spammer.gleam
 // Tipos de domínio para auditoria e histórico de incidentes de anti-spam.
+import dominio/id_chat.{type IdChat}
 
 pub type IncidenteSpam {
   IncidenteSpam(
     id: Int,
-    chat_id: String,
-    remetente: String,
+    chat_id: IdChat,
+    remetente: IdChat,
     telefone: String,
     motivo: String,
     strike: Int,

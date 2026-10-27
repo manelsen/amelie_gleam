@@ -1,6 +1,7 @@
 // Fixtures de teste — constantes compartilhadas entre todos os testes.
 
 import dominio/config.{type Config, Config, Curto}
+import dominio/id_chat.{type IdChat}
 import dominio/mensagem.{
   type Mensagem, type Turno, Mensagem, TurnoAssistente, TurnoUsuario,
 }
@@ -14,12 +15,18 @@ fn agora_s() -> Int {
   now_ms() / 1000
 }
 
-pub fn chat_id() -> String {
-  "5531999990000@c.us"
+/// IdChat a partir da forma textual (`tg:<n>` ou JID); falha o teste se inválida.
+pub fn id(texto: String) -> IdChat {
+  let assert Ok(id) = id_chat.de_texto(texto)
+  id
 }
 
-pub fn remetente() -> String {
-  "5531888880000@c.us"
+pub fn chat_id() -> IdChat {
+  id("5531999990000@c.us")
+}
+
+pub fn remetente() -> IdChat {
+  id("5531888880000@c.us")
 }
 
 pub fn config_padrao() -> Config {

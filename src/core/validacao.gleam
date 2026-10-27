@@ -1,20 +1,10 @@
 // Funções puras de validação. Sem efeitos.
 
 import dominio/erro.{type Erro}
+import dominio/id_chat
 import dominio/mensagem.{type Mensagem}
 import gleam/list
 import gleam/string
-
-pub fn validar_mensagem(msg: Mensagem) -> Result(Mensagem, Erro) {
-  case msg.chat_id {
-    "" -> Error(erro.ErroValidacao("chat_id", "vazio"))
-    _ ->
-      case msg.remetente {
-        "" -> Error(erro.ErroValidacao("remetente", "vazio"))
-        _ -> Ok(msg)
-      }
-  }
-}
 
 pub fn validar_texto(body: String) -> Result(String, Erro) {
   let trimmed = string.trim(body)
@@ -84,5 +74,5 @@ fn remover_acentos(texto: String) -> String {
 }
 
 pub fn e_mensagem_propria(msg: Mensagem) -> Bool {
-  string.ends_with(msg.remetente, ":bot")
+  string.ends_with(id_chat.para_texto(msg.remetente), ":bot")
 }

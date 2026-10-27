@@ -2,6 +2,7 @@
 // Adaptador SQLite para auditoria persistente de incidentes de spam e rate limit.
 
 import dominio/erro.{type Erro}
+import dominio/id_chat.{type IdChat}
 import dominio/spammer.{
   type IncidenteSpam, type ResumoSpammer, IncidenteSpam, ResumoSpammer,
 }
@@ -36,8 +37,8 @@ pub fn criar(conn: sqlight.Connection) -> SpammerPorta {
 
 fn registrar(
   conn: sqlight.Connection,
-  chat_id: String,
-  remetente: String,
+  chat_id: IdChat,
+  remetente: IdChat,
   telefone: String,
   motivo: String,
   strike: Int,
@@ -47,8 +48,8 @@ fn registrar(
      VALUES (?, ?, ?, ?, ?, strftime('%s','now'))",
     on: conn,
     with: [
-      sqlight.text(chat_id),
-      sqlight.text(remetente),
+      sqlight.text(id_chat.para_texto(chat_id)),
+      sqlight.text(id_chat.para_texto(remetente)),
       sqlight.text(telefone),
       sqlight.text(motivo),
       sqlight.int(strike),
@@ -108,8 +109,8 @@ fn contar(conn: sqlight.Connection) -> Result(Int, Erro) {
 
 fn decoder_incidente() -> decode.Decoder(IncidenteSpam) {
   use id <- decode.then(decode.at([0], decode.int))
-  use chat_id <- decode.then(decode.at([1], decode.string))
-  use remetente <- decode.then(decode.at([2], decode.string))
+  use chat_id <- decode.then(decode.at([1], id_chat.decoder()))
+  use remetente <- decode.then(decode.at([2], id_chat.decoder()))
   use telefone <- decode.then(decode.at([3], decode.string))
   use motivo <- decode.then(decode.at([4], decode.string))
   use strike <- decode.then(decode.at([5], decode.int))

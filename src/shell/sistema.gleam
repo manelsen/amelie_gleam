@@ -3,7 +3,10 @@
 // os demais módulos importam daqui.
 
 import dominio/erro.{type Erro}
+import dominio/id_chat.{type IdChat}
 import gleam/erlang/process
+import gleam/int
+import gleam/option.{type Option}
 import gleam/result
 import logging
 
@@ -24,9 +27,13 @@ pub fn ler_env_ou(nome: String, padrao: String) -> String {
   ler_env(nome) |> result.unwrap(or: padrao)
 }
 
-/// Chat ID do admin no Telegram, sem o prefixo `tg:`; vazio se não configurado.
-pub fn admin_chat_id() -> String {
+/// Chat do admin no Telegram; `None` se `TELEGRAM_ADMIN_CHAT_ID` estiver
+/// vazio ou não for um número.
+pub fn admin_chat_id() -> Option(IdChat) {
   ler_env_ou("TELEGRAM_ADMIN_CHAT_ID", "")
+  |> int.parse
+  |> result.map(id_chat.telegram)
+  |> option.from_result
 }
 
 pub fn url_ponte() -> String {

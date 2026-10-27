@@ -2,6 +2,7 @@
 // Adaptador SQLite para gerenciar o contexto temporário de vídeos recentes.
 
 import dominio/erro.{type Erro}
+import dominio/id_chat.{type IdChat}
 import dominio/video_contexto.{type VideoContexto, VideoContexto}
 import gleam/dynamic/decode
 import gleam/option.{type Option, None, Some}
@@ -28,7 +29,7 @@ pub fn criar(conn: sqlight.Connection) -> VideoContextoPorta {
   )
 }
 
-fn decoder_contexto(chat_id: String) -> decode.Decoder(VideoContexto) {
+fn decoder_contexto(chat_id: IdChat) -> decode.Decoder(VideoContexto) {
   use uri <- decode.then(decode.at([0], decode.string))
   use perguntas <- decode.then(decode.at([1], decode.int))
   use criado_em <- decode.then(decode.at([2], decode.int))
@@ -42,7 +43,7 @@ fn decoder_contexto(chat_id: String) -> decode.Decoder(VideoContexto) {
 
 fn obter(
   conn: sqlight.Connection,
-  chat_id: String,
+  chat_id: IdChat,
 ) -> Result(Option(VideoContexto), Erro) {
   let resultado =
     sqlight.query(
@@ -51,7 +52,7 @@ fn obter(
        WHERE chat_id = ?
        LIMIT 1",
       on: conn,
-      with: [sqlight.text(chat_id)],
+      with: [sqlight.text(id_chat.para_texto(chat_id))],
       expecting: decoder_contexto(chat_id),
     )
     |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
@@ -73,7 +74,7 @@ fn salvar(conn: sqlight.Connection, ctx: VideoContexto) -> Result(Nil, Erro) {
        criado_em = excluded.criado_em;",
     on: conn,
     with: [
-      sqlight.text(ctx.chat_id),
+      sqlight.text(id_chat.para_texto(ctx.chat_id)),
       sqlight.text(ctx.uri),
       sqlight.int(ctx.perguntas_restantes),
       sqlight.int(ctx.criado_em),
@@ -86,7 +87,7 @@ fn salvar(conn: sqlight.Connection, ctx: VideoContexto) -> Result(Nil, Erro) {
 
 fn decrementar_perguntas(
   conn: sqlight.Connection,
-  chat_id: String,
+  chat_id: IdChat,
 ) -> Result(Int, Erro) {
   use _ <- result.try(
     sqlight.query(
@@ -94,7 +95,7 @@ fn decrementar_perguntas(
        SET perguntas_restantes = MAX(0, perguntas_restantes - 1)
        WHERE chat_id = ?;",
       on: conn,
-      with: [sqlight.text(chat_id)],
+      with: [sqlight.text(id_chat.para_texto(chat_id))],
       expecting: decode.dynamic,
     )
     |> result.map(fn(_) { Nil })
@@ -105,7 +106,7 @@ fn decrementar_perguntas(
     sqlight.query(
       "SELECT perguntas_restantes FROM video_contexto WHERE chat_id = ?;",
       on: conn,
-      with: [sqlight.text(chat_id)],
+      with: [sqlight.text(id_chat.para_texto(chat_id))],
       expecting: decode.at([0], decode.int),
     )
     |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
@@ -119,13 +120,13 @@ fn decrementar_perguntas(
 
 fn remover(
   conn: sqlight.Connection,
-  chat_id: String,
+  chat_id: IdChat,
 ) -> Result(Option(String), Erro) {
   let consulta =
     sqlight.query(
       "SELECT uri FROM video_contexto WHERE chat_id = ?;",
       on: conn,
-      with: [sqlight.text(chat_id)],
+      with: [sqlight.text(id_chat.para_texto(chat_id))],
       expecting: decode.at([0], decode.string),
     )
     |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
@@ -135,7 +136,7 @@ fn remover(
     sqlight.query(
       "DELETE FROM video_contexto WHERE chat_id = ?;",
       on: conn,
-      with: [sqlight.text(chat_id)],
+      with: [sqlight.text(id_chat.para_texto(chat_id))],
       expecting: decode.dynamic,
     )
 

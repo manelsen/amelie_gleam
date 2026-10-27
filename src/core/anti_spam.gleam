@@ -2,6 +2,7 @@
 // Lógica pura de rate limiting por token bucket e mitigação progressiva de spam.
 // Totalmente determinística: recebe estado e timestamps, retorna novo estado e decisão.
 
+import dominio/id_chat.{type IdChat}
 import dominio/mensagem.{type Conteudo}
 import gleam/dict.{type Dict}
 import gleam/float
@@ -77,7 +78,7 @@ pub type RegistroChat {
 }
 
 pub type EstadoAntiSpam =
-  Dict(String, RegistroChat)
+  Dict(IdChat, RegistroChat)
 
 pub fn novo_estado() -> EstadoAntiSpam {
   dict.new()
@@ -105,21 +106,14 @@ pub fn peso_mensagem(corpo: Conteudo) -> Float {
 
 pub fn avaliar(
   estado: EstadoAntiSpam,
-  chat_id: String,
-  remetente: String,
-  admin_chat_id: String,
+  chat_id: IdChat,
+  remetente: IdChat,
+  admin: Option(IdChat),
   peso: Float,
   agora_ms: Int,
 ) -> #(EstadoAntiSpam, DecisaoAntiSpam) {
   // 1. Isenção total para o administrador do bot
-  let eh_admin =
-    admin_chat_id != ""
-    && {
-      chat_id == admin_chat_id
-      || chat_id == "tg:" <> admin_chat_id
-      || remetente == admin_chat_id
-      || remetente == "tg:" <> admin_chat_id
-    }
+  let eh_admin = admin == Some(chat_id) || admin == Some(remetente)
 
   case eh_admin {
     True -> #(estado, Permitido)
@@ -149,8 +143,8 @@ pub fn avaliar(
 
 fn avaliar_em_quarentena(
   estado: EstadoAntiSpam,
-  chat_id: String,
-  remetente: String,
+  chat_id: IdChat,
+  remetente: IdChat,
   reg: RegistroChat,
   agora_ms: Int,
 ) -> #(EstadoAntiSpam, DecisaoAntiSpam) {
@@ -164,14 +158,14 @@ fn avaliar_em_quarentena(
     False ->
       case reg.strikes == 2 {
         True -> {
-          let tel = extrair_telefone(chat_id, remetente)
+          let tel = extrair_telefone(remetente)
           let alerta =
             "🚨 *[Anti-Spam] Chat silenciado por 30m por reincidência durante timeout*\n"
             <> "• Telefone: `"
             <> tel
             <> "`\n"
             <> "• Chat: `"
-            <> chat_id
+            <> id_chat.para_texto(chat_id)
             <> "`\n"
             <> "• Ação: Quarentena ativada."
           let novo_reg =
@@ -202,8 +196,8 @@ fn avaliar_em_quarentena(
 
 fn avaliar_livre(
   estado: EstadoAntiSpam,
-  chat_id: String,
-  remetente: String,
+  chat_id: IdChat,
+  remetente: IdChat,
   reg: RegistroChat,
   peso: Float,
   agora_ms: Int,
@@ -224,14 +218,14 @@ fn avaliar_livre(
   case list.length(novos_recentes) >= limite_msgs_flood {
     True -> {
       // Disparo imediato de flood automatizado -> pula direto para Strike 3
-      let tel = extrair_telefone(chat_id, remetente)
+      let tel = extrair_telefone(remetente)
       let alerta =
         "🚨 *[Anti-Spam] Chat silenciado por 30m por flood volumétrico*\n"
         <> "• Telefone: `"
         <> tel
         <> "`\n"
         <> "• Chat: `"
-        <> chat_id
+        <> id_chat.para_texto(chat_id)
         <> "`\n"
         <> "• Motivo: Mais de 5 mensagens em 3 segundos."
       let novo_reg =
@@ -317,14 +311,14 @@ fn avaliar_livre(
 // Comandos e Gestão de Estado
 // ---------------------------------------------------------------------------
 
+/// Libera todo chat que `alvo` identifica: o ID completo ou só o número.
 pub fn desbloquear(
   estado: EstadoAntiSpam,
-  chat_id: String,
+  alvo: String,
 ) -> #(EstadoAntiSpam, Bool) {
-  case dict.has_key(estado, chat_id) {
-    True -> #(dict.delete(estado, chat_id), True)
-    False -> #(estado, False)
-  }
+  let restante =
+    dict.filter(estado, fn(chat_id, _) { !id_chat.corresponde(chat_id, alvo) })
+  #(restante, dict.size(restante) < dict.size(estado))
 }
 
 pub fn contar_silenciados(estado: EstadoAntiSpam, agora_ms: Int) -> Int {
@@ -354,18 +348,16 @@ pub fn limpar_inativos(
 // Extração e normalização de telefone de origem
 // ---------------------------------------------------------------------------
 
-pub fn extrair_telefone(chat_id: String, remetente: String) -> String {
-  let alvo = case remetente != "" && remetente != chat_id {
-    True -> remetente
-    False -> chat_id
-  }
-  formatar_identificador(alvo)
+/// Identificação legível de quem enviou: o remetente, não o chat.
+pub fn extrair_telefone(remetente: IdChat) -> String {
+  formatar_identificador(remetente)
 }
 
-pub fn formatar_identificador(jid: String) -> String {
-  case string.starts_with(jid, "tg:") {
-    True -> "Telegram: " <> string.drop_start(jid, 3)
-    False -> {
+pub fn formatar_identificador(id: IdChat) -> String {
+  case id_chat.numero_telegram(id) {
+    Ok(numero) -> "Telegram: " <> int.to_string(numero)
+    Error(Nil) -> {
+      let jid = id_chat.para_texto(id)
       let #(usuario_com_dev, servidor) = case string.split_once(jid, "@") {
         Ok(#(u, s)) -> #(u, s)
         Error(_) -> #(jid, "")

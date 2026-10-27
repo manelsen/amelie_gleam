@@ -4,6 +4,7 @@
 // Rejeita categoricamente qualquer mensagem de grupo.
 
 import dominio/erro.{type Erro}
+import dominio/id_chat.{type IdChat}
 import dominio/mensagem.{type Mensagem, Mensagem}
 import gleam/bit_array
 import gleam/dynamic/decode
@@ -154,8 +155,8 @@ fn converter_mensagem(id: Int, msg: MensagemTelegram) -> EventoUpdate {
 fn mensagem_base(msg: MensagemTelegram) -> Mensagem {
   let sender_id = option.unwrap(msg.from_id, msg.chat_id)
   Mensagem(
-    chat_id: "tg:" <> int.to_string(msg.chat_id),
-    remetente: "tg:" <> int.to_string(sender_id),
+    chat_id: id_chat.telegram(msg.chat_id),
+    remetente: id_chat.telegram(sender_id),
     message_id: Some(int.to_string(msg.message_id)),
     corpo: mensagem.Texto(""),
     timestamp: msg.date,
@@ -169,7 +170,7 @@ fn mensagem_base(msg: MensagemTelegram) -> Mensagem {
 /// Arquivos acima do limite da Bot API viram aviso em vez de download.
 fn limitar_tamanho(
   update_id: Int,
-  chat_id: String,
+  chat_id: IdChat,
   arquivo: ArquivoTelegram,
   evento: fn(ArquivoTelegram) -> EventoUpdate,
 ) -> EventoUpdate {

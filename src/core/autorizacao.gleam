@@ -9,15 +9,14 @@ import dominio/acao.{
   ConsultarStatus, DesbloquearChat, ExcluirPrompt, ListarGrupos, ListarPrompts,
   ListarUsuarios, ResetarWhatsApp, SalvarPrompt, SolicitarPareamento,
 }
+import dominio/id_chat.{type IdChat}
 import dominio/mensagem.{type Mensagem}
+import gleam/option.{type Option, Some}
 
 /// Mensagem do administrador: conversa privada no Telegram cujo chat e
 /// remetente são ambos o ID configurado. Sem ID configurado, ninguém é admin.
-pub fn eh_admin(admin_id: String, msg: Mensagem) -> Bool {
-  admin_id != ""
-  && !msg.em_grupo
-  && msg.remetente == "tg:" <> admin_id
-  && msg.chat_id == "tg:" <> admin_id
+pub fn eh_admin(admin: Option(IdChat), msg: Mensagem) -> Bool {
+  !msg.em_grupo && admin == Some(msg.remetente) && admin == Some(msg.chat_id)
 }
 
 /// Ações que só o administrador executa. Trocar de modelo entra aqui porque
@@ -43,6 +42,6 @@ pub fn exige_admin(acao: Acao) -> Bool {
 }
 
 /// Decide se a ação pode ser executada para esta mensagem.
-pub fn permitido(acao: Acao, admin_id: String, msg: Mensagem) -> Bool {
-  !exige_admin(acao) || eh_admin(admin_id, msg)
+pub fn permitido(acao: Acao, admin: Option(IdChat), msg: Mensagem) -> Bool {
+  !exige_admin(acao) || eh_admin(admin, msg)
 }

@@ -2,6 +2,7 @@
 
 import dominio/config.{type Config, Config}
 import dominio/erro.{type Erro}
+import dominio/id_chat.{type IdChat}
 import dominio/provedor
 import gleam/dynamic/decode
 import gleam/option.{None, Some}
@@ -50,7 +51,7 @@ pub fn criar(conn: sqlight.Connection) -> ConfigPorta {
   )
 }
 
-fn obter(conn: sqlight.Connection, chat_id: String) -> Result(Config, Erro) {
+fn obter(conn: sqlight.Connection, chat_id: IdChat) -> Result(Config, Erro) {
   let sql =
     "SELECT chat_id, provedor, modelo, historico_max, prompt_sistema,
             audio_ativo, imagem_ativo, video_ativo, doc_ativo,
@@ -61,7 +62,7 @@ fn obter(conn: sqlight.Connection, chat_id: String) -> Result(Config, Erro) {
     sqlight.query(
       sql,
       on: conn,
-      with: [sqlight.text(chat_id)],
+      with: [sqlight.text(id_chat.para_texto(chat_id))],
       expecting: config_decoder(),
     )
   {
@@ -72,7 +73,7 @@ fn obter(conn: sqlight.Connection, chat_id: String) -> Result(Config, Erro) {
 }
 
 fn config_decoder() -> decode.Decoder(Config) {
-  use chat_id <- decode.then(decode.at([0], decode.string))
+  use chat_id <- decode.then(decode.at([0], id_chat.decoder()))
   // Um nome desconhecido no banco segue para o Gemini, como antes do tipo.
   use provedor <- decode.then(
     decode.at([1], decode.string)
@@ -111,7 +112,7 @@ fn config_decoder() -> decode.Decoder(Config) {
 
 fn inserir_padrao(
   conn: sqlight.Connection,
-  chat_id: String,
+  chat_id: IdChat,
 ) -> Result(Config, Erro) {
   let cfg = config.padrao(chat_id)
   use _ <- result.try(salvar(conn, cfg))
@@ -147,7 +148,7 @@ fn salvar(conn: sqlight.Connection, cfg: Config) -> Result(Nil, Erro) {
     sql,
     on: conn,
     with: [
-      sqlight.text(cfg.chat_id),
+      sqlight.text(id_chat.para_texto(cfg.chat_id)),
       sqlight.text(provedor.para_string(cfg.provedor)),
       sqlight.text(cfg.modelo),
       sqlight.int(cfg.historico_max),
@@ -166,11 +167,11 @@ fn salvar(conn: sqlight.Connection, cfg: Config) -> Result(Nil, Erro) {
   |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
 }
 
-fn resetar(conn: sqlight.Connection, chat_id: String) -> Result(Nil, Erro) {
+fn resetar(conn: sqlight.Connection, chat_id: IdChat) -> Result(Nil, Erro) {
   sqlight.query(
     "DELETE FROM configs WHERE chat_id = ?",
     on: conn,
-    with: [sqlight.text(chat_id)],
+    with: [sqlight.text(id_chat.para_texto(chat_id))],
     expecting: decode.dynamic,
   )
   |> result.map(fn(_) { Nil })

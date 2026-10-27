@@ -6,6 +6,7 @@ import dominio/transacao
 import gleam/erlang/process
 import gleam/option.{None, Some}
 import gleeunit/should
+import helpers/fixtures
 import portas/mensageiro_porta.{type MensageiroPorta, MensageiroPorta}
 import portas/transacao_porta.{type TransacaoPorta, TransacaoPorta}
 import shell/entrega_auditada
@@ -103,7 +104,7 @@ pub fn envio_sucesso_marca_entregue_test() {
   let transacoes = transacao_capturar_id(ref, 42)
 
   entrega_auditada.enviar(
-    "chat1",
+    fixtures.id("chat1@c.us"),
     transacao.RespostaTexto,
     "oi",
     mensageiro_ok(),
@@ -125,7 +126,7 @@ pub fn envio_falha_registra_erro_com_tentativa_test() {
 
   let _ =
     entrega_auditada.enviar(
-      "chat1",
+      fixtures.id("chat1@c.us"),
       transacao.RespostaTexto,
       "oi",
       mensageiro_erro(),
@@ -139,7 +140,7 @@ pub fn envio_falha_registra_erro_com_tentativa_test() {
 
 pub fn envio_falha_propaga_erro_test() {
   entrega_auditada.enviar(
-    "chat1",
+    fixtures.id("chat1@c.us"),
     transacao.RespostaTexto,
     "oi",
     mensageiro_erro(),
@@ -168,7 +169,7 @@ pub fn falha_no_registro_nao_envia_test() {
     )
 
   entrega_auditada.enviar(
-    "chat1",
+    fixtures.id("chat1@c.us"),
     transacao.RespostaTexto,
     "oi",
     mensageiro_capturar_envio(enviou),
@@ -189,11 +190,11 @@ pub fn envio_citando_sucesso_marca_entregue_test() {
   let transacoes = transacao_capturar_id(ref, 55)
 
   entrega_auditada.enviar_citando(
-    "chat1",
+    fixtures.id("chat1@c.us"),
     transacao.RespostaIA,
     "resposta",
     "MSG001",
-    "user@c.us",
+    fixtures.id("user@c.us"),
     mensageiro_ok(),
     transacoes,
   )
@@ -209,11 +210,11 @@ pub fn envio_citando_falha_registra_erro_test() {
 
   let _ =
     entrega_auditada.enviar_citando(
-      "chat1",
+      fixtures.id("chat1@c.us"),
       transacao.RespostaIA,
       "resposta",
       "MSG001",
-      "user@c.us",
+      fixtures.id("user@c.us"),
       mensageiro_erro(),
       transacoes,
     )

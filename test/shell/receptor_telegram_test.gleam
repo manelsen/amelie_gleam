@@ -23,7 +23,7 @@ pub fn extrair_updates_json_test() {
   case u1 {
     telegram_porta.EventoMensagemPronta(id, msg) -> {
       id |> should.equal(5001)
-      msg.chat_id |> should.equal("tg:887766")
+      msg.chat_id |> should.equal(fixtures.id("tg:887766"))
     }
     _ -> should.fail()
   }
@@ -45,7 +45,10 @@ pub fn processar_updates_avanca_offset_e_despacha_test() {
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
       despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_ok(
-        config.Config(..fixtures.config_padrao(), chat_id: "tg:887766"),
+        config.Config(
+          ..fixtures.config_padrao(),
+          chat_id: fixtures.id("tg:887766"),
+        ),
       ),
       historico: portas_fake.historico_vazio(),
       fila: filas,
@@ -78,7 +81,7 @@ pub fn processar_updates_avanca_offset_e_despacha_test() {
 
   // Deve ter despachado e respondido para o chat tg:887766
   let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 2000)
-  chat_id |> should.equal("tg:887766")
+  chat_id |> should.equal(fixtures.id("tg:887766"))
   should.be_true(string.contains(texto, "Amélie — Comandos disponíveis"))
 }
 
@@ -92,7 +95,10 @@ pub fn despachar_arquivo_muito_grande_notifica_usuario_test() {
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
       despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_ok(
-        config.Config(..fixtures.config_padrao(), chat_id: "tg:887766"),
+        config.Config(
+          ..fixtures.config_padrao(),
+          chat_id: fixtures.id("tg:887766"),
+        ),
       ),
       historico: portas_fake.historico_vazio(),
       fila: filas,
@@ -108,7 +114,8 @@ pub fn despachar_arquivo_muito_grande_notifica_usuario_test() {
       ponte: portas_fake.ponte_inacessivel(),
     )
 
-  let evento = telegram_porta.EventoArquivoMuitoGrande(9999, "tg:887766", 25)
+  let evento =
+    telegram_porta.EventoArquivoMuitoGrande(9999, fixtures.id("tg:887766"), 25)
   receptor_telegram.despachar_evento(
     evento,
     portas_fake.telegram_api(Ok(<<>>), process.new_subject()),
@@ -116,7 +123,7 @@ pub fn despachar_arquivo_muito_grande_notifica_usuario_test() {
   )
 
   let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 2000)
-  chat_id |> should.equal("tg:887766")
+  chat_id |> should.equal(fixtures.id("tg:887766"))
   should.be_true(string.contains(texto, "limite suportado pelo bot é de 20 MB"))
   should.be_true(string.contains(texto, "25 MB"))
 }
@@ -124,7 +131,10 @@ pub fn despachar_arquivo_muito_grande_notifica_usuario_test() {
 fn portas_capturando(ref_envio) -> Portas {
   Portas(
     ..portas_fake.portas_ok(
-      config.Config(..fixtures.config_padrao(), chat_id: "tg:887766"),
+      config.Config(
+        ..fixtures.config_padrao(),
+        chat_id: fixtures.id("tg:887766"),
+      ),
       "ok",
     ),
     mensageiro: portas_fake.mensageiro_capturar(ref_envio),
@@ -134,8 +144,8 @@ fn portas_capturando(ref_envio) -> Portas {
 fn base_telegram() {
   mensagem.Mensagem(
     ..fixtures.mensagem_texto(""),
-    chat_id: "tg:887766",
-    remetente: "tg:887766",
+    chat_id: fixtures.id("tg:887766"),
+    remetente: fixtures.id("tg:887766"),
   )
 }
 
@@ -165,6 +175,6 @@ pub fn despachar_foto_com_falha_no_download_avisa_usuario_test() {
   receptor_telegram.despachar_evento(evento, api, portas_capturando(ref_envio))
 
   let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 2000)
-  chat_id |> should.equal("tg:887766")
+  chat_id |> should.equal(fixtures.id("tg:887766"))
   string.contains(texto, "Não consegui baixar a imagem") |> should.be_true
 }

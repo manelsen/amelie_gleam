@@ -3,6 +3,7 @@
 
 import adaptadores/telegram_webhook
 import dominio/erro.{type Erro}
+import dominio/id_chat.{type IdChat}
 import gleam/dynamic/decode
 import gleam/http
 import gleam/http/request
@@ -139,6 +140,16 @@ pub fn baixar_arquivo(
 // Internos
 // ---------------------------------------------------------------------------
 
+/// ID do chat como a Bot API espera. Um JID do WhatsApp aqui é erro de
+/// roteamento.
+fn destino(chat_id: IdChat) -> Result(String, Erro) {
+  id_chat.numero_telegram(chat_id)
+  |> result.map(int.to_string)
+  |> result.replace_error(erro.ErroComunicacao(
+    "chat do WhatsApp roteado para o Telegram",
+  ))
+}
+
 pub fn normalizar_id(id: String) -> String {
   case string.starts_with(id, "tg:") {
     True -> string.drop_start(id, 3)
@@ -148,10 +159,10 @@ pub fn normalizar_id(id: String) -> String {
 
 pub fn enviar_acao_chat(
   bot_token: String,
-  chat_id: String,
+  chat_id: IdChat,
   action: String,
 ) -> Result(Nil, Erro) {
-  let target_id = normalizar_id(chat_id)
+  use target_id <- result.try(destino(chat_id))
   let body =
     json.object([
       #("chat_id", json.string(target_id)),
@@ -163,10 +174,10 @@ pub fn enviar_acao_chat(
 
 pub fn enviar_mensagem(
   bot_token: String,
-  chat_id: String,
+  chat_id: IdChat,
   texto: String,
 ) -> Result(Nil, Erro) {
-  let target_id = normalizar_id(chat_id)
+  use target_id <- result.try(destino(chat_id))
   let body =
     json.object([
       #("chat_id", json.string(target_id)),
@@ -179,11 +190,11 @@ pub fn enviar_mensagem(
 
 fn enviar_citando(
   bot_token: String,
-  chat_id: String,
+  chat_id: IdChat,
   quoted_id: String,
   texto: String,
 ) -> Result(Nil, Erro) {
-  let target_id = normalizar_id(chat_id)
+  use target_id <- result.try(destino(chat_id))
   let reply_id = int.parse(normalizar_id(quoted_id)) |> result.unwrap(0)
   let body =
     json.object([
@@ -206,11 +217,11 @@ pub fn mapear_emoji_telegram(emoji: String) -> String {
 
 fn reagir(
   bot_token: String,
-  chat_id: String,
+  chat_id: IdChat,
   message_id: String,
   emoji: String,
 ) -> Result(Nil, Erro) {
-  let target_id = normalizar_id(chat_id)
+  use target_id <- result.try(destino(chat_id))
   let msg_id = int.parse(normalizar_id(message_id)) |> result.unwrap(0)
   let emoji_tg = mapear_emoji_telegram(emoji)
   let body =
