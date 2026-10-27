@@ -141,6 +141,60 @@ pub fn avaliar(
   }
 }
 
+/// Avaliação de mensagem atrasada: enviada enquanto a Amélie estava fora do
+/// ar e entregue agora, em lote. O ritmo de chegada não é do usuário, então
+/// não passa pelo token bucket nem pela detecção de flood e não gera strike.
+/// Continuam valendo a quarentena de quem já está silenciado e o teto diário.
+pub fn avaliar_atrasada(
+  estado: EstadoAntiSpam,
+  chat_id: IdChat,
+  remetente: IdChat,
+  admin: Option(IdChat),
+  agora_ms: Int,
+) -> #(EstadoAntiSpam, DecisaoAntiSpam) {
+  let eh_admin = admin == Some(chat_id) || admin == Some(remetente)
+  let dia_atual = agora_ms / dia_ms
+
+  case eh_admin, dict.get(estado, chat_id) {
+    True, _ -> #(estado, Permitido)
+    False, Ok(reg) if agora_ms < reg.quarentena_ate_ms && reg.strikes >= 3 -> #(
+      estado,
+      Silenciado(None),
+    )
+    False, registro -> {
+      let reg = case registro {
+        Ok(r) -> r
+        Error(_) ->
+          RegistroChat(
+            tokens: max_tokens,
+            ultimo_ts_ms: agora_ms,
+            strikes: 0,
+            quarentena_ate_ms: 0,
+            recentes_ts: [],
+            dia: dia_atual,
+            mensagens_no_dia: 0,
+          )
+      }
+      let contagem = case reg.dia == dia_atual {
+        True -> reg.mensagens_no_dia
+        False -> 0
+      }
+      let decisao = case contagem {
+        c if c < limite_diario_mensagens -> Permitido
+        c if c == limite_diario_mensagens -> AvisoLimite(aviso_limite_diario)
+        _ -> Silenciado(None)
+      }
+      let novo_reg =
+        RegistroChat(
+          ..reg,
+          dia: dia_atual,
+          mensagens_no_dia: int.min(contagem + 1, limite_diario_mensagens + 1),
+        )
+      #(dict.insert(estado, chat_id, novo_reg), decisao)
+    }
+  }
+}
+
 fn avaliar_em_quarentena(
   estado: EstadoAntiSpam,
   chat_id: IdChat,

@@ -13,7 +13,11 @@ pub fn arvore_supervisao_inicializacao_test() {
   let mensageiro = portas_fake.mensageiro_ok()
 
   let assert Ok(#(_sup, procs)) =
-    arvore_supervisao.iniciar(transacoes, mensageiro)
+    arvore_supervisao.iniciar(
+      transacoes,
+      mensageiro,
+      portas_fake.ponte_inacessivel(),
+    )
 
   // 1. Circuit breaker responde normalmente
   disjuntor.pode_executar(procs.cb_gemini) |> should.be_true
@@ -38,7 +42,11 @@ pub fn arvore_supervisao_recuperacao_apos_crash_test() {
   let mensageiro = portas_fake.mensageiro_ok()
 
   let assert Ok(#(_sup, procs)) =
-    arvore_supervisao.iniciar(transacoes, mensageiro)
+    arvore_supervisao.iniciar(
+      transacoes,
+      mensageiro,
+      portas_fake.ponte_inacessivel(),
+    )
 
   // Registra métrica inicial
   metricas.registrar(procs.metricas, metricas.MensagensProcessadas)
@@ -67,7 +75,11 @@ pub fn arvore_supervisao_isolamento_de_falhas_test() {
   let mensageiro = portas_fake.mensageiro_ok()
 
   let assert Ok(#(_sup, procs)) =
-    arvore_supervisao.iniciar(transacoes, mensageiro)
+    arvore_supervisao.iniciar(
+      transacoes,
+      mensageiro,
+      portas_fake.ponte_inacessivel(),
+    )
 
   // Salva dado no cache
   cache_ia.guardar(procs.cache_gemini, "teste_isolamento", "dado_protegido")

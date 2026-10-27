@@ -1,6 +1,7 @@
 import dominio/erro.{type Erro}
 import dominio/id_chat.{type IdChat}
 import dominio/transacao
+import gleam/int
 import gleam/option
 import gleam/result
 import logging
@@ -71,8 +72,20 @@ fn marcar_falha(
 ) -> Result(Nil, Erro) {
   case tx.id {
     option.Some(id) -> {
-      case fila_offline.e_erro_definitivo(e) {
-        True -> {
+      case fila_offline.e_erro_sessao(e), fila_offline.e_erro_definitivo(e) {
+        // Sessão fora do ar: fica pendente, sem gastar tentativa, até a
+        // fila offline ver a sessão de volta.
+        True, _ -> {
+          logging.log(
+            logging.Info,
+            "EntregaAuditada: transação "
+              <> int.to_string(id)
+              <> " aguardando a sessão do WhatsApp: "
+              <> erro.descricao(e),
+          )
+          transacoes.atualizar_erro(id, erro.descricao(e), tx.tentativas)
+        }
+        _, True -> {
           let _ =
             transacoes.atualizar_erro(
               id,
@@ -83,13 +96,13 @@ fn marcar_falha(
           logging.log(
             logging.Warning,
             "EntregaAuditada: transação "
-              <> option.unwrap(tx.id |> option.map(fn(_) { "" }), "")
+              <> int.to_string(id)
               <> " descartada imediatamente por erro definitivo: "
               <> erro.descricao(e),
           )
           Ok(Nil)
         }
-        False ->
+        _, False ->
           transacoes.atualizar_erro(id, erro.descricao(e), tx.tentativas + 1)
       }
     }

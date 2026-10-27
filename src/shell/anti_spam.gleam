@@ -28,6 +28,12 @@ pub type MensagemAntiSpam {
     agora_ms: Int,
     resposta: Subject(anti_spam.DecisaoAntiSpam),
   )
+  VerificarAtrasada(
+    chat_id: IdChat,
+    remetente: IdChat,
+    agora_ms: Int,
+    resposta: Subject(anti_spam.DecisaoAntiSpam),
+  )
   Desbloquear(alvo: String, resposta: Subject(Bool))
   ContarSilenciados(agora_ms: Int, resposta: Subject(Int))
   LimpezaPeriodica(agora_ms: Int)
@@ -104,6 +110,19 @@ fn tratar(
       actor.continue(Estado(..estado, dados: novos_dados))
     }
 
+    VerificarAtrasada(chat_id, remetente, agora_ms, resposta) -> {
+      let #(novos_dados, decisao) =
+        anti_spam.avaliar_atrasada(
+          estado.dados,
+          chat_id,
+          remetente,
+          estado.admin_chat_id,
+          agora_ms,
+        )
+      process.send(resposta, decisao)
+      actor.continue(Estado(..estado, dados: novos_dados))
+    }
+
     Desbloquear(alvo, resposta) -> {
       let #(novos_dados, ok) = anti_spam.desbloquear(estado.dados, alvo)
       process.send(resposta, ok)
@@ -138,6 +157,18 @@ pub fn verificar(
   let agora = sistema.agora_ms()
   process.call(actor, 1000, fn(resposta) {
     Verificar(chat_id, remetente, peso, agora, resposta)
+  })
+}
+
+/// Verificação de mensagem atrasada (ver `anti_spam.avaliar_atrasada`).
+pub fn verificar_atrasada(
+  actor: AntiSpam,
+  chat_id: IdChat,
+  remetente: IdChat,
+) -> anti_spam.DecisaoAntiSpam {
+  let agora = sistema.agora_ms()
+  process.call(actor, 1000, fn(resposta) {
+    VerificarAtrasada(chat_id, remetente, agora, resposta)
   })
 }
 

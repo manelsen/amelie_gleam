@@ -99,7 +99,28 @@ pub fn extrair_trace_id(msg: Mensagem) -> String {
   string.slice(id, 0, 5)
 }
 
+/// Como a mensagem chegou: no ritmo do usuário ou em lote, depois de a
+/// Amélie ficar fora do ar. Só muda a regra de anti-spam.
+type Chegada {
+  NoHorario
+  Atrasada
+}
+
 pub fn tratar(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
+  tratar_chegada(msg, portas, NoHorario)
+}
+
+/// Mensagem enviada enquanto a Amélie estava fora do ar. Não é culpa do
+/// usuário que ela chegue junto com outras, então não conta como rajada.
+pub fn tratar_atrasada(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
+  tratar_chegada(msg, portas, Atrasada)
+}
+
+fn tratar_chegada(
+  msg: Mensagem,
+  portas: Portas,
+  chegada: Chegada,
+) -> Result(Nil, Erro) {
   let trace_id = extrair_trace_id(msg)
   logging.log(
     logging.Info,
@@ -136,7 +157,7 @@ pub fn tratar(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
     limpar_midia_se_descartada(msg)
     Ok(Nil)
   })
-  processar_mensagem_com_anti_spam(msg, portas)
+  processar_mensagem_com_anti_spam(msg, portas, chegada)
 }
 
 fn mensagem_antiga(msg: Mensagem) -> Bool {
@@ -166,10 +187,20 @@ fn ja_processada(msg: Mensagem, portas: Portas) -> Bool {
 fn processar_mensagem_com_anti_spam(
   msg: Mensagem,
   portas: Portas,
+  chegada: Chegada,
 ) -> Result(Nil, Erro) {
-  case
-    anti_spam.verificar(portas.anti_spam, msg.chat_id, msg.remetente, msg.corpo)
-  {
+  let decisao = case chegada {
+    NoHorario ->
+      anti_spam.verificar(
+        portas.anti_spam,
+        msg.chat_id,
+        msg.remetente,
+        msg.corpo,
+      )
+    Atrasada ->
+      anti_spam.verificar_atrasada(portas.anti_spam, msg.chat_id, msg.remetente)
+  }
+  case decisao {
     core_anti_spam.Permitido -> processar_mensagem(msg, portas)
     core_anti_spam.AvisoLimite(motivo) -> avisar_limite(motivo, msg, portas)
     core_anti_spam.Silenciado(notificar_admin) ->

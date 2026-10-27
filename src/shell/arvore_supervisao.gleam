@@ -9,10 +9,12 @@ import gleam/option.{type Option, None}
 import gleam/otp/actor
 import gleam/otp/static_supervisor
 import portas/mensageiro_porta.{type MensageiroPorta}
+import portas/ponte_porta.{type PontePorta}
 import portas/transacao_porta.{type TransacaoPorta}
 import shell/anti_spam
 import shell/cache_ia
 import shell/disjuntor
+import shell/fila_atrasadas
 import shell/fila_midia
 import shell/fila_offline
 import shell/manutencao
@@ -27,6 +29,7 @@ pub type ProcessosSupervisionados {
     metricas: Subject(metricas.MensagemMetrica),
     fila: fila_midia.FilasMidia,
     fila_offline: Subject(fila_offline.Mensagem),
+    fila_atrasadas: fila_atrasadas.FilaAtrasadas,
     manutencao: Subject(manutencao.MensagemManutencao),
     anti_spam: Subject(anti_spam.MensagemAntiSpam),
   )
@@ -35,27 +38,36 @@ pub type ProcessosSupervisionados {
 pub fn iniciar(
   transacoes: TransacaoPorta,
   mensageiro: MensageiroPorta,
+  ponte: PontePorta,
 ) -> Result(
   #(static_supervisor.Supervisor, ProcessosSupervisionados),
   actor.StartError,
 ) {
-  iniciar_completo(transacoes, mensageiro, manutencao.intervalo_padrao_ms, None)
+  iniciar_completo(
+    transacoes,
+    mensageiro,
+    ponte,
+    manutencao.intervalo_padrao_ms,
+    None,
+  )
 }
 
 pub fn iniciar_com_intervalo_manutencao(
   transacoes: TransacaoPorta,
   mensageiro: MensageiroPorta,
+  ponte: PontePorta,
   intervalo_manutencao_ms: Int,
 ) -> Result(
   #(static_supervisor.Supervisor, ProcessosSupervisionados),
   actor.StartError,
 ) {
-  iniciar_completo(transacoes, mensageiro, intervalo_manutencao_ms, None)
+  iniciar_completo(transacoes, mensageiro, ponte, intervalo_manutencao_ms, None)
 }
 
 pub fn iniciar_completo(
   transacoes: TransacaoPorta,
   mensageiro: MensageiroPorta,
+  ponte: PontePorta,
   intervalo_manutencao_ms: Int,
   admin_chat_id: Option(IdChat),
 ) -> Result(
@@ -73,6 +85,7 @@ pub fn iniciar_completo(
   let name_fila_doc = process.new_name("amelie_fila_documento")
   let name_fila_stk = process.new_name("amelie_fila_sticker")
   let name_fila_offline = process.new_name("amelie_fila_offline")
+  let name_fila_atrasadas = process.new_name("amelie_fila_atrasadas")
   let name_manutencao = process.new_name("amelie_manutencao")
   let name_anti_spam = process.new_name("amelie_anti_spam")
 
@@ -91,6 +104,7 @@ pub fn iniciar_completo(
         sticker: process.named_subject(name_fila_stk),
       ),
       fila_offline: process.named_subject(name_fila_offline),
+      fila_atrasadas: process.named_subject(name_fila_atrasadas),
       manutencao: process.named_subject(name_manutencao),
       anti_spam: process.named_subject(name_anti_spam),
     )
@@ -111,9 +125,11 @@ pub fn iniciar_completo(
     |> static_supervisor.add(fila_offline.supervisionado(
       transacoes,
       mensageiro,
+      ponte,
       3,
       name_fila_offline,
     ))
+    |> static_supervisor.add(fila_atrasadas.supervisionado(name_fila_atrasadas))
     |> static_supervisor.add(manutencao.supervisionado(
       transacoes,
       intervalo_manutencao_ms,
