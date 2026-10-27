@@ -52,8 +52,9 @@ de integração entre os processos Gleam e Go.
 - Media retry para arquivos expirados ou temporariamente indisponíveis.
 - Stickers estáticos, animados, thumbnail e fallback textual quando a mídia não
   pode ser recuperada.
-- Vídeos enviados como mídia e links de YouTube, Instagram e TikTok processados
-  via `yt-dlp`.
+- Vídeos enviados como mídia. Links de vídeo (YouTube, Instagram, TikTok)
+  recebem um aviso pedindo o arquivo: o download externo foi desativado por
+  risco de SSRF.
 - Fila persistente entre bridge e webhook Gleam.
 - Replay de `HistorySync` desativado no bridge; filtro de idade e deduplicação
   continuam protegendo o handler Gleam.

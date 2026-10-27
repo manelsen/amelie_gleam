@@ -24,7 +24,7 @@ Add Gleam tests in `test/**` using `*_test.gleam` files and public functions end
 
 ## Commit & Pull Request Guidelines
 
-Recent history uses Conventional Commits in Portuguese, such as `fix(whatsapp): renovar midia em erro DNS` and `feat(video): descrever links com yt-dlp`. Use `feat`, `fix`, `chore`, or similar types with a narrow scope. PRs should explain behavior changes, mention config or migration impacts, link related issues, and include test results. Include screenshots or logs only for user-visible runtime behavior.
+Recent history uses Conventional Commits in Portuguese, such as `fix(whatsapp): renovar midia em erro DNS` and `refactor(dominio): IdChat opaco para chat_id e remetente`. Use `feat`, `fix`, `chore`, or similar types with a narrow scope. PRs should explain behavior changes, mention config or migration impacts, link related issues, and include test results. Include screenshots or logs only for user-visible runtime behavior.
 
 ## Security & Configuration Tips
 
