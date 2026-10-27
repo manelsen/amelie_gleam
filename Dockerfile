@@ -1,5 +1,7 @@
 # Stage 1: Build do bridge Go (pure Go, sem CGO)
-FROM golang:alpine AS go-builder
+# Versão fixa, alinhada ao go.mod. Para builds reproduzíveis, fixe também o
+# digest (golang:1.26-alpine@sha256:...) e deixe o Renovate atualizar.
+FROM golang:1.26-alpine AS go-builder
 
 RUN apk add --no-cache gcc musl-dev
 
@@ -32,7 +34,9 @@ RUN --mount=type=cache,target=/root/.cache/ccache \
 # Stage 3: Imagem final — mesma base Erlang do builder (evita mismatch de OTP)
 FROM ghcr.io/gleam-lang/gleam:v1.15.0-erlang-alpine
 
-RUN apk add --no-cache sqlite-libs ca-certificates python3 py3-pillow ffmpeg libwebp-tools
+RUN apk add --no-cache sqlite-libs ca-certificates python3 py3-pillow ffmpeg libwebp-tools su-exec \
+    && addgroup -S amelie \
+    && adduser -S -D -H -G amelie -h /app amelie
 
 WORKDIR /app
 
@@ -40,7 +44,8 @@ COPY --from=gleam-builder /app/build/erlang-shipment ./build/erlang-shipment
 COPY --from=gleam-builder /app/config ./config
 COPY --from=go-builder /bridge/bridge /usr/local/bin/amelie-bridge
 
-RUN mkdir -p /data
+# O entrypoint sobe como root, ajusta o dono do volume e cai para "amelie".
+RUN mkdir -p /data && chown amelie:amelie /data
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

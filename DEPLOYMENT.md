@@ -179,3 +179,25 @@ O download de links por `yt-dlp` foi desativado: seus extratores podem abrir
 conexões adicionais que escapam da validação da URL inicial. Vídeos enviados como
 arquivo continuam disponíveis. Reativar downloads exige um serviço isolado com
 controle de tráfego de saída; não basta uma lista de hosts na URL recebida.
+
+### Container sem root
+
+O container sobe como root apenas para preparar o volume e então passa a rodar
+como o usuário sem privilégios `amelie`, via `su-exec`. Na primeira subida depois
+da atualização, o entrypoint ajusta o dono de `./db` (montado em `/data`) para
+`amelie`; o log mostra `Ajustando dono de /data` uma única vez. No host, o
+diretório `./db` passa a pertencer ao UID desse usuário; os backups com `cp -a`
+preservam isso.
+
+O Compose também deixa o sistema de arquivos do container só leitura, com escrita
+apenas em `/data` (volume) e `/tmp` (memória, até 1 GiB), descarta todas as
+capabilities exceto `CHOWN`, `SETUID` e `SETGID` (usadas só pelo entrypoint) e
+ativa `no-new-privileges`. Para conferir depois de subir:
+
+```bash
+sh test/container_hardening_test.sh
+```
+
+Se algum recurso falhar por escrita negada, o log aponta o caminho. Nesse caso,
+comente temporariamente `read_only: true` no Compose e abra um ajuste para levar
+aquele caminho para `/tmp` ou `/data`, em vez de remover o endurecimento.
