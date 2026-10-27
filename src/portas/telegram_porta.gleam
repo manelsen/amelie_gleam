@@ -2,6 +2,7 @@
 // updates por long polling, sinalizar atividade no chat e baixar arquivos.
 
 import dominio/erro.{type Erro}
+import dominio/id_chat.{type IdChat}
 import dominio/mensagem.{type Mensagem}
 import gleam/option.{type Option}
 
@@ -45,7 +46,7 @@ pub type EventoUpdate {
     file_id: String,
     mime: String,
   )
-  EventoArquivoMuitoGrande(update_id: Int, chat_id: String, tamanho_mb: Int)
+  EventoArquivoMuitoGrande(update_id: Int, chat_id: IdChat, tamanho_mb: Int)
   EventoIgnorado(update_id: Int)
 }
 
@@ -78,7 +79,7 @@ pub type TelegramPorta {
     // obter_updates(offset)
     obter_updates: fn(Int) -> RespostaPolling,
     // sinalizar(chat_id, acao)
-    sinalizar: fn(String, AcaoChat) -> Result(Nil, Erro),
+    sinalizar: fn(IdChat, AcaoChat) -> Result(Nil, Erro),
     // baixar_arquivo(file_id)
     baixar_arquivo: fn(String) -> Result(BitArray, Erro),
   )

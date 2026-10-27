@@ -3,6 +3,7 @@
 // Supervisonado sob arvore_supervisao.gleam com auto-recuperação.
 
 import core/anti_spam
+import dominio/id_chat.{type IdChat}
 import dominio/mensagem.{type Conteudo}
 import gleam/dict
 import gleam/erlang/process.{type Subject}
@@ -21,33 +22,35 @@ pub type AntiSpam =
 
 pub type MensagemAntiSpam {
   Verificar(
-    chat_id: String,
-    remetente: String,
+    chat_id: IdChat,
+    remetente: IdChat,
     peso: Float,
     agora_ms: Int,
     resposta: Subject(anti_spam.DecisaoAntiSpam),
   )
-  Desbloquear(chat_id: String, resposta: Subject(Bool))
+  Desbloquear(alvo: String, resposta: Subject(Bool))
   ContarSilenciados(agora_ms: Int, resposta: Subject(Int))
   LimpezaPeriodica(agora_ms: Int)
 }
 
 type Estado {
-  Estado(dados: anti_spam.EstadoAntiSpam, admin_chat_id: String)
+  Estado(dados: anti_spam.EstadoAntiSpam, admin_chat_id: Option(IdChat))
 }
 
 // ---------------------------------------------------------------------------
 // Inicialização & Supervisão
 // ---------------------------------------------------------------------------
 
-pub fn iniciar(admin_chat_id: String) -> Result(AntiSpam, actor.StartError) {
+pub fn iniciar(
+  admin_chat_id: Option(IdChat),
+) -> Result(AntiSpam, actor.StartError) {
   iniciar_actor(None, admin_chat_id)
   |> result.map(fn(started) { started.data })
 }
 
 pub fn iniciar_actor(
   name: Option(process.Name(MensagemAntiSpam)),
-  admin_chat_id: String,
+  admin_chat_id: Option(IdChat),
 ) -> Result(actor.Started(AntiSpam), actor.StartError) {
   let builder =
     actor.new(Estado(
@@ -66,7 +69,7 @@ pub fn iniciar_actor(
 
 pub fn supervisionado(
   name: process.Name(MensagemAntiSpam),
-  admin_chat_id: String,
+  admin_chat_id: Option(IdChat),
 ) -> supervision.ChildSpecification(AntiSpam) {
   supervision.worker(fn() { iniciar_actor(Some(name), admin_chat_id) })
 }
@@ -101,8 +104,8 @@ fn tratar(
       actor.continue(Estado(..estado, dados: novos_dados))
     }
 
-    Desbloquear(chat_id, resposta) -> {
-      let #(novos_dados, ok) = anti_spam.desbloquear(estado.dados, chat_id)
+    Desbloquear(alvo, resposta) -> {
+      let #(novos_dados, ok) = anti_spam.desbloquear(estado.dados, alvo)
       process.send(resposta, ok)
       actor.continue(Estado(..estado, dados: novos_dados))
     }
@@ -127,8 +130,8 @@ fn tratar(
 
 pub fn verificar(
   actor: AntiSpam,
-  chat_id: String,
-  remetente: String,
+  chat_id: IdChat,
+  remetente: IdChat,
   corpo: Conteudo,
 ) -> anti_spam.DecisaoAntiSpam {
   let peso = anti_spam.peso_mensagem(corpo)
@@ -138,8 +141,8 @@ pub fn verificar(
   })
 }
 
-pub fn desbloquear(actor: AntiSpam, chat_id: String) -> Bool {
-  process.call(actor, 1000, fn(resposta) { Desbloquear(chat_id, resposta) })
+pub fn desbloquear(actor: AntiSpam, alvo: String) -> Bool {
+  process.call(actor, 1000, fn(resposta) { Desbloquear(alvo, resposta) })
 }
 
 pub fn contar_silenciados(actor: AntiSpam) -> Int {

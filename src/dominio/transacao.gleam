@@ -2,6 +2,7 @@ import dominio/acao.{
   type TipoMidia, MidiaAudio, MidiaDocumento, MidiaImagem, MidiaSticker,
   MidiaVideo,
 }
+import dominio/id_chat.{type IdChat}
 import gleam/option.{type Option, None}
 
 /// Quem envia as transações registradas pela auditoria de entrega.
@@ -40,7 +41,7 @@ pub type StatusTransacao {
 pub type Transacao {
   Transacao(
     id: Option(Int),
-    chat_id: String,
+    chat_id: IdChat,
     remetente: String,
     tipo: String,
     conteudo: String,
@@ -52,7 +53,7 @@ pub type Transacao {
   )
 }
 
-pub fn novo(chat_id: String, tipo: TipoEntrega, conteudo: String) -> Transacao {
+pub fn novo(chat_id: IdChat, tipo: TipoEntrega, conteudo: String) -> Transacao {
   Transacao(
     id: None,
     chat_id: chat_id,

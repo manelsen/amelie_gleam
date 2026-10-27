@@ -16,6 +16,7 @@ import dominio/acao.{
 }
 import dominio/config.{type Config}
 import dominio/erro.{type Erro}
+import dominio/id_chat.{type IdChat}
 import dominio/mensagem.{
   type Mensagem, type Turno, Audio, Documento, Imagem, Texto, TurnoAssistente,
   TurnoUsuario, Video,
@@ -26,7 +27,7 @@ import dominio/video_contexto.{type VideoContexto}
 import gleam/bool
 import gleam/int
 import gleam/list
-import gleam/option
+import gleam/option.{type Option}
 import gleam/result
 import gleam/string
 import logging
@@ -89,7 +90,11 @@ pub type Portas {
 pub fn extrair_trace_id(msg: Mensagem) -> String {
   let id = case msg.message_id {
     option.Some(id) if id != "" -> id
-    _ -> "req_" <> int.to_string(msg.timestamp) <> "_" <> msg.remetente
+    _ ->
+      "req_"
+      <> int.to_string(msg.timestamp)
+      <> "_"
+      <> id_chat.para_texto(msg.remetente)
   }
   string.slice(id, 0, 5)
 }
@@ -101,9 +106,9 @@ pub fn tratar(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
     "["
       <> trace_id
       <> "] Mensagem recebida do chat "
-      <> privacidade.mascarar_id(msg.chat_id)
+      <> privacidade.mascarar(msg.chat_id)
       <> " (remetente: "
-      <> privacidade.mascarar_id(msg.remetente)
+      <> privacidade.mascarar(msg.remetente)
       <> ")",
   )
 
@@ -115,7 +120,7 @@ pub fn tratar(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
         <> "] Mensagem ignorada por ser muito antiga (ts="
         <> int.to_string(msg.timestamp)
         <> "): "
-        <> privacidade.mascarar_id(msg.chat_id),
+        <> privacidade.mascarar(msg.chat_id),
     )
     limpar_midia_se_descartada(msg)
     Ok(Nil)
@@ -177,7 +182,7 @@ fn avisar_limite(
   msg: Mensagem,
   portas: Portas,
 ) -> Result(Nil, Erro) {
-  let tel = core_anti_spam.extrair_telefone(msg.chat_id, msg.remetente)
+  let tel = core_anti_spam.extrair_telefone(msg.remetente)
   let strike = case string.contains(motivo, "5 minutos") {
     True -> 2
     False -> 1
@@ -191,7 +196,7 @@ fn avisar_limite(
       <> "] Rate limit acionado para "
       <> privacidade.mascarar_id(tel)
       <> " ("
-      <> privacidade.mascarar_id(msg.chat_id)
+      <> privacidade.mascarar(msg.chat_id)
       <> "): "
       <> motivo,
   )
@@ -204,7 +209,7 @@ fn descartar_silenciado(
   msg: Mensagem,
   portas: Portas,
 ) -> Result(Nil, Erro) {
-  let tel = core_anti_spam.extrair_telefone(msg.chat_id, msg.remetente)
+  let tel = core_anti_spam.extrair_telefone(msg.remetente)
   portas.spammers.registrar(
     msg.chat_id,
     msg.remetente,
@@ -220,13 +225,12 @@ fn descartar_silenciado(
       <> "] Mensagem descartada silenciosamente por quarentena anti-spam: "
       <> privacidade.mascarar_id(tel)
       <> " ("
-      <> privacidade.mascarar_id(msg.chat_id)
+      <> privacidade.mascarar(msg.chat_id)
       <> ")",
   )
   limpar_midia_se_descartada(msg)
   case notificar_admin, sistema.admin_chat_id() {
-    option.Some(alerta), admin_id if admin_id != "" ->
-      avisar("tg:" <> admin_id, alerta, portas)
+    option.Some(alerta), option.Some(admin) -> avisar(admin, alerta, portas)
     _, _ -> Ok(Nil)
   }
 }
@@ -248,7 +252,7 @@ fn processar_mensagem(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
     "["
       <> trace_id
       <> "] Processando mensagem: "
-      <> privacidade.mascarar_id(msg.chat_id),
+      <> privacidade.mascarar(msg.chat_id),
   )
 
   portas.usuarios.registrar(msg.chat_id)
@@ -272,7 +276,7 @@ fn processar_mensagem(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
     "["
       <> trace_id
       <> "] Erro ao processar mensagem de "
-      <> privacidade.mascarar_id(msg.remetente)
+      <> privacidade.mascarar(msg.remetente)
       <> ": "
       <> erro.descricao(e),
   )
@@ -311,7 +315,7 @@ fn tratar_interno(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
 /// aqui, antes de qualquer efeito.
 fn executar_acao(
   acao: acao.Acao,
-  admin_id: String,
+  admin_id: Option(IdChat),
   msg: Mensagem,
   cfg: Config,
   hist: List(Turno),
@@ -345,7 +349,11 @@ fn executar_acao(
     ListarUsuarios(chat_id) ->
       responder(
         chat_id,
-        formatar_lista("👥 Usuários ativos:", portas.usuarios.listar()),
+        formatar_lista(
+          "👥 Usuários ativos:",
+          portas.usuarios.listar()
+            |> result.map(list.map(_, id_chat.para_texto)),
+        ),
         portas,
       )
     ListarGrupos(chat_id) ->
@@ -372,7 +380,7 @@ fn executar_acao(
 // ---------------------------------------------------------------------------
 
 fn gerar_e_enviar(
-  para: String,
+  para: IdChat,
   prompt: String,
   msg: Mensagem,
   cfg: Config,
@@ -388,7 +396,7 @@ fn gerar_e_enviar(
         "["
           <> extrair_trace_id(msg)
           <> "] Enviando texto gerado pela IA para "
-          <> privacidade.mascarar_id(para),
+          <> privacidade.mascarar(para),
       )
       responder_com_ia(para, prompt, msg, cfg, hist, portas)
     }
@@ -396,7 +404,7 @@ fn gerar_e_enviar(
 }
 
 fn buscar_url_e_responder(
-  para: String,
+  para: IdChat,
   texto: String,
   url: String,
   msg: Mensagem,
@@ -412,7 +420,7 @@ fn buscar_url_e_responder(
 }
 
 fn responder_com_ia(
-  para: String,
+  para: IdChat,
   prompt: String,
   msg: Mensagem,
   cfg: Config,
@@ -439,7 +447,7 @@ fn responder_com_ia(
 /// Pergunta de acompanhamento sobre o último vídeo do chat: responde com o
 /// arquivo do vídeo enquanto houver cota e o contexto não tiver expirado.
 fn responder_sobre_video(
-  para: String,
+  para: IdChat,
   ctx: VideoContexto,
   msg: Mensagem,
   cfg: Config,
@@ -462,7 +470,7 @@ fn responder_sobre_video(
     "["
       <> extrair_trace_id(msg)
       <> "] Respondendo dúvida de follow-up sobre vídeo para "
-      <> privacidade.mascarar_id(para)
+      <> privacidade.mascarar(para)
       <> " ("
       <> int.to_string(ctx.perguntas_restantes)
       <> " pergunta(s) restante(s))",
@@ -495,7 +503,7 @@ fn responder_sobre_video(
 /// Entrega a resposta da IA ao usuário e grava a pergunta no histórico.
 /// Devolve a resposta já sanitizada, para o chamador gravá-la também.
 fn entregar_resposta_ia(
-  para: String,
+  para: IdChat,
   resposta: String,
   texto_usuario: String,
   msg: Mensagem,
@@ -512,7 +520,7 @@ fn entregar_resposta_ia(
 
 /// Esquece o vídeo do chat e apaga o arquivo dele no provedor de IA.
 fn encerrar_contexto_video(
-  chat_id: String,
+  chat_id: IdChat,
   uri: String,
   cfg: Config,
   portas: Portas,
@@ -532,7 +540,7 @@ fn apagar_video_no_provedor(uri: String, cfg: Config, portas: Portas) -> Nil {
 // ---------------------------------------------------------------------------
 
 fn limpar_historico(
-  chat_id: String,
+  chat_id: IdChat,
   cfg: Config,
   portas: Portas,
 ) -> Result(Nil, Erro) {
@@ -544,7 +552,7 @@ fn limpar_historico(
 }
 
 fn enfileirar_midia(
-  chat_id: String,
+  chat_id: IdChat,
   tipo: acao.TipoMidia,
   msg: Mensagem,
   cfg: Config,
@@ -553,7 +561,7 @@ fn enfileirar_midia(
   logging.log(
     logging.Info,
     "Enfileirando mídia para processamento no chat "
-      <> privacidade.mascarar_id(chat_id),
+      <> privacidade.mascarar(chat_id),
   )
   portas.historico.adicionar(chat_id, TurnoUsuario(extrair_texto_usuario(msg)))
   |> sistema.registrar_falha("Falha ao gravar mídia no histórico")
@@ -580,7 +588,7 @@ fn enfileirar_midia(
 }
 
 fn ativar_prompt(
-  chat_id: String,
+  chat_id: IdChat,
   nome: String,
   cfg: Config,
   portas: Portas,
@@ -597,7 +605,7 @@ fn ativar_prompt(
   }
 }
 
-fn listar_prompts(chat_id: String, portas: Portas) -> Result(Nil, Erro) {
+fn listar_prompts(chat_id: IdChat, portas: Portas) -> Result(Nil, Erro) {
   use nomes <- result.try(portas.prompts.listar(chat_id))
   let texto = case nomes {
     [] -> "Nenhum prompt salvo."
@@ -616,14 +624,14 @@ fn formatar_lista(titulo: String, itens: Result(List(String), Erro)) -> String {
 }
 
 fn resumir_historico(
-  chat_id: String,
+  chat_id: IdChat,
   cfg: Config,
   portas: Portas,
 ) -> Result(Nil, Erro) {
   logging.log(
     logging.Info,
     "Fazendo snapshot e resumo do histórico do chat "
-      <> privacidade.mascarar_id(chat_id),
+      <> privacidade.mascarar(chat_id),
   )
   use hist <- result.try(portas.historico.obter(chat_id))
   let turnos = list.length(hist)
@@ -671,7 +679,7 @@ fn formatar_conversa(hist: List(Turno)) -> String {
 }
 
 fn alterar_modelo(
-  chat_id: String,
+  chat_id: IdChat,
   provedor: String,
   modelo: String,
   msg: Mensagem,
@@ -702,7 +710,7 @@ fn alterar_modelo(
 // ---------------------------------------------------------------------------
 
 fn solicitar_pareamento(
-  chat_id: String,
+  chat_id: IdChat,
   args: String,
   portas: Portas,
 ) -> Result(Nil, Erro) {
@@ -755,7 +763,7 @@ fn telefone_informado(args: String) -> String {
   }
 }
 
-fn consultar_status(chat_id: String, portas: Portas) -> Result(Nil, Erro) {
+fn consultar_status(chat_id: IdChat, portas: Portas) -> Result(Nil, Erro) {
   let status_wa = case portas.ponte.checar_status() {
     Ok(StatusPonte(_, True)) -> "🟢 Conectado"
     Ok(StatusPonte(_, False)) -> "🟡 Desconectado (aguardando login)"
@@ -805,7 +813,7 @@ fn consultar_status(chat_id: String, portas: Portas) -> Result(Nil, Erro) {
 }
 
 fn resetar_whatsapp(
-  chat_id: String,
+  chat_id: IdChat,
   args: String,
   portas: Portas,
 ) -> Result(Nil, Erro) {
@@ -832,7 +840,7 @@ fn resetar_whatsapp(
 }
 
 fn desbloquear_chat(
-  chat_id: String,
+  chat_id: IdChat,
   alvo: String,
   portas: Portas,
 ) -> Result(Nil, Erro) {
@@ -861,7 +869,7 @@ fn desbloquear_chat(
   }
 }
 
-fn consultar_spammers(chat_id: String, portas: Portas) -> Result(Nil, Erro) {
+fn consultar_spammers(chat_id: IdChat, portas: Portas) -> Result(Nil, Erro) {
   let texto = case portas.spammers.listar_top(10) {
     Ok([]) -> "🛡️ *Anti-Spam:* Nenhum incidente registrado no banco de dados."
     Ok(lista) ->
@@ -891,7 +899,7 @@ fn consultar_spammers(chat_id: String, portas: Portas) -> Result(Nil, Erro) {
 
 // Envia citando a mensagem original quando possível; cai em envio simples caso contrário.
 fn entregar(
-  para: String,
+  para: IdChat,
   tipo: TipoEntrega,
   conteudo: String,
   msg: Mensagem,
@@ -921,7 +929,7 @@ fn entregar(
 }
 
 /// Resposta de texto auditada, sem citar a mensagem original.
-fn responder(para: String, texto: String, portas: Portas) -> Result(Nil, Erro) {
+fn responder(para: IdChat, texto: String, portas: Portas) -> Result(Nil, Erro) {
   entrega_auditada.enviar(
     para,
     RespostaTexto,
@@ -934,10 +942,10 @@ fn responder(para: String, texto: String, portas: Portas) -> Result(Nil, Erro) {
 /// Aviso direto pelo mensageiro, sem auditoria: recusas, avisos de limite e
 /// respostas administrativas. Uma falha de envio vai para o log e não vira
 /// erro da mensagem, porque o usuário não teria como receber o aviso de erro.
-fn avisar(para: String, texto: String, portas: Portas) -> Result(Nil, Erro) {
+fn avisar(para: IdChat, texto: String, portas: Portas) -> Result(Nil, Erro) {
   portas.mensageiro.enviar(para, texto)
   |> sistema.registrar_falha(
-    "Falha ao enviar aviso para " <> privacidade.mascarar_id(para),
+    "Falha ao enviar aviso para " <> privacidade.mascarar(para),
   )
   Ok(Nil)
 }

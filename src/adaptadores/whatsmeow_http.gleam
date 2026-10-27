@@ -2,6 +2,7 @@
 // Implementa MensageiroPorta e PontePorta chamando o microserviço local.
 
 import dominio/erro.{type Erro}
+import dominio/id_chat.{type IdChat}
 import gleam/dynamic/decode
 import gleam/http
 import gleam/http/request.{type Request}
@@ -49,17 +50,17 @@ pub fn criar_ponte(conexao: Conexao) -> PontePorta {
 
 fn enviar_citando(
   conexao: Conexao,
-  chat_id: String,
+  chat_id: IdChat,
   quoted_id: String,
-  quoted_sender: String,
+  quoted_sender: IdChat,
   texto: String,
 ) -> Result(Nil, Erro) {
   let body =
     json.object([
-      #("chat_id", json.string(chat_id)),
+      #("chat_id", json.string(id_chat.para_texto(chat_id))),
       #("text", json.string(texto)),
       #("quoted_message_id", json.string(quoted_id)),
-      #("quoted_sender", json.string(quoted_sender)),
+      #("quoted_sender", json.string(id_chat.para_texto(quoted_sender))),
     ])
     |> json.to_string
   post(conexao, body)
@@ -67,12 +68,12 @@ fn enviar_citando(
 
 fn enviar_mensagem(
   conexao: Conexao,
-  chat_id: String,
+  chat_id: IdChat,
   texto: String,
 ) -> Result(Nil, Erro) {
   let body =
     json.object([
-      #("chat_id", json.string(chat_id)),
+      #("chat_id", json.string(id_chat.para_texto(chat_id))),
       #("text", json.string(texto)),
     ])
     |> json.to_string
@@ -81,16 +82,16 @@ fn enviar_mensagem(
 
 fn reagir(
   conexao: Conexao,
-  chat_id: String,
+  chat_id: IdChat,
   message_id: String,
-  sender: String,
+  sender: IdChat,
   emoji: String,
 ) -> Result(Nil, Erro) {
   let body =
     json.object([
-      #("chat_id", json.string(chat_id)),
+      #("chat_id", json.string(id_chat.para_texto(chat_id))),
       #("message_id", json.string(message_id)),
-      #("sender", json.string(sender)),
+      #("sender", json.string(id_chat.para_texto(sender))),
       #("emoji", json.string(emoji)),
     ])
     |> json.to_string

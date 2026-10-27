@@ -1,7 +1,7 @@
 // Adaptador de roteamento multicanal para MensageiroPorta.
-// Direciona mensagens para WhatsApp ou Telegram baseado no prefixo do chat_id.
+// Direciona mensagens para WhatsApp ou Telegram conforme o canal do chat_id.
 
-import gleam/string
+import dominio/id_chat.{CanalTelegram, CanalWhatsapp}
 import portas/mensageiro_porta.{type MensageiroPorta, MensageiroPorta}
 
 pub fn criar(
@@ -10,28 +10,24 @@ pub fn criar(
 ) -> MensageiroPorta {
   MensageiroPorta(
     enviar: fn(chat_id, texto) {
-      case e_telegram(chat_id) {
-        True -> telegram.enviar(chat_id, texto)
-        False -> whatsapp.enviar(chat_id, texto)
+      case id_chat.canal(chat_id) {
+        CanalTelegram -> telegram.enviar(chat_id, texto)
+        CanalWhatsapp -> whatsapp.enviar(chat_id, texto)
       }
     },
     enviar_citando: fn(chat_id, quoted_id, quoted_sender, texto) {
-      case e_telegram(chat_id) {
-        True ->
+      case id_chat.canal(chat_id) {
+        CanalTelegram ->
           telegram.enviar_citando(chat_id, quoted_id, quoted_sender, texto)
-        False ->
+        CanalWhatsapp ->
           whatsapp.enviar_citando(chat_id, quoted_id, quoted_sender, texto)
       }
     },
     reagir: fn(chat_id, message_id, sender, emoji) {
-      case e_telegram(chat_id) {
-        True -> telegram.reagir(chat_id, message_id, sender, emoji)
-        False -> whatsapp.reagir(chat_id, message_id, sender, emoji)
+      case id_chat.canal(chat_id) {
+        CanalTelegram -> telegram.reagir(chat_id, message_id, sender, emoji)
+        CanalWhatsapp -> whatsapp.reagir(chat_id, message_id, sender, emoji)
       }
     },
   )
-}
-
-pub fn e_telegram(chat_id: String) -> Bool {
-  string.starts_with(chat_id, "tg:")
 }

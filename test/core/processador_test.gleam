@@ -4,7 +4,6 @@ import dominio/acao.{
   GerarEEnviar, MidiaAudio, MidiaImagem, MidiaSticker, MidiaVideo, NaoResponder,
   ResetarWhatsApp, SnapshotHistorico,
 }
-import dominio/erro
 import dominio/mensagem
 import gleam/string
 import gleeunit/should
@@ -109,31 +108,12 @@ pub fn processar_midia_indisponivel_responde_direto_test() {
   let assert Ok([EnviarResposta(_, "Mídia indisponível.")]) = result
 }
 
-pub fn processar_chat_id_vazio_retorna_erro_test() {
-  let msg = mensagem.Mensagem(..fixtures.mensagem_texto("teste"), chat_id: "")
-  let cfg = fixtures.config_padrao()
-  let result = processador.processar(msg, cfg, [])
-  result |> should.be_error
-  let assert Error(erro.ErroValidacao("chat_id", _)) = result
-}
-
-pub fn processar_remetente_vazio_retorna_erro_test() {
-  let msg = mensagem.Mensagem(..fixtures.mensagem_texto("teste"), remetente: "")
-  let cfg = fixtures.config_padrao()
-  let result = processador.processar(msg, cfg, [])
-  result |> should.be_error
-}
-
-// ---------------------------------------------------------------------------
-// Filtragem de mensagens próprias e de grupo
-// ---------------------------------------------------------------------------
-
 pub fn processar_mensagem_propria_retorna_nao_responder_test() {
   // remetente terminando em ":bot" é self-message
   let msg =
     mensagem.Mensagem(
       ..fixtures.mensagem_texto("echo"),
-      remetente: "bot@c.us:bot",
+      remetente: fixtures.id("bot@c.us:bot"),
     )
   let cfg = fixtures.config_padrao()
   let result = processador.processar(msg, cfg, [])

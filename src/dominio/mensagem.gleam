@@ -1,9 +1,10 @@
+import dominio/id_chat.{type IdChat}
 import gleam/option.{type Option}
 
 pub type Mensagem {
   Mensagem(
-    chat_id: String,
-    remetente: String,
+    chat_id: IdChat,
+    remetente: IdChat,
     message_id: Option(String),
     corpo: Conteudo,
     timestamp: Int,

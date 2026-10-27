@@ -1,4 +1,5 @@
 import dominio/erro.{type Erro}
+import dominio/id_chat.{type IdChat}
 import dominio/transacao as t
 import gleam/dynamic/decode
 import gleam/list
@@ -64,7 +65,7 @@ fn registrar(
       sql,
       on: conn,
       with: [
-        sqlight.text(tx.chat_id),
+        sqlight.text(id_chat.para_texto(tx.chat_id)),
         sqlight.text(tx.remetente),
         sqlight.text(tx.tipo),
         sqlight.text(tx.conteudo),
@@ -159,7 +160,7 @@ fn obter_pendentes(conn: sqlight.Connection) -> Result(List(t.Transacao), Erro) 
 
 fn obter_por_chat(
   conn: sqlight.Connection,
-  chat_id: String,
+  chat_id: IdChat,
 ) -> Result(List(t.Transacao), Erro) {
   let sql =
     "SELECT id, chat_id, remetente, tipo, conteudo, status, criado_em, atualizado_em, tentativas, erro
@@ -171,7 +172,7 @@ fn obter_por_chat(
   sqlight.query(
     sql,
     on: conn,
-    with: [sqlight.text(chat_id)],
+    with: [sqlight.text(id_chat.para_texto(chat_id))],
     expecting: transacao_decoder(),
   )
   |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
@@ -231,7 +232,7 @@ fn limpar_antigas(conn: sqlight.Connection) -> Result(Nil, Erro) {
 
 fn transacao_decoder() -> decode.Decoder(t.Transacao) {
   use id <- decode.then(decode.at([0], decode.optional(decode.int)))
-  use chat_id <- decode.then(decode.at([1], decode.string))
+  use chat_id <- decode.then(decode.at([1], id_chat.decoder()))
   use remetente <- decode.then(decode.at([2], decode.string))
   use tipo <- decode.then(decode.at([3], decode.string))
   use conteudo <- decode.then(decode.at([4], decode.string))

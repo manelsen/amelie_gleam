@@ -1,6 +1,7 @@
 // Adaptador SQLite para prompts nomeados por chat.
 
 import dominio/erro.{type Erro}
+import dominio/id_chat.{type IdChat}
 import gleam/dynamic/decode
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -26,7 +27,7 @@ pub fn criar(conn: sqlight.Connection) -> PromptPorta {
 
 fn definir(
   conn: sqlight.Connection,
-  chat_id: String,
+  chat_id: IdChat,
   nome: String,
   texto: String,
 ) -> Result(Nil, Erro) {
@@ -34,7 +35,11 @@ fn definir(
     "INSERT INTO prompts (chat_id, nome, texto) VALUES (?, ?, ?)
      ON CONFLICT(chat_id, nome) DO UPDATE SET texto = excluded.texto",
     on: conn,
-    with: [sqlight.text(chat_id), sqlight.text(nome), sqlight.text(texto)],
+    with: [
+      sqlight.text(id_chat.para_texto(chat_id)),
+      sqlight.text(nome),
+      sqlight.text(texto),
+    ],
     expecting: decode.dynamic,
   )
   |> result.map(fn(_) { Nil })
@@ -43,14 +48,14 @@ fn definir(
 
 fn obter(
   conn: sqlight.Connection,
-  chat_id: String,
+  chat_id: IdChat,
   nome: String,
 ) -> Result(Option(String), Erro) {
   case
     sqlight.query(
       "SELECT texto FROM prompts WHERE chat_id = ? AND nome = ?",
       on: conn,
-      with: [sqlight.text(chat_id), sqlight.text(nome)],
+      with: [sqlight.text(id_chat.para_texto(chat_id)), sqlight.text(nome)],
       expecting: decode.at([0], decode.string),
     )
   {
@@ -62,12 +67,12 @@ fn obter(
 
 fn listar(
   conn: sqlight.Connection,
-  chat_id: String,
+  chat_id: IdChat,
 ) -> Result(List(String), Erro) {
   sqlight.query(
     "SELECT nome FROM prompts WHERE chat_id = ? ORDER BY nome",
     on: conn,
-    with: [sqlight.text(chat_id)],
+    with: [sqlight.text(id_chat.para_texto(chat_id))],
     expecting: decode.at([0], decode.string),
   )
   |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
@@ -75,13 +80,13 @@ fn listar(
 
 fn excluir(
   conn: sqlight.Connection,
-  chat_id: String,
+  chat_id: IdChat,
   nome: String,
 ) -> Result(Nil, Erro) {
   sqlight.query(
     "DELETE FROM prompts WHERE chat_id = ? AND nome = ?",
     on: conn,
-    with: [sqlight.text(chat_id), sqlight.text(nome)],
+    with: [sqlight.text(id_chat.para_texto(chat_id)), sqlight.text(nome)],
     expecting: decode.dynamic,
   )
   |> result.map(fn(_) { Nil })

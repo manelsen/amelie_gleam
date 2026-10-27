@@ -258,7 +258,10 @@ pub fn parear_bloqueado_para_nao_admin_test() {
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
       despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_ok(
-        config.Config(..fixtures.config_padrao(), chat_id: "tg:111222"),
+        config.Config(
+          ..fixtures.config_padrao(),
+          chat_id: fixtures.id("tg:111222"),
+        ),
       ),
       historico: portas_fake.historico_vazio(),
       fila: fila(),
@@ -276,13 +279,13 @@ pub fn parear_bloqueado_para_nao_admin_test() {
   let msg =
     mensagem.Mensagem(
       ..fixtures.mensagem_comando("parear", ""),
-      chat_id: "tg:111222",
-      remetente: "tg:111222",
+      chat_id: fixtures.id("tg:111222"),
+      remetente: fixtures.id("tg:111222"),
     )
   tratador_mensagem.tratar(msg, portas) |> should.be_ok
 
   let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 1000)
-  chat_id |> should.equal("tg:111222")
+  chat_id |> should.equal(fixtures.id("tg:111222"))
   string.contains(texto, "restrito ao administrador") |> should.be_true
 }
 
@@ -294,7 +297,10 @@ pub fn status_bloqueado_para_nao_admin_test() {
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
       despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_ok(
-        config.Config(..fixtures.config_padrao(), chat_id: "tg:111222"),
+        config.Config(
+          ..fixtures.config_padrao(),
+          chat_id: fixtures.id("tg:111222"),
+        ),
       ),
       historico: portas_fake.historico_vazio(),
       fila: fila(),
@@ -312,13 +318,13 @@ pub fn status_bloqueado_para_nao_admin_test() {
   let msg =
     mensagem.Mensagem(
       ..fixtures.mensagem_comando("status", ""),
-      chat_id: "tg:111222",
-      remetente: "tg:111222",
+      chat_id: fixtures.id("tg:111222"),
+      remetente: fixtures.id("tg:111222"),
     )
   tratador_mensagem.tratar(msg, portas) |> should.be_ok
 
   let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 1000)
-  chat_id |> should.equal("tg:111222")
+  chat_id |> should.equal(fixtures.id("tg:111222"))
   string.contains(texto, "restrito ao administrador") |> should.be_true
 }
 
@@ -330,7 +336,10 @@ pub fn status_permitido_para_admin_test() {
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
       despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_ok(
-        config.Config(..fixtures.config_padrao(), chat_id: "tg:424242"),
+        config.Config(
+          ..fixtures.config_padrao(),
+          chat_id: fixtures.id("tg:424242"),
+        ),
       ),
       historico: portas_fake.historico_vazio(),
       fila: fila(),
@@ -348,13 +357,13 @@ pub fn status_permitido_para_admin_test() {
   let msg =
     mensagem.Mensagem(
       ..fixtures.mensagem_comando("status", ""),
-      chat_id: "tg:424242",
-      remetente: "tg:424242",
+      chat_id: fixtures.id("tg:424242"),
+      remetente: fixtures.id("tg:424242"),
     )
   tratador_mensagem.tratar(msg, portas) |> should.be_ok
 
   let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 1000)
-  chat_id |> should.equal("tg:424242")
+  chat_id |> should.equal(fixtures.id("tg:424242"))
   string.contains(texto, "Painel Administrativo") |> should.be_true
   string.contains(texto, "BEAM") |> should.be_true
 }
@@ -367,7 +376,10 @@ pub fn reset_whatsapp_bloqueado_para_nao_admin_test() {
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
       despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_ok(
-        config.Config(..fixtures.config_padrao(), chat_id: "tg:111222"),
+        config.Config(
+          ..fixtures.config_padrao(),
+          chat_id: fixtures.id("tg:111222"),
+        ),
       ),
       historico: portas_fake.historico_vazio(),
       fila: fila(),
@@ -385,13 +397,13 @@ pub fn reset_whatsapp_bloqueado_para_nao_admin_test() {
   let msg =
     mensagem.Mensagem(
       ..fixtures.mensagem_comando("reset_whatsapp", ""),
-      chat_id: "tg:111222",
-      remetente: "tg:111222",
+      chat_id: fixtures.id("tg:111222"),
+      remetente: fixtures.id("tg:111222"),
     )
   tratador_mensagem.tratar(msg, portas) |> should.be_ok
 
   let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 1000)
-  chat_id |> should.equal("tg:111222")
+  chat_id |> should.equal(fixtures.id("tg:111222"))
   string.contains(texto, "restrito ao administrador") |> should.be_true
 }
 
@@ -403,7 +415,10 @@ pub fn reset_whatsapp_permitido_para_admin_test() {
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
       despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_ok(
-        config.Config(..fixtures.config_padrao(), chat_id: "tg:424242"),
+        config.Config(
+          ..fixtures.config_padrao(),
+          chat_id: fixtures.id("tg:424242"),
+        ),
       ),
       historico: portas_fake.historico_vazio(),
       fila: fila(),
@@ -421,13 +436,13 @@ pub fn reset_whatsapp_permitido_para_admin_test() {
   let msg =
     mensagem.Mensagem(
       ..fixtures.mensagem_comando("reset_whatsapp", "5531999990000"),
-      chat_id: "tg:424242",
-      remetente: "tg:424242",
+      chat_id: fixtures.id("tg:424242"),
+      remetente: fixtures.id("tg:424242"),
     )
   tratador_mensagem.tratar(msg, portas) |> should.be_ok
 
   let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 1000)
-  chat_id |> should.equal("tg:424242")
+  chat_id |> should.equal(fixtures.id("tg:424242"))
   // Como o bridge local não está rodando nesta porta nos testes unitários,
   // ou responde que falhou a conexão ou responde iniciado
   {
@@ -473,7 +488,8 @@ pub fn admin_exige_remetente_chat_privado_e_configuracao_test() {
 pub fn admin_em_grupo_nao_recebe_resposta_test() {
   use <- env.com_variavel("TELEGRAM_ADMIN_CHAT_ID", "424242")
   let envios = process.new_subject()
-  let cfg = config.Config(..fixtures.config_padrao(), chat_id: "tg:424242")
+  let cfg =
+    config.Config(..fixtures.config_padrao(), chat_id: fixtures.id("tg:424242"))
   let portas =
     Portas(
       ..portas_fake.portas_ok(cfg, "unused"),
@@ -482,8 +498,8 @@ pub fn admin_em_grupo_nao_recebe_resposta_test() {
   let msg =
     mensagem.Mensagem(
       ..fixtures.mensagem_comando("reset_whatsapp", ""),
-      chat_id: "tg:424242",
-      remetente: "tg:424242",
+      chat_id: fixtures.id("tg:424242"),
+      remetente: fixtures.id("tg:424242"),
       em_grupo: True,
     )
   tratador_mensagem.tratar(msg, portas) |> should.be_ok
@@ -493,7 +509,8 @@ pub fn admin_em_grupo_nao_recebe_resposta_test() {
 fn verificar_reset_bloqueado(admin: String, chat: String, remetente: String) {
   use <- env.com_variavel("TELEGRAM_ADMIN_CHAT_ID", admin)
   let envios = process.new_subject()
-  let cfg = config.Config(..fixtures.config_padrao(), chat_id: chat)
+  let cfg =
+    config.Config(..fixtures.config_padrao(), chat_id: fixtures.id(chat))
   let portas =
     Portas(
       ..portas_fake.portas_ok(cfg, "unused"),
@@ -502,8 +519,8 @@ fn verificar_reset_bloqueado(admin: String, chat: String, remetente: String) {
   let msg =
     mensagem.Mensagem(
       ..fixtures.mensagem_comando("reset_whatsapp", ""),
-      chat_id: chat,
-      remetente: remetente,
+      chat_id: fixtures.id(chat),
+      remetente: fixtures.id(remetente),
     )
   tratador_mensagem.tratar(msg, portas) |> should.be_ok
   let assert Ok(#(_, texto)) = process.receive(envios, 1000)
@@ -544,7 +561,8 @@ pub fn resumo_historico_com_turnos_gera_resumo_test() {
 pub fn spammers_rejeita_nao_admin_test() {
   use <- env.com_variavel("TELEGRAM_ADMIN_CHAT_ID", "999")
   let envios = process.new_subject()
-  let cfg = config.Config(..fixtures.config_padrao(), chat_id: "tg:111")
+  let cfg =
+    config.Config(..fixtures.config_padrao(), chat_id: fixtures.id("tg:111"))
   let portas =
     Portas(
       ..portas_fake.portas_ok(cfg, "unused"),
@@ -553,8 +571,8 @@ pub fn spammers_rejeita_nao_admin_test() {
   let msg =
     mensagem.Mensagem(
       ..fixtures.mensagem_comando("spammers", ""),
-      chat_id: "tg:111",
-      remetente: "tg:111",
+      chat_id: fixtures.id("tg:111"),
+      remetente: fixtures.id("tg:111"),
       em_grupo: False,
     )
   tratador_mensagem.tratar(msg, portas) |> should.be_ok
@@ -565,7 +583,8 @@ pub fn spammers_rejeita_nao_admin_test() {
 pub fn spammers_admin_lista_registros_test() {
   use <- env.com_variavel("TELEGRAM_ADMIN_CHAT_ID", "123456")
   let envios = process.new_subject()
-  let cfg = config.Config(..fixtures.config_padrao(), chat_id: "tg:123456")
+  let cfg =
+    config.Config(..fixtures.config_padrao(), chat_id: fixtures.id("tg:123456"))
   let spammer_fake =
     SpammerPorta(
       registrar: fn(_, _, _, _, _) { Ok(Nil) },
@@ -591,8 +610,8 @@ pub fn spammers_admin_lista_registros_test() {
   let msg =
     mensagem.Mensagem(
       ..fixtures.mensagem_comando("spammers", ""),
-      chat_id: "tg:123456",
-      remetente: "tg:123456",
+      chat_id: fixtures.id("tg:123456"),
+      remetente: fixtures.id("tg:123456"),
       em_grupo: False,
     )
   tratador_mensagem.tratar(msg, portas) |> should.be_ok
@@ -605,7 +624,8 @@ pub fn spammers_admin_lista_registros_test() {
 pub fn spammers_admin_lista_vazia_test() {
   use <- env.com_variavel("TELEGRAM_ADMIN_CHAT_ID", "123456")
   let envios = process.new_subject()
-  let cfg = config.Config(..fixtures.config_padrao(), chat_id: "tg:123456")
+  let cfg =
+    config.Config(..fixtures.config_padrao(), chat_id: fixtures.id("tg:123456"))
   let portas =
     Portas(
       ..portas_fake.portas_ok(cfg, "unused"),
@@ -617,8 +637,8 @@ pub fn spammers_admin_lista_vazia_test() {
   let msg =
     mensagem.Mensagem(
       ..fixtures.mensagem_comando("spammers", ""),
-      chat_id: "tg:123456",
-      remetente: "tg:123456",
+      chat_id: fixtures.id("tg:123456"),
+      remetente: fixtures.id("tg:123456"),
       em_grupo: False,
     )
   tratador_mensagem.tratar(msg, portas) |> should.be_ok
@@ -629,7 +649,8 @@ pub fn spammers_admin_lista_vazia_test() {
 fn executar_como_admin(comando: String, args: String, ponte: PontePorta) {
   use <- env.com_variavel("TELEGRAM_ADMIN_CHAT_ID", "424242")
   let envios = process.new_subject()
-  let cfg = config.Config(..fixtures.config_padrao(), chat_id: "tg:424242")
+  let cfg =
+    config.Config(..fixtures.config_padrao(), chat_id: fixtures.id("tg:424242"))
   let portas =
     Portas(
       ..portas_fake.portas_ok(cfg, "unused"),
@@ -639,8 +660,8 @@ fn executar_como_admin(comando: String, args: String, ponte: PontePorta) {
   let msg =
     mensagem.Mensagem(
       ..fixtures.mensagem_comando(comando, args),
-      chat_id: "tg:424242",
-      remetente: "tg:424242",
+      chat_id: fixtures.id("tg:424242"),
+      remetente: fixtures.id("tg:424242"),
     )
   tratador_mensagem.tratar(msg, portas) |> should.be_ok
   let assert Ok(#(_, texto)) = process.receive(envios, 1000)

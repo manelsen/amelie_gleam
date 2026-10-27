@@ -13,6 +13,7 @@ import adaptadores/usuario_sqlite
 import adaptadores/video_contexto_sqlite
 import adaptadores/whatsmeow_http
 import core/privacidade
+import dominio/id_chat.{type IdChat}
 import dominio/mensagem.{type Mensagem, Mensagem, Texto}
 import dominio/provedores_config
 import gleam/bit_array
@@ -23,7 +24,7 @@ import gleam/http/request.{type Request}
 import gleam/http/response
 import gleam/int
 import gleam/json
-import gleam/option
+import gleam/option.{type Option}
 import gleam/result
 import gleam/string
 import mist.{type Connection, type ResponseData}
@@ -59,7 +60,7 @@ fn garantir_aplicacoes_iniciadas() -> Nil
 
 /// Webhook decodificado. `arquivo` aponta para a mídia que o bridge gravou em
 /// disco e que ainda precisa ser lida para preencher `msg.corpo`.
-type Webhook {
+pub type Webhook {
   Webhook(msg: Mensagem, arquivo: option.Option(String))
 }
 
@@ -78,7 +79,7 @@ pub fn main() {
   let openrouter_api_key = sistema.ler_env_ou("OPENROUTER_API_KEY", "")
   let telegram_bot_token = sistema.ler_env_ou("TELEGRAM_BOT_TOKEN", "")
   let telegram_secret_token = sistema.ler_env_ou("TELEGRAM_SECRET_TOKEN", "")
-  let telegram_admin_chat_id = sistema.ler_env_ou("TELEGRAM_ADMIN_CHAT_ID", "")
+  let telegram_admin_chat_id = sistema.admin_chat_id()
 
   let url_ponte = sistema.url_ponte()
   let db_path = sistema.ler_env_ou("DB_PATH", "./db/amelie.sqlite")
@@ -204,7 +205,7 @@ fn tratar_requisicao(
   conn: sqlight.Connection,
   telegram_secret: String,
   telegram_bot_token: String,
-  telegram_admin_chat_id: String,
+  telegram_admin_chat_id: Option(IdChat),
   bridge_token: String,
 ) -> response.Response(ResponseData) {
   case req.path {
@@ -355,7 +356,7 @@ type EventoPonte {
 fn tratar_evento_ponte(
   req: Request(Connection),
   bot_token: String,
-  admin_chat_id: String,
+  admin_chat_id: Option(IdChat),
 ) -> response.Response(ResponseData) {
   case mist.read_body(req, 1024 * 1024) {
     Error(_) -> resposta_json(400, "{\"error\":\"failed to read body\"}")
@@ -363,9 +364,9 @@ fn tratar_evento_ponte(
       case decodificar_evento_ponte(req_with_body.body) {
         Error(_) -> resposta_json(400, "{\"error\":\"invalid payload\"}")
         Ok(evt) -> {
-          case bot_token == "" || admin_chat_id == "" {
-            True -> Nil
-            _ -> {
+          case bot_token, admin_chat_id {
+            "", _ | _, option.None -> Nil
+            _, option.Some(admin_chat_id) -> {
               case evt {
                 CodigoPareamentoGerado(phone, code) -> {
                   let texto =
@@ -491,7 +492,7 @@ fn tratar_webhook(
   }
 }
 
-fn decodificar_webhook(body: BitArray) -> Result(Webhook, Nil) {
+pub fn decodificar_webhook(body: BitArray) -> Result(Webhook, Nil) {
   case bit_array.to_string(body) {
     Error(_) -> Error(Nil)
     Ok(s) ->
@@ -502,17 +503,6 @@ fn decodificar_webhook(body: BitArray) -> Result(Webhook, Nil) {
 }
 
 fn validar_webhook(webhook: Webhook) -> Result(Webhook, Nil) {
-  use _ <- result.try(
-    case
-      seguranca_http.identidade_whatsapp_valida(
-        webhook.msg.chat_id,
-        webhook.msg.remetente,
-      )
-    {
-      True -> Ok(Nil)
-      False -> Error(Nil)
-    },
-  )
   let arquivo = case webhook.msg.corpo {
     mensagem.Video(caminho_temp: caminho, ..) -> option.Some(caminho)
     _ -> webhook.arquivo
@@ -527,8 +517,8 @@ fn validar_webhook(webhook: Webhook) -> Result(Webhook, Nil) {
 }
 
 fn mensagem_decoder() -> decode.Decoder(Webhook) {
-  use chat_id <- decode.field("chat_id", decode.string)
-  use from <- decode.field("from", decode.string)
+  use chat_id <- decode.field("chat_id", jid_decoder())
+  use from <- decode.field("from", jid_decoder())
   use message_id <- decode.optional_field(
     "message_id",
     option.None,
@@ -568,6 +558,15 @@ fn mensagem_decoder() -> decode.Decoder(Webhook) {
       legenda: caption,
     )
   decode.success(Webhook(msg: msg, arquivo: arquivo))
+}
+
+/// A ponte só entrega mensagens do WhatsApp: um `tg:` aqui é forjado.
+fn jid_decoder() -> decode.Decoder(IdChat) {
+  use texto <- decode.then(decode.string)
+  case id_chat.whatsapp(texto) {
+    Ok(id) -> decode.success(id)
+    Error(Nil) -> decode.failure(id_chat.telegram(0), "JID do WhatsApp")
+  }
 }
 
 fn parsear_corpo(
@@ -633,7 +632,7 @@ fn carregar_midia(webhook: Webhook) -> Mensagem {
             "Falha ao ler mídia temporária "
               <> caminho
               <> " de "
-              <> privacidade.mascarar_id(webhook.msg.chat_id)
+              <> privacidade.mascarar(webhook.msg.chat_id)
               <> ": "
               <> motivo,
           )

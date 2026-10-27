@@ -1,5 +1,6 @@
 import dominio/config
 import dominio/erro.{type Erro}
+import dominio/id_chat.{type IdChat}
 import dominio/mensagem.{type Turno}
 import dominio/provedores_config
 import dominio/transacao
@@ -73,7 +74,7 @@ pub fn mensageiro_ok() -> MensageiroPorta {
 }
 
 pub fn mensageiro_capturar(
-  ref: process.Subject(#(String, String)),
+  ref: process.Subject(#(IdChat, String)),
 ) -> MensageiroPorta {
   MensageiroPorta(
     enviar: fn(chat_id, texto) {
@@ -229,7 +230,7 @@ pub fn historico_erro(e: Erro) -> HistoricoPorta {
 
 // Captura cada chat_id passado a `limpar` no Subject.
 pub fn historico_capturar_limpezas(
-  ref: process.Subject(String),
+  ref: process.Subject(IdChat),
 ) -> HistoricoPorta {
   HistoricoPorta(
     obter: fn(_) { Ok([]) },
@@ -348,8 +349,8 @@ pub fn spammer_noop() -> SpammerPorta {
 
 pub type EventoSpammer {
   IncidenteRegistrado(
-    chat_id: String,
-    remetente: String,
+    chat_id: IdChat,
+    remetente: IdChat,
     telefone: String,
     motivo: String,
     strike: Int,
@@ -396,10 +397,10 @@ pub fn video_contexto_com(ctx: Option(VideoContexto)) -> VideoContextoPorta {
 }
 
 pub type EventoVideoContexto {
-  VideoObtido(chat_id: String)
+  VideoObtido(chat_id: IdChat)
   VideoSalvo(VideoContexto)
-  VideoPerguntasDecrementadas(chat_id: String)
-  VideoRemovido(chat_id: String)
+  VideoPerguntasDecrementadas(chat_id: IdChat)
+  VideoRemovido(chat_id: IdChat)
 }
 
 pub fn video_contexto_capturar(
@@ -438,7 +439,7 @@ import shell/anti_spam
 // ---------------------------------------------------------------------------
 
 pub fn anti_spam_ok() -> anti_spam.AntiSpam {
-  let assert Ok(a) = anti_spam.iniciar("")
+  let assert Ok(a) = anti_spam.iniciar(option.None)
   a
 }
 

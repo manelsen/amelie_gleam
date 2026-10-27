@@ -25,12 +25,10 @@ pub fn processar(
   config: Config,
   historico: List(Turno),
 ) -> Result(List(Acao), Erro) {
-  use msg_val <- result.try(validacao.validar_mensagem(msg))
-
   // Ignora mensagens do próprio bot (previne loops)
-  use <- bool.guard(validacao.e_mensagem_propria(msg_val), Ok([NaoResponder]))
+  use <- bool.guard(validacao.e_mensagem_propria(msg), Ok([NaoResponder]))
 
-  processar_filtrado(msg_val, config, historico)
+  processar_filtrado(msg, config, historico)
 }
 
 fn processar_filtrado(

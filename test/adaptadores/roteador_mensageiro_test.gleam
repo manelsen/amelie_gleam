@@ -1,7 +1,9 @@
 import adaptadores/roteador_mensageiro
 import adaptadores/telegram_http
+import dominio/id_chat
 import gleam/erlang/process
 import gleeunit/should
+import helpers/fixtures
 import portas/mensageiro_porta.{MensageiroPorta}
 
 fn criar_capturador(
@@ -9,15 +11,23 @@ fn criar_capturador(
 ) -> mensageiro_porta.MensageiroPorta {
   MensageiroPorta(
     enviar: fn(chat_id, texto) {
-      process.send(ref, #("enviar", chat_id, texto))
+      process.send(ref, #("enviar", id_chat.para_texto(chat_id), texto))
       Ok(Nil)
     },
     enviar_citando: fn(chat_id, quoted_id, _sender, texto) {
-      process.send(ref, #("enviar_citando:" <> quoted_id, chat_id, texto))
+      process.send(ref, #(
+        "enviar_citando:" <> quoted_id,
+        id_chat.para_texto(chat_id),
+        texto,
+      ))
       Ok(Nil)
     },
     reagir: fn(chat_id, msg_id, _sender, emoji) {
-      process.send(ref, #("reagir:" <> msg_id, chat_id, emoji))
+      process.send(ref, #(
+        "reagir:" <> msg_id,
+        id_chat.para_texto(chat_id),
+        emoji,
+      ))
       Ok(Nil)
     },
   )
@@ -31,7 +41,7 @@ pub fn roteia_para_telegram_quando_prefixo_tg_test() {
   let roteador = roteador_mensageiro.criar(wa, tg)
 
   // Enviar para chat Telegram
-  let _ = roteador.enviar("tg:123456", "Olá pelo Telegram")
+  let _ = roteador.enviar(fixtures.id("tg:123456"), "Olá pelo Telegram")
   let assert Ok(#("enviar", "tg:123456", "Olá pelo Telegram")) =
     process.receive(ref_tg, 100)
 
@@ -47,7 +57,8 @@ pub fn roteia_para_whatsapp_quando_sem_prefixo_tg_test() {
   let roteador = roteador_mensageiro.criar(wa, tg)
 
   // Enviar para WhatsApp
-  let _ = roteador.enviar("5531999990000@c.us", "Olá pelo WhatsApp")
+  let _ =
+    roteador.enviar(fixtures.id("5531999990000@c.us"), "Olá pelo WhatsApp")
   let assert Ok(#("enviar", "5531999990000@c.us", "Olá pelo WhatsApp")) =
     process.receive(ref_wa, 100)
 

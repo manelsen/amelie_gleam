@@ -5,6 +5,7 @@ import dominio/transacao as t
 import gleam/erlang/process
 import gleam/option.{None, Some}
 import gleeunit/should
+import helpers/fixtures
 import portas/mensageiro_porta.{MensageiroPorta}
 import portas/transacao_porta.{TransacaoPorta}
 import shell/fila_offline
@@ -12,7 +13,7 @@ import shell/fila_offline
 fn tx_pendente(id: Int, tentativas: Int) -> t.Transacao {
   t.Transacao(
     id: Some(id),
-    chat_id: "chat1",
+    chat_id: fixtures.id("chat1@c.us"),
     remetente: "amelie",
     tipo: "texto",
     conteudo: "mensagem pendente",
@@ -178,7 +179,7 @@ pub fn tx_sem_id_e_ignorada_test() {
   let tx_sem_id =
     t.Transacao(
       id: None,
-      chat_id: "chat1",
+      chat_id: fixtures.id("chat1@c.us"),
       remetente: "amelie",
       tipo: "texto",
       conteudo: "órfã",

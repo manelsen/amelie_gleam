@@ -3,6 +3,7 @@
 
 import adaptadores/spammer_sqlite
 import gleeunit/should
+import helpers/fixtures
 import sqlight
 
 pub fn registrar_e_contar_test() {
@@ -14,8 +15,8 @@ pub fn registrar_e_contar_test() {
 
   // Registra primeiro incidente (aviso)
   porta.registrar(
-    "5511999998888@s.whatsapp.net",
-    "5511999998888@s.whatsapp.net",
+    fixtures.id("5511999998888@s.whatsapp.net"),
+    fixtures.id("5511999998888@s.whatsapp.net"),
     "5511999998888",
     "muitas mensagens seguidas",
     1,
@@ -26,8 +27,8 @@ pub fn registrar_e_contar_test() {
 
   // Registra segundo incidente (bloqueio strike 3)
   porta.registrar(
-    "5511999998888@s.whatsapp.net",
-    "5511999998888@s.whatsapp.net",
+    fixtures.id("5511999998888@s.whatsapp.net"),
+    fixtures.id("5511999998888@s.whatsapp.net"),
     "5511999998888",
     "flood volumétrico contínuo",
     3,
@@ -41,8 +42,22 @@ pub fn listar_recentes_test() {
   use conn <- sqlight.with_connection("file:spammer_rec_test?mode=memory")
   let porta = spammer_sqlite.criar(conn)
 
-  let _ = porta.registrar("chat1", "user1@c.us", "5511911111111", "motivo 1", 1)
-  let _ = porta.registrar("chat2", "user2@c.us", "5521922222222", "motivo 2", 2)
+  let _ =
+    porta.registrar(
+      fixtures.id("chat1@c.us"),
+      fixtures.id("user1@c.us"),
+      "5511911111111",
+      "motivo 1",
+      1,
+    )
+  let _ =
+    porta.registrar(
+      fixtures.id("chat2@c.us"),
+      fixtures.id("user2@c.us"),
+      "5521922222222",
+      "motivo 2",
+      2,
+    )
 
   let assert Ok(recentes) = porta.listar_recentes(10)
   recentes |> should.not_equal([])
@@ -61,12 +76,40 @@ pub fn listar_top_test() {
   let porta = spammer_sqlite.criar(conn)
 
   // Telefone A tem 3 incidentes
-  let _ = porta.registrar("c1", "u1", "5511AAAA", "flood", 1)
-  let _ = porta.registrar("c1", "u1", "5511AAAA", "flood", 2)
-  let _ = porta.registrar("c1", "u1", "5511AAAA", "flood", 3)
+  let _ =
+    porta.registrar(
+      fixtures.id("c1@c.us"),
+      fixtures.id("u1@c.us"),
+      "5511AAAA",
+      "flood",
+      1,
+    )
+  let _ =
+    porta.registrar(
+      fixtures.id("c1@c.us"),
+      fixtures.id("u1@c.us"),
+      "5511AAAA",
+      "flood",
+      2,
+    )
+  let _ =
+    porta.registrar(
+      fixtures.id("c1@c.us"),
+      fixtures.id("u1@c.us"),
+      "5511AAAA",
+      "flood",
+      3,
+    )
 
   // Telefone B tem 1 incidente
-  let _ = porta.registrar("c2", "u2", "5521BBBB", "flood", 1)
+  let _ =
+    porta.registrar(
+      fixtures.id("c2@c.us"),
+      fixtures.id("u2@c.us"),
+      "5521BBBB",
+      "flood",
+      1,
+    )
 
   let assert Ok(top) = porta.listar_top(5)
   let assert [top1, top2] = top

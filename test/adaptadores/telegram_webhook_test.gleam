@@ -19,8 +19,8 @@ pub fn parsear_mensagem_privada_texto_test() {
     |> bit_array.from_string
 
   let assert Ok(Some(msg)) = telegram_webhook.parsear_update(json)
-  msg.chat_id |> should.equal("tg:998877")
-  msg.remetente |> should.equal("tg:998877")
+  msg.chat_id |> should.equal(fixtures.id("tg:998877"))
+  msg.remetente |> should.equal(fixtures.id("tg:998877"))
   msg.message_id |> should.equal(Some("42"))
   msg.em_grupo |> should.be_false
   msg.menciona_bot |> should.be_true
@@ -97,7 +97,10 @@ pub fn fluxo_telegram_com_handler_mensagem_test() {
         "Olá humano! Sou a Amélie no Telegram.",
       ),
       config: portas_fake.config_ok(
-        config.Config(..fixtures.config_padrao(), chat_id: "tg:555444"),
+        config.Config(
+          ..fixtures.config_padrao(),
+          chat_id: fixtures.id("tg:555444"),
+        ),
       ),
       historico: portas_fake.historico_vazio(),
       fila: filas,
@@ -122,7 +125,7 @@ pub fn fluxo_telegram_com_handler_mensagem_test() {
 
   // Deve responder com a mensagem de ajuda para o chat tg:555444
   let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 1000)
-  chat_id |> should.equal("tg:555444")
+  chat_id |> should.equal(fixtures.id("tg:555444"))
   // Verifica se é a mensagem de comandos
   should.be_true(string.contains(texto, "Amélie — Comandos disponíveis"))
 }
@@ -139,7 +142,10 @@ pub fn fluxo_telegram_conversa_ia_test() {
         "Olá! Sou a Amélie no Telegram. Como posso te ajudar hoje?",
       ),
       config: portas_fake.config_ok(
-        config.Config(..fixtures.config_padrao(), chat_id: "tg:555444"),
+        config.Config(
+          ..fixtures.config_padrao(),
+          chat_id: fixtures.id("tg:555444"),
+        ),
       ),
       historico: portas_fake.historico_com_midia(),
       fila: filas,
@@ -164,7 +170,7 @@ pub fn fluxo_telegram_conversa_ia_test() {
 
   // Deve responder com o texto gerado pela IA para o chat tg:555444
   let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 1000)
-  chat_id |> should.equal("tg:555444")
+  chat_id |> should.equal(fixtures.id("tg:555444"))
   texto
   |> should.equal("Olá! Sou a Amélie no Telegram. Como posso te ajudar hoje?")
 }
@@ -181,7 +187,10 @@ pub fn fluxo_telegram_conversa_ia_sem_midia_orienta_test() {
         "Olá! Sou a Amélie no Telegram. Como posso te ajudar hoje?",
       ),
       config: portas_fake.config_ok(
-        config.Config(..fixtures.config_padrao(), chat_id: "tg:555444"),
+        config.Config(
+          ..fixtures.config_padrao(),
+          chat_id: fixtures.id("tg:555444"),
+        ),
       ),
       historico: portas_fake.historico_vazio(),
       fila: filas,
@@ -205,7 +214,7 @@ pub fn fluxo_telegram_conversa_ia_sem_midia_orienta_test() {
   let _ = tratador_mensagem.tratar(msg, portas)
 
   let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 1000)
-  chat_id |> should.equal("tg:555444")
+  chat_id |> should.equal(fixtures.id("tg:555444"))
   should.be_true(string.contains(texto, "especializada na análise"))
 }
 
@@ -219,8 +228,8 @@ pub fn parsear_evento_foto_alta_resolucao_test() {
     telegram_porta.EventoFotoParaBaixar(update_id, base, file_id) -> {
       update_id |> should.equal(3001)
       file_id |> should.equal("hd_file_id")
-      base.chat_id |> should.equal("tg:998877")
-      base.remetente |> should.equal("tg:998877")
+      base.chat_id |> should.equal(fixtures.id("tg:998877"))
+      base.remetente |> should.equal(fixtures.id("tg:998877"))
       base.message_id |> should.equal(Some("70"))
       base.legenda |> should.be_none
     }
@@ -255,7 +264,7 @@ pub fn parsear_evento_voice_audio_ogg_test() {
       update_id |> should.equal(3003)
       file_id |> should.equal("voice_abc")
       mime |> should.equal("audio/ogg")
-      base.chat_id |> should.equal("tg:998877")
+      base.chat_id |> should.equal(fixtures.id("tg:998877"))
     }
     _ -> should.fail()
   }
@@ -311,7 +320,7 @@ pub fn parsear_evento_video_test() {
       update_id |> should.equal(4001)
       file_id |> should.equal("vid_abc123")
       mime |> should.equal("video/mp4")
-      base.chat_id |> should.equal("tg:998877")
+      base.chat_id |> should.equal(fixtures.id("tg:998877"))
       base.legenda |> should.be_none
     }
     _ -> should.fail()
@@ -346,7 +355,7 @@ pub fn parsear_evento_video_note_test() {
       update_id |> should.equal(4003)
       file_id |> should.equal("note_round1")
       mime |> should.equal("video/mp4")
-      base.chat_id |> should.equal("tg:998877")
+      base.chat_id |> should.equal(fixtures.id("tg:998877"))
     }
     _ -> should.fail()
   }
@@ -375,7 +384,7 @@ pub fn parsear_evento_animation_test() {
       update_id |> should.equal(4005)
       file_id |> should.equal("anim_gif123")
       mime |> should.equal("video/mp4")
-      base.chat_id |> should.equal("tg:998877")
+      base.chat_id |> should.equal(fixtures.id("tg:998877"))
       base.legenda |> should.be_none
     }
     _ -> should.fail()
@@ -391,7 +400,7 @@ pub fn parsear_evento_video_muito_grande_rejeitado_test() {
   case evento {
     telegram_porta.EventoArquivoMuitoGrande(update_id, chat_id, tamanho_mb) -> {
       update_id |> should.equal(4007)
-      chat_id |> should.equal("tg:998877")
+      chat_id |> should.equal(fixtures.id("tg:998877"))
       tamanho_mb |> should.equal(23)
     }
     _ -> should.fail()
@@ -407,7 +416,7 @@ pub fn parsear_evento_documento_muito_grande_rejeitado_test() {
   case evento {
     telegram_porta.EventoArquivoMuitoGrande(update_id, chat_id, tamanho_mb) -> {
       update_id |> should.equal(4008)
-      chat_id |> should.equal("tg:998877")
+      chat_id |> should.equal(fixtures.id("tg:998877"))
       tamanho_mb |> should.equal(30)
     }
     _ -> should.fail()
@@ -425,7 +434,7 @@ pub fn parsear_evento_document_como_video_test() {
       update_id |> should.equal(4006)
       file_id |> should.equal("doc_vid_123")
       mime |> should.equal("video/x-matroska")
-      base.chat_id |> should.equal("tg:998877")
+      base.chat_id |> should.equal(fixtures.id("tg:998877"))
     }
     _ -> should.fail()
   }
@@ -449,7 +458,7 @@ pub fn parsear_evento_documento_generico_test() {
       file_id |> should.equal("doc_pdf_123")
       mime |> should.equal("application/pdf")
       file_name |> should.equal("relatorio.pdf")
-      base.chat_id |> should.equal("tg:998877")
+      base.chat_id |> should.equal(fixtures.id("tg:998877"))
     }
     _ -> should.fail()
   }
@@ -466,7 +475,7 @@ pub fn parsear_evento_sticker_estatico_test() {
       update_id |> should.equal(5002)
       file_id |> should.equal("stk_webp_123")
       mime |> should.equal("image/webp")
-      base.chat_id |> should.equal("tg:998877")
+      base.chat_id |> should.equal(fixtures.id("tg:998877"))
       base.legenda |> should.equal(Some("🎉"))
     }
     _ -> should.fail()
@@ -484,7 +493,7 @@ pub fn parsear_evento_sticker_video_test() {
       update_id |> should.equal(5003)
       file_id |> should.equal("stk_webm_456")
       mime |> should.equal("video/webm")
-      base.chat_id |> should.equal("tg:998877")
+      base.chat_id |> should.equal(fixtures.id("tg:998877"))
       base.legenda |> should.be_none
     }
     _ -> should.fail()

@@ -1,10 +1,11 @@
 import dominio/erro.{type Erro}
+import dominio/id_chat.{type IdChat}
 import dominio/mensagem.{type Turno}
 
 pub type HistoricoPorta {
   HistoricoPorta(
-    obter: fn(String) -> Result(List(Turno), Erro),
-    adicionar: fn(String, Turno) -> Result(Nil, Erro),
-    limpar: fn(String) -> Result(Nil, Erro),
+    obter: fn(IdChat) -> Result(List(Turno), Erro),
+    adicionar: fn(IdChat, Turno) -> Result(Nil, Erro),
+    limpar: fn(IdChat) -> Result(Nil, Erro),
   )
 }

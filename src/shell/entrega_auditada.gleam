@@ -1,4 +1,5 @@
 import dominio/erro.{type Erro}
+import dominio/id_chat.{type IdChat}
 import dominio/transacao
 import gleam/option
 import gleam/result
@@ -8,7 +9,7 @@ import portas/transacao_porta.{type TransacaoPorta}
 import shell/fila_offline
 
 pub fn enviar(
-  chat_id: String,
+  chat_id: IdChat,
   tipo: transacao.TipoEntrega,
   conteudo: String,
   mensageiro: MensageiroPorta,
@@ -30,11 +31,11 @@ pub fn enviar(
 }
 
 pub fn enviar_citando(
-  chat_id: String,
+  chat_id: IdChat,
   tipo: transacao.TipoEntrega,
   conteudo: String,
   quoted_id: String,
-  quoted_sender: String,
+  quoted_sender: IdChat,
   mensageiro: MensageiroPorta,
   transacoes: TransacaoPorta,
 ) -> Result(Nil, Erro) {

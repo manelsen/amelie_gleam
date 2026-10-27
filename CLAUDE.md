@@ -106,7 +106,8 @@ A Amélie só atende conversas privadas, nos dois canais. No WhatsApp, a ponte d
 
 ### Key Types
 
-- `dominio/mensagem.Mensagem` — chat_id, remetente, corpo (`Conteudo`), timestamp, em_grupo, menciona_bot, legenda.
+- `dominio/id_chat.IdChat` — opaque chat/user ID: `Telegram(Int)` or a WhatsApp JID. Build it with `telegram`, `whatsapp` (rejects text without `@` and anything starting with `tg:`) or `de_texto`; read it with `canal`, `numero_telegram`, `para_texto`. The text form (`tg:<n>` or the JID) exists only at the edges: SQLite, bridge/Bot API JSON, logs (`privacidade.mascarar`). Don't parse the `tg:` prefix anywhere else. The admin is `sistema.admin_chat_id() -> Option(IdChat)`.
+- `dominio/mensagem.Mensagem` — chat_id and remetente (`IdChat`), corpo (`Conteudo`), timestamp, em_grupo, menciona_bot, legenda.
 - `dominio/mensagem.Conteudo` — `Texto | Imagem | Audio | Video | Documento | Sticker | MidiaIndisponivel | Comando`.
 - `dominio/acao.Acao` — `GerarEEnviar | BuscarUrlEResponder | EnviarResposta | EnfileirarMidia | SalvarConfig | LimparHistorico | AlterarModelo | SnapshotHistorico | NaoResponder`.
 - `dominio/config.Config` — per-chat configuration (provedor, modelo default `gemini-3.5-flash-lite`, historico_max, media toggles, modo_descricao).
@@ -134,7 +135,7 @@ A Amélie só atende conversas privadas, nos dois canais. No WhatsApp, a ponte d
 
 - `adaptadores/whatsmeow_http` → implements `MensageiroPorta` (`criar`) and `PontePorta` (`criar_ponte`) for WhatsApp (calls Go bridge, parses structured `APIError` and network errors).
 - `adaptadores/telegram_http` → implements `MensageiroPorta` (`criar`) and `TelegramPorta` (`criar_api`) for Telegram (sends text, chat actions, reactions, downloads media).
-- `adaptadores/roteador_mensageiro` → routes calls to `whatsmeow_http` or `telegram_http` based on `chat_id` prefix (`tg:` vs WhatsApp JID).
+- `adaptadores/roteador_mensageiro` → routes calls to `whatsmeow_http` or `telegram_http` by `id_chat.canal`.
 - `adaptadores/gemini_http` → implements `IAPorta` (Google Gemini REST & File API).
 - `adaptadores/openrouter_http` → implements `IAPorta` (OpenRouter API).
 - `adaptadores/config_sqlite` → implements `ConfigPorta` (includes auto-migration to `gemini-3.5-flash-lite`).

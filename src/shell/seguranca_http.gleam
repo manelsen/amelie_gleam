@@ -1,6 +1,5 @@
 import gleam/http
 import gleam/http/request.{type Request}
-import gleam/string
 import shell/sistema
 
 pub fn token_ponte() -> String {
@@ -29,13 +28,6 @@ pub fn autorizar_webhook(
         _ -> Error(405)
       }
   }
-}
-
-pub fn identidade_whatsapp_valida(chat_id: String, remetente: String) -> Bool {
-  !string.starts_with(chat_id, "tg:")
-  && !string.starts_with(remetente, "tg:")
-  && string.contains(chat_id, "@")
-  && string.contains(remetente, "@")
 }
 
 @external(erlang, "amelie_gleam_ffi", "constant_time_equal")

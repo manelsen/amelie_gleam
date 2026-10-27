@@ -2,6 +2,7 @@ import adaptadores/transacao_sqlite
 import dominio/transacao.{Entregue, Pendente, Transacao}
 import gleam/option.{None, Some}
 import gleeunit/should
+import helpers/fixtures
 import sqlight
 
 pub fn limpar_antigas_remove_transacoes_e_mensagens_expiradas_test() {
@@ -12,7 +13,7 @@ pub fn limpar_antigas_remove_transacoes_e_mensagens_expiradas_test() {
   let _ =
     sqlight.exec(
       "INSERT INTO transacoes (chat_id, remetente, tipo, conteudo, status, criado_em)
-       VALUES ('chat1', 'user1', 'texto', 'msg antiga', 'entregue', unixepoch() - 8 * 24 * 3600);",
+       VALUES ('chat1@c.us', 'user1', 'texto', 'msg antiga', 'entregue', unixepoch() - 8 * 24 * 3600);",
       conn,
     )
 
@@ -20,7 +21,7 @@ pub fn limpar_antigas_remove_transacoes_e_mensagens_expiradas_test() {
   let tx_recente =
     Transacao(
       id: None,
-      chat_id: "chat1",
+      chat_id: fixtures.id("chat1@c.us"),
       remetente: "user1",
       tipo: "texto",
       conteudo: "msg recente",
@@ -38,7 +39,7 @@ pub fn limpar_antigas_remove_transacoes_e_mensagens_expiradas_test() {
   let _ =
     sqlight.exec(
       "INSERT INTO transacoes (chat_id, remetente, tipo, conteudo, status, criado_em)
-       VALUES ('chat1', 'user1', 'texto', 'msg pendente antiga', 'pendente', unixepoch() - 8 * 24 * 3600);",
+       VALUES ('chat1@c.us', 'user1', 'texto', 'msg pendente antiga', 'pendente', unixepoch() - 8 * 24 * 3600);",
       conn,
     )
 

@@ -3,6 +3,7 @@ import dominio/acao.{
 }
 import dominio/transacao.{DescricaoMidia, RespostaIA, RespostaTexto}
 import gleeunit/should
+import helpers/fixtures
 
 // Os textos ficam gravados na coluna `tipo` das transações já existentes;
 // mudar algum deles separa o histórico antigo do novo.
@@ -22,7 +23,7 @@ pub fn tipo_entrega_mantem_os_textos_gravados_no_banco_test() {
 }
 
 pub fn transacao_nova_sai_em_nome_do_bot_test() {
-  let tx = transacao.novo("chat1", RespostaIA, "oi")
+  let tx = transacao.novo(fixtures.id("chat1@c.us"), RespostaIA, "oi")
   tx.remetente |> should.equal("amelie")
   tx.tipo |> should.equal("ia_texto")
 }

@@ -1,5 +1,6 @@
 // Privacidade em log. Puro — não faz IO.
 
+import dominio/id_chat.{type IdChat}
 import gleam/list
 import gleam/string
 
@@ -13,6 +14,11 @@ pub fn mascarar_id(id: String) -> String {
     True -> "tg:" <> mascarar_jid(string.drop_start(id, 3))
     False -> mascarar_jid(id)
   }
+}
+
+/// `mascarar_id` sobre a forma textual de um IdChat.
+pub fn mascarar(id: IdChat) -> String {
+  mascarar_id(id_chat.para_texto(id))
 }
 
 fn mascarar_jid(id: String) -> String {
