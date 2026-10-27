@@ -14,6 +14,7 @@ import dominio/mensagem.{
   type Mensagem, Audio, Documento, Imagem, TurnoAssistente, TurnoUsuario, Video,
 }
 import dominio/video_contexto.{VideoContexto}
+import gleam/bool
 import gleam/erlang/process.{type Subject}
 import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
@@ -43,11 +44,9 @@ pub type FilasMidia {
   )
 }
 
-pub type MensagemFila {
-  Enfileirar(
-    chat_id: String,
-    msg: Mensagem,
-    tipo: TipoMidia,
+/// Tudo de que um job de mídia precisa além da própria mensagem.
+pub type Contexto {
+  Contexto(
     cfg: Config,
     ia: IAPorta,
     mensageiro: MensageiroPorta,
@@ -55,8 +54,15 @@ pub type MensagemFila {
     historico: HistoricoPorta,
     video_contexto: VideoContextoPorta,
   )
+}
+
+pub type MensagemFila {
+  Enfileirar(chat_id: String, msg: Mensagem, tipo: TipoMidia, ctx: Contexto)
   Parar
 }
+
+/// Quantas perguntas de acompanhamento um vídeo aceita depois da descrição.
+const perguntas_followup_video = 2
 
 pub fn iniciar_uma_actor(
   name: Option(process.Name(MensagemFila)),
@@ -66,40 +72,11 @@ pub fn iniciar_uma_actor(
     |> actor.on_message(fn(state, msg) {
       case msg {
         Parar -> actor.stop()
-        Enfileirar(
-          chat_id,
-          mensagem,
-          tipo,
-          cfg,
-          ia,
-          mensageiro,
-          transacoes,
-          historico,
-          video_contexto,
-        ) -> {
-          case
-            processar(
-              chat_id,
-              mensagem,
-              tipo,
-              cfg,
-              ia,
-              mensageiro,
-              transacoes,
-              historico,
-              video_contexto,
-            )
-          {
-            Ok(_) -> Nil
-            Error(e) ->
-              logging.log(
-                logging.Warning,
-                "Erro ao processar mídia em "
-                  <> privacidade.mascarar_id(chat_id)
-                  <> ": "
-                  <> erro.descricao(e),
-              )
-          }
+        Enfileirar(chat_id, mensagem, tipo, ctx) -> {
+          processar(chat_id, mensagem, tipo, ctx)
+          |> sistema.registrar_falha(
+            "Erro ao processar mídia em " <> privacidade.mascarar_id(chat_id),
+          )
           actor.continue(state)
         }
       }
@@ -144,12 +121,7 @@ pub fn enfileirar(
   chat_id: String,
   msg: Mensagem,
   tipo: TipoMidia,
-  cfg: Config,
-  ia: IAPorta,
-  mensageiro: MensageiroPorta,
-  transacoes: TransacaoPorta,
-  historico: HistoricoPorta,
-  video_contexto: VideoContextoPorta,
+  ctx: Contexto,
 ) -> Result(Nil, Erro) {
   let fila = case tipo {
     MidiaImagem -> filas.imagem
@@ -158,71 +130,137 @@ pub fn enfileirar(
     MidiaDocumento -> filas.documento
     MidiaSticker -> filas.sticker
   }
-  process.send(
-    fila,
-    Enfileirar(
-      chat_id,
-      msg,
-      tipo,
-      cfg,
-      ia,
-      mensageiro,
-      transacoes,
-      historico,
-      video_contexto,
-    ),
-  )
+  process.send(fila, Enfileirar(chat_id, msg, tipo, ctx))
   Ok(Nil)
 }
 
+/// Escolhe como a IA descreve cada mídia; o resto do roteiro é comum a todas.
+/// Um tipo que não bate com o corpo da mensagem é ignorado.
 fn processar(
   chat_id: String,
   msg: Mensagem,
   tipo: TipoMidia,
-  cfg: Config,
-  ia: IAPorta,
-  mensageiro: MensageiroPorta,
-  transacoes: TransacaoPorta,
-  historico: HistoricoPorta,
-  video_contexto: VideoContextoPorta,
+  ctx: Contexto,
 ) -> Result(Nil, Erro) {
-  case tipo {
-    MidiaImagem ->
-      processar_imagem(chat_id, msg, cfg, ia, mensageiro, transacoes, historico)
-    MidiaAudio ->
-      processar_audio(chat_id, msg, cfg, ia, mensageiro, transacoes, historico)
-    MidiaVideo ->
-      processar_video(
-        chat_id,
-        msg,
-        cfg,
-        ia,
-        mensageiro,
-        transacoes,
-        historico,
-        video_contexto,
-      )
-    MidiaDocumento ->
-      processar_documento(
-        chat_id,
-        msg,
-        cfg,
-        ia,
-        mensageiro,
-        transacoes,
-        historico,
-      )
-    MidiaSticker ->
-      processar_sticker(
-        chat_id,
-        msg,
-        cfg,
-        ia,
-        mensageiro,
-        transacoes,
-        historico,
-      )
+  let Contexto(cfg:, ia:, ..) = ctx
+  case tipo, msg.corpo {
+    MidiaImagem, Imagem(mime:, dados:) ->
+      descrever(chat_id, msg, tipo, ctx, fn() {
+        let prompt = builder.montar_para_imagem(cfg, msg.legenda)
+        ia.processar_imagem(dados, mime, prompt, cfg.modelo)
+      })
+    MidiaAudio, Audio(mime:, dados:) ->
+      descrever(chat_id, msg, tipo, ctx, fn() {
+        let prompt = builder.montar_para_audio(cfg)
+        ia.processar_audio(dados, mime, prompt, cfg.modelo)
+        |> result.map(limpar_timestamps)
+      })
+    MidiaDocumento, Documento(mime:, dados:, ..) ->
+      descrever(chat_id, msg, tipo, ctx, fn() {
+        let prompt = builder.montar_para_documento(cfg, msg.legenda)
+        ia.processar_documento(dados, mime, prompt, cfg.modelo)
+      })
+    // Stickers são tratados como imagens para a IA
+    MidiaSticker, mensagem.Sticker(mime:, dados:) ->
+      descrever(chat_id, msg, tipo, ctx, fn() {
+        let prompt = builder.montar_para_sticker(cfg, msg.legenda)
+        ia.processar_imagem(dados, mime, prompt, cfg.modelo)
+      })
+    MidiaVideo, Video(caminho_temp:, mime:) ->
+      descrever(chat_id, msg, tipo, ctx, fn() {
+        descrever_video(chat_id, caminho_temp, mime, msg, ctx)
+      })
+    _, _ -> Ok(Nil)
   }
+}
+
+/// Roteiro comum: avisa com ⌛, pede a descrição à IA e, se der certo,
+/// marca 🆗 e entrega a resposta citando a mensagem original.
+fn descrever(
+  chat_id: String,
+  msg: Mensagem,
+  tipo: TipoMidia,
+  ctx: Contexto,
+  gerar: fn() -> Result(String, Erro),
+) -> Result(Nil, Erro) {
+  let prefixo = "[" <> rotulo_log(tipo) <> "]" <> tag_trace(msg)
+  logging.log(
+    logging.Info,
+    prefixo
+      <> " Iniciando processamento para "
+      <> privacidade.mascarar_id(chat_id),
+  )
+  reagir(msg, "⌛", ctx.mensageiro)
+  use resposta <- result.try(gerar())
+  logging.log(
+    logging.Info,
+    prefixo <> " Concluído para " <> privacidade.mascarar_id(chat_id),
+  )
+  reagir(msg, "🆗", ctx.mensageiro)
+  entregar(chat_id, tipo, resposta, msg, ctx)
+}
+
+/// Sobe o vídeo para a IA, pede a descrição e guarda o arquivo para as
+/// perguntas de acompanhamento. O arquivo local é apagado logo após o upload.
+fn descrever_video(
+  chat_id: String,
+  caminho: String,
+  mime: String,
+  msg: Mensagem,
+  ctx: Contexto,
+) -> Result(String, Erro) {
+  let prompt = prompt_video(ctx.cfg, msg.legenda, caminho)
+  let upload = ctx.ia.fazer_upload_video(caminho, mime)
+  let _ = simplifile.delete_file(caminho)
+  use uri <- result.try(upload)
+  let processamento = {
+    use _ <- result.try(ctx.ia.aguardar_video_ativo(uri))
+    ctx.ia.processar_video(uri, prompt, ctx.cfg.modelo)
+  }
+  case processamento {
+    Error(e) -> {
+      ctx.ia.deletar_arquivo(uri)
+      |> sistema.registrar_falha("Falha ao apagar vídeo no provedor de IA")
+      Error(e)
+    }
+    Ok(resposta) -> {
+      lembrar_video(chat_id, uri, ctx)
+      Ok(resposta)
+    }
+  }
+}
+
+fn prompt_video(cfg: Config, legenda: Option(String), caminho: String) -> String {
+  let eh_sticker_animado =
+    legenda
+    |> option.unwrap("")
+    |> string.contains("figurinha/sticker")
+  use <- bool.lazy_guard(eh_sticker_animado, fn() {
+    builder.montar_para_sticker_animado(cfg, legenda)
+  })
+  let tem_audio = video_tem_audio(caminho)
+  case cfg.legenda_ativo && tem_audio {
+    True -> builder.montar_para_legenda(cfg)
+    False -> builder.montar_para_video_com_audio(cfg, legenda, tem_audio)
+  }
+}
+
+/// Troca o vídeo de referência do chat: apaga o anterior no provedor, para
+/// não acumular arquivos, e guarda o novo com a cota de perguntas.
+fn lembrar_video(chat_id: String, uri: String, ctx: Contexto) -> Nil {
+  case ctx.video_contexto.remover(chat_id) {
+    Ok(Some(uri_antigo)) ->
+      ctx.ia.deletar_arquivo(uri_antigo)
+      |> sistema.registrar_falha("Falha ao apagar vídeo anterior no provedor")
+    _ -> Nil
+  }
+  ctx.video_contexto.salvar(VideoContexto(
+    chat_id:,
+    uri:,
+    perguntas_restantes: perguntas_followup_video,
+    criado_em: sistema.agora_s(),
+  ))
+  |> sistema.registrar_falha("Falha ao guardar contexto de vídeo")
 }
 
 fn tag_trace(msg: Mensagem) -> String {
@@ -232,296 +270,40 @@ fn tag_trace(msg: Mensagem) -> String {
   }
 }
 
-fn processar_imagem(
-  chat_id: String,
-  msg: Mensagem,
-  cfg: Config,
-  ia: IAPorta,
-  mensageiro: MensageiroPorta,
-  transacoes: TransacaoPorta,
-  historico: HistoricoPorta,
-) -> Result(Nil, Erro) {
-  case msg.corpo {
-    Imagem(mime: mime, dados: dados) -> {
-      logging.log(
-        logging.Info,
-        "[Imagem]"
-          <> tag_trace(msg)
-          <> " Iniciando processamento para "
-          <> privacidade.mascarar_id(chat_id),
-      )
-      reagir(msg, "⌛", mensageiro)
-      let prompt = builder.montar_para_imagem(cfg, msg.legenda)
-      use resposta <- result.try(ia.processar_imagem(
-        dados,
-        mime,
-        prompt,
-        cfg.modelo,
-      ))
-      logging.log(
-        logging.Info,
-        "[Imagem]"
-          <> tag_trace(msg)
-          <> " Concluído para "
-          <> privacidade.mascarar_id(chat_id),
-      )
-      reagir(msg, "🆗", mensageiro)
-      entregar(
-        chat_id,
-        "imagem",
-        resposta,
-        msg,
-        mensageiro,
-        transacoes,
-        historico,
-      )
-    }
-    _ -> Ok(Nil)
+fn rotulo_log(tipo: TipoMidia) -> String {
+  case tipo {
+    MidiaImagem -> "Imagem"
+    MidiaAudio -> "Áudio"
+    MidiaVideo -> "Vídeo"
+    MidiaDocumento -> "Doc"
+    MidiaSticker -> "Sticker"
   }
 }
 
-fn processar_audio(
-  chat_id: String,
-  msg: Mensagem,
-  cfg: Config,
-  ia: IAPorta,
-  mensageiro: MensageiroPorta,
-  transacoes: TransacaoPorta,
-  historico: HistoricoPorta,
-) -> Result(Nil, Erro) {
-  case msg.corpo {
-    Audio(mime: mime, dados: dados) -> {
-      logging.log(
-        logging.Info,
-        "[Áudio]"
-          <> tag_trace(msg)
-          <> " Iniciando processamento para "
-          <> privacidade.mascarar_id(chat_id),
-      )
-      reagir(msg, "⌛", mensageiro)
-      let prompt = builder.montar_para_audio(cfg)
-      use resposta <- result.try(ia.processar_audio(
-        dados,
-        mime,
-        prompt,
-        cfg.modelo,
-      ))
-      let resposta = limpar_timestamps(resposta)
-      logging.log(
-        logging.Info,
-        "[Áudio]"
-          <> tag_trace(msg)
-          <> " Concluído para "
-          <> privacidade.mascarar_id(chat_id),
-      )
-      reagir(msg, "🆗", mensageiro)
-      entregar(
-        chat_id,
-        "audio",
-        resposta,
-        msg,
-        mensageiro,
-        transacoes,
-        historico,
-      )
-    }
-    _ -> Ok(Nil)
+/// Nome do tipo na auditoria de entregas.
+fn tipo_entrega(tipo: TipoMidia) -> String {
+  case tipo {
+    MidiaImagem -> "imagem"
+    MidiaAudio -> "audio"
+    MidiaVideo -> "video"
+    MidiaDocumento -> "documento"
+    MidiaSticker -> "sticker"
   }
 }
 
-fn processar_video(
-  chat_id: String,
-  msg: Mensagem,
-  cfg: Config,
-  ia: IAPorta,
-  mensageiro: MensageiroPorta,
-  transacoes: TransacaoPorta,
-  historico: HistoricoPorta,
-  video_contexto: VideoContextoPorta,
-) -> Result(Nil, Erro) {
-  case msg.corpo {
-    Video(caminho_temp: caminho, mime: mime) -> {
-      logging.log(
-        logging.Info,
-        "[Vídeo]"
-          <> tag_trace(msg)
-          <> " Iniciando upload e processamento para "
-          <> privacidade.mascarar_id(chat_id),
-      )
-      reagir(msg, "⌛", mensageiro)
-      let eh_sticker_animado =
-        msg.legenda
-        |> option.unwrap("")
-        |> string.contains("figurinha/sticker")
-      let tem_audio = video_tem_audio(caminho)
-      let prompt = case eh_sticker_animado {
-        True -> builder.montar_para_sticker_animado(cfg, msg.legenda)
-        False ->
-          case cfg.legenda_ativo && tem_audio {
-            True -> builder.montar_para_legenda(cfg)
-            False ->
-              builder.montar_para_video_com_audio(cfg, msg.legenda, tem_audio)
-          }
-      }
-      case ia.fazer_upload_video(caminho, mime) {
-        Error(e) -> {
-          let _ = simplifile.delete_file(caminho)
-          Error(e)
-        }
-        Ok(uri) -> {
-          let processamento = {
-            use _ <- result.try(ia.aguardar_video_ativo(uri))
-            use resposta <- result.try(ia.processar_video(
-              uri,
-              prompt,
-              cfg.modelo,
-            ))
-            Ok(resposta)
-          }
-          let _ = simplifile.delete_file(caminho)
-          case processamento {
-            Error(e) -> {
-              let _ = ia.deletar_arquivo(uri)
-              Error(e)
-            }
-            Ok(resposta) -> {
-              logging.log(
-                logging.Info,
-                "[Vídeo]"
-                  <> tag_trace(msg)
-                  <> " Concluído para "
-                  <> privacidade.mascarar_id(chat_id),
-              )
-              // Deleta vídeo anterior deste chat se existir para não acumular
-              case video_contexto.remover(chat_id) {
-                Ok(Some(uri_antigo)) -> {
-                  let _ = ia.deletar_arquivo(uri_antigo)
-                  Nil
-                }
-                _ -> Nil
-              }
-              // Salva o novo vídeo com cota de 2 perguntas de follow-up
-              let agora_s = sistema.agora_ms() / 1000
-              let _ =
-                video_contexto.salvar(VideoContexto(
-                  chat_id: chat_id,
-                  uri: uri,
-                  perguntas_restantes: 2,
-                  criado_em: agora_s,
-                ))
-              reagir(msg, "🆗", mensageiro)
-              entregar(
-                chat_id,
-                "video",
-                resposta,
-                msg,
-                mensageiro,
-                transacoes,
-                historico,
-              )
-            }
-          }
-        }
-      }
-    }
-    _ -> Ok(Nil)
+/// Como a mídia do usuário aparece no histórico da conversa.
+fn rotulo_usuario(tipo: TipoMidia, legenda: Option(String)) -> String {
+  let base = case tipo {
+    MidiaImagem -> "[imagem]"
+    MidiaAudio -> "[áudio]"
+    MidiaVideo -> "[vídeo]"
+    MidiaDocumento -> "[documento]"
+    MidiaSticker -> "[sticker]"
   }
-}
-
-fn processar_documento(
-  chat_id: String,
-  msg: Mensagem,
-  cfg: Config,
-  ia: IAPorta,
-  mensageiro: MensageiroPorta,
-  transacoes: TransacaoPorta,
-  historico: HistoricoPorta,
-) -> Result(Nil, Erro) {
-  case msg.corpo {
-    Documento(mime: mime, dados: dados, nome: _nome) -> {
-      logging.log(
-        logging.Info,
-        "[Doc]"
-          <> tag_trace(msg)
-          <> " Iniciando processamento para "
-          <> privacidade.mascarar_id(chat_id),
-      )
-      reagir(msg, "⌛", mensageiro)
-      let prompt = builder.montar_para_documento(cfg, msg.legenda)
-      use resposta <- result.try(ia.processar_documento(
-        dados,
-        mime,
-        prompt,
-        cfg.modelo,
-      ))
-      logging.log(
-        logging.Info,
-        "[Doc]"
-          <> tag_trace(msg)
-          <> " Concluído para "
-          <> privacidade.mascarar_id(chat_id),
-      )
-      reagir(msg, "🆗", mensageiro)
-      entregar(
-        chat_id,
-        "documento",
-        resposta,
-        msg,
-        mensageiro,
-        transacoes,
-        historico,
-      )
-    }
-    _ -> Ok(Nil)
-  }
-}
-
-fn processar_sticker(
-  chat_id: String,
-  msg: Mensagem,
-  cfg: Config,
-  ia: IAPorta,
-  mensageiro: MensageiroPorta,
-  transacoes: TransacaoPorta,
-  historico: HistoricoPorta,
-) -> Result(Nil, Erro) {
-  case msg.corpo {
-    mensagem.Sticker(mime: mime, dados: dados) -> {
-      logging.log(
-        logging.Info,
-        "[Sticker]"
-          <> tag_trace(msg)
-          <> " Iniciando processamento para "
-          <> privacidade.mascarar_id(chat_id),
-      )
-      reagir(msg, "⌛", mensageiro)
-      let prompt = builder.montar_para_sticker(cfg, msg.legenda)
-      // Stickers são tratados como imagens para a IA
-      use resposta <- result.try(ia.processar_imagem(
-        dados,
-        mime,
-        prompt,
-        cfg.modelo,
-      ))
-      logging.log(
-        logging.Info,
-        "[Sticker]"
-          <> tag_trace(msg)
-          <> " Concluído para "
-          <> privacidade.mascarar_id(chat_id),
-      )
-      reagir(msg, "🆗", mensageiro)
-      entregar(
-        chat_id,
-        "sticker",
-        resposta,
-        msg,
-        mensageiro,
-        transacoes,
-        historico,
-      )
-    }
-    _ -> Ok(Nil)
+  case tipo, legenda {
+    MidiaImagem, Some(l) | MidiaVideo, Some(l) | MidiaDocumento, Some(l) ->
+      base <> " " <> l
+    _, _ -> base
   }
 }
 
@@ -539,56 +321,39 @@ fn reagir(msg: Mensagem, emoji: String, mensageiro: MensageiroPorta) -> Nil {
 // Entrega citando a mensagem original quando possível e grava no histórico.
 fn entregar(
   chat_id: String,
-  tipo: String,
+  tipo: TipoMidia,
   resposta: String,
   msg: Mensagem,
-  mensageiro: MensageiroPorta,
-  transacoes: TransacaoPorta,
-  historico: HistoricoPorta,
+  ctx: Contexto,
 ) -> Result(Nil, Erro) {
-  let rotulo_usuario = case tipo {
-    "imagem" ->
-      case msg.legenda {
-        option.Some(l) -> "[imagem] " <> l
-        option.None -> "[imagem]"
-      }
-    "audio" -> "[áudio]"
-    "video" ->
-      case msg.legenda {
-        option.Some(l) -> "[vídeo] " <> l
-        option.None -> "[vídeo]"
-      }
-    "documento" ->
-      case msg.legenda {
-        option.Some(l) -> "[documento] " <> l
-        option.None -> "[documento]"
-      }
-    "sticker" -> "[sticker]"
-    _ -> "[" <> tipo <> "]"
-  }
-  let _ = historico.adicionar(chat_id, TurnoUsuario(rotulo_usuario))
   let resposta_sanitizada = acessibilidade.sanitizar_saida_voz(resposta)
-  let _ = historico.adicionar(chat_id, TurnoAssistente(resposta_sanitizada))
+  ctx.historico.adicionar(
+    chat_id,
+    TurnoUsuario(rotulo_usuario(tipo, msg.legenda)),
+  )
+  |> sistema.registrar_falha("Falha ao gravar mídia no histórico")
+  ctx.historico.adicionar(chat_id, TurnoAssistente(resposta_sanitizada))
+  |> sistema.registrar_falha("Falha ao gravar resposta no histórico")
   case msg.message_id {
     option.Some(mid) ->
       entrega_auditada.enviar_citando(
         chat_id,
         "amelie",
-        tipo,
+        tipo_entrega(tipo),
         resposta_sanitizada,
         mid,
         msg.remetente,
-        mensageiro,
-        transacoes,
+        ctx.mensageiro,
+        ctx.transacoes,
       )
     option.None ->
       entrega_auditada.enviar(
         chat_id,
         "amelie",
-        tipo,
+        tipo_entrega(tipo),
         resposta_sanitizada,
-        mensageiro,
-        transacoes,
+        ctx.mensageiro,
+        ctx.transacoes,
       )
   }
 }
