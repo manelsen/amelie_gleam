@@ -18,8 +18,6 @@ import gleam/result
 import gleam/string
 import logging
 import portas/ia_porta.{type IAPorta, IAPorta}
-import shell/arquivos_temporarios
-import simplifile
 
 const base_url = "https://generativelanguage.googleapis.com/v1beta/models/"
 
@@ -142,25 +140,15 @@ fn processar_audio(
   use _ <- result.try(validar_midia_nao_vazia(dados, "áudio"))
 
   let mime = normalizar_mime(mime)
-  use caminho <- result.try(
-    arquivos_temporarios.gravar(dados)
-    |> result.map_error(fn(e) {
-      erro.ErroUpload("falha ao criar arquivo temporário de áudio: " <> e)
-    }),
+  use uri <- result.try(
+    enviar_dados_ffi(api_key, dados, mime) |> interpretar_upload,
   )
-
-  let processamento = {
-    use uri <- result.try(fazer_upload_arquivo(api_key, caminho, mime))
-    let resultado = {
-      use _ <- result.try(aguardar_arquivo_ativo(api_key, uri, "áudio"))
-      processar_arquivo_com_system(api_key, uri, mime, prompt, modelo)
-    }
-    let _ = deletar_arquivo(api_key, uri)
-    resultado
+  let resultado = {
+    use _ <- result.try(aguardar_arquivo_ativo(api_key, uri, "áudio"))
+    processar_arquivo_com_system(api_key, uri, mime, prompt, modelo)
   }
-
-  let _ = simplifile.delete_file(at: caminho)
-  processamento
+  let _ = deletar_arquivo(api_key, uri)
+  resultado
 }
 
 // ---------------------------------------------------------------------------
@@ -258,12 +246,13 @@ fn fazer_upload_arquivo(
   caminho: String,
   mime: String,
 ) -> Result(String, Erro) {
-  enviar_arquivo_ffi(api_key, caminho, mime)
-  |> result.map_error(fn(msg) { erro.ErroUpload(msg) })
-  |> result.try(fn(body) {
-    extrair_uri_arquivo(body)
-    |> result.map_error(fn(_) { erro.ErroUpload("uri ausente na resposta") })
-  })
+  enviar_arquivo_ffi(api_key, caminho, mime) |> interpretar_upload
+}
+
+fn interpretar_upload(resultado: Result(String, String)) -> Result(String, Erro) {
+  use corpo <- result.try(result.map_error(resultado, erro.ErroUpload))
+  extrair_uri_arquivo(corpo)
+  |> result.replace_error(erro.ErroUpload("uri ausente na resposta"))
 }
 
 // Polling com até 20 tentativas (3s cada = 60s máximo).
@@ -441,6 +430,13 @@ fn extrair_uri_arquivo(json_str: String) -> Result(String, Nil) {
 // ---------------------------------------------------------------------------
 // FFI
 // ---------------------------------------------------------------------------
+
+@external(erlang, "amelie_gleam_ffi", "upload_bytes")
+fn enviar_dados_ffi(
+  api_key: String,
+  dados: BitArray,
+  mime: String,
+) -> Result(String, String)
 
 @external(erlang, "amelie_gleam_ffi", "upload_file")
 fn enviar_arquivo_ffi(

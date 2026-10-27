@@ -2,7 +2,7 @@
 -include_lib("kernel/include/file.hrl").
 -export([read_file/1, get_env/1, now_ms/0,
          sha256_hex/1, memoria_total_mb/0, memoria_processos_mb/0,
-         contagem_processos/0, upload_file/3,
+         contagem_processos/0, upload_file/3, upload_bytes/3,
          strip_timestamps/1, video_tem_audio/1,
          constant_time_equal/2, validate_bridge_media/1, read_bridge_media/1,
          cache_key/3, write_private_media/1, limpar_midias_antigas/1,
@@ -184,49 +184,52 @@ ensure_applications_started() ->
 %% Faz upload multipart de arquivo para a Gemini File API.
 %% Retorna {ok, ResponseBody} | {error, Reason}.
 upload_file(ApiKey, FilePath, RawMimeType) ->
+    case file:read_file(FilePath) of
+        {error, Reason} -> {error, atom_to_binary(Reason, utf8)};
+        {ok, FileData} -> upload_bytes(ApiKey, FileData, RawMimeType)
+    end.
+
+%% Envia dados já em memória à File API do Gemini, sem passar pelo disco.
+upload_bytes(ApiKey, FileData, RawMimeType) ->
     %% O MIME vem do remetente (WhatsApp ou Telegram) e é concatenado no JSON
     %% e no cabeçalho do multipart: só passa se for tipo/subtipo simples.
     MimeType = safe_mime(RawMimeType),
-    case file:read_file(FilePath) of
-        {error, Reason} -> {error, atom_to_binary(Reason, utf8)};
-        {ok, FileData} ->
-            Boundary = "gc0p4Jq0M2Yt08jU534c0p",
-            BoundaryBin = list_to_binary(Boundary),
-            MetaJson = iolist_to_binary([
-                <<"{\"file\":{\"mimeType\":\"">>, MimeType, <<"\"}}">>
+    Boundary = "gc0p4Jq0M2Yt08jU534c0p",
+    BoundaryBin = list_to_binary(Boundary),
+    MetaJson = iolist_to_binary([
+        <<"{\"file\":{\"mimeType\":\"">>, MimeType, <<"\"}}">>
+    ]),
+    Body = iolist_to_binary([
+        <<"--">>, BoundaryBin, <<"\r\n">>,
+        <<"Content-Type: application/json; charset=utf-8\r\n\r\n">>,
+        MetaJson, <<"\r\n">>,
+        <<"--">>, BoundaryBin, <<"\r\n">>,
+        <<"Content-Type: ">>, MimeType, <<"\r\n\r\n">>,
+        FileData, <<"\r\n">>,
+        <<"--">>, BoundaryBin, <<"--\r\n">>
+    ]),
+    %% A chave vai no cabeçalho, nunca na URL: URL aparece em logs e erros.
+    URL = "https://generativelanguage.googleapis.com/upload/v1beta/files",
+    Headers = [{"x-goog-upload-protocol", "multipart"},
+               {"x-goog-api-key", binary_to_list(ApiKey)}],
+    ContentType = "multipart/related; boundary=" ++ Boundary,
+    Opts = [{timeout, 120000}, {connect_timeout, 10000},
+            {autoredirect, false},
+            {ssl, [{verify, verify_peer}, {cacerts, public_key:cacerts_get()},
+                   {server_name_indication, "generativelanguage.googleapis.com"},
+                   {customize_hostname_check, [{match_fun, public_key:pkix_verify_hostname_match_fun(https)}]}]}],
+    case httpc:request(post, {URL, Headers, ContentType, Body}, Opts, []) of
+        {ok, {{_, 200, _}, _, RespBody}} ->
+            {ok, list_to_binary(RespBody)};
+        {ok, {{_, Status, _}, _, RespBody}} ->
+            Msg = iolist_to_binary([
+                <<"upload status ">>, integer_to_list(Status),
+                <<": ">>, list_to_binary(RespBody)
             ]),
-            Body = iolist_to_binary([
-                <<"--">>, BoundaryBin, <<"\r\n">>,
-                <<"Content-Type: application/json; charset=utf-8\r\n\r\n">>,
-                MetaJson, <<"\r\n">>,
-                <<"--">>, BoundaryBin, <<"\r\n">>,
-                <<"Content-Type: ">>, MimeType, <<"\r\n\r\n">>,
-                FileData, <<"\r\n">>,
-                <<"--">>, BoundaryBin, <<"--\r\n">>
-            ]),
-            %% A chave vai no cabeçalho, nunca na URL: URL aparece em logs e erros.
-            URL = "https://generativelanguage.googleapis.com/upload/v1beta/files",
-            Headers = [{"x-goog-upload-protocol", "multipart"},
-                       {"x-goog-api-key", binary_to_list(ApiKey)}],
-            ContentType = "multipart/related; boundary=" ++ Boundary,
-            Opts = [{timeout, 120000}, {connect_timeout, 10000},
-                    {autoredirect, false},
-                    {ssl, [{verify, verify_peer}, {cacerts, public_key:cacerts_get()},
-                           {server_name_indication, "generativelanguage.googleapis.com"},
-                           {customize_hostname_check, [{match_fun, public_key:pkix_verify_hostname_match_fun(https)}]}]}],
-            case httpc:request(post, {URL, Headers, ContentType, Body}, Opts, []) of
-                {ok, {{_, 200, _}, _, RespBody}} ->
-                    {ok, list_to_binary(RespBody)};
-                {ok, {{_, Status, _}, _, RespBody}} ->
-                    Msg = iolist_to_binary([
-                        <<"upload status ">>, integer_to_list(Status),
-                        <<": ">>, list_to_binary(RespBody)
-                    ]),
-                    {error, Msg};
-                {error, Reason} ->
-                    Msg = list_to_binary(io_lib:format("~p", [Reason])),
-                    {error, Msg}
-            end
+            {error, Msg};
+        {error, Reason} ->
+            Msg = list_to_binary(io_lib:format("~p", [Reason])),
+            {error, Msg}
     end.
 
 %% Normaliza (sem parâmetros, minúsculas) e aceita só MIME no formato

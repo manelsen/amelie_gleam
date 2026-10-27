@@ -3,14 +3,8 @@ import gleam/http/request.{type Request}
 import gleam/string
 import shell/sistema
 
-pub const cabecalho_bridge = "x-amelie-bridge-token"
-
 pub fn token_ponte() -> String {
   sistema.ler_env_ou("BRIDGE_TOKEN", "")
-}
-
-pub fn autenticar_ponte(req: Request(a)) -> Request(a) {
-  request.set_header(req, cabecalho_bridge, token_ponte())
 }
 
 /// O webhook fica fechado se o segredo não foi configurado.
