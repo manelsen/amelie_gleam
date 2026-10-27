@@ -154,7 +154,8 @@ pub fn processar_grupo_sem_mencao_ignora_test() {
   let assert Ok([acao.NaoResponder]) = result
 }
 
-pub fn processar_grupo_com_mencao_processa_test() {
+pub fn processar_grupo_com_mencao_ignora_test() {
+  // A Amélie não atua em grupos, nem quando mencionada.
   let msg =
     mensagem.Mensagem(
       ..fixtures.mensagem_texto("@amelie como está?"),
@@ -163,11 +164,10 @@ pub fn processar_grupo_com_mencao_processa_test() {
     )
   let cfg = fixtures.config_padrao()
   let result = processador.processar(msg, cfg, fixtures.historico_com_midia())
-  result |> should.be_ok
-  let assert Ok([GerarEEnviar(_, _)]) = result
+  let assert Ok([acao.NaoResponder]) = result
 }
 
-pub fn processar_grupo_com_mencao_sem_midia_orienta_test() {
+pub fn processar_grupo_com_mencao_sem_midia_ignora_test() {
   let msg =
     mensagem.Mensagem(
       ..fixtures.mensagem_texto("@amelie como está?"),
@@ -176,9 +176,7 @@ pub fn processar_grupo_com_mencao_sem_midia_orienta_test() {
     )
   let cfg = fixtures.config_padrao()
   let result = processador.processar(msg, cfg, [])
-  result |> should.be_ok
-  let assert Ok([EnviarResposta(_, texto)]) = result
-  should.be_true(string.contains(texto, "especializada na análise"))
+  let assert Ok([acao.NaoResponder]) = result
 }
 
 // ---------------------------------------------------------------------------
@@ -274,8 +272,9 @@ pub fn processar_url_comum_nao_e_video_test() {
   let assert Ok([BuscarUrlEResponder(_, _, _)]) = result
 }
 
-pub fn processar_grupo_comando_sem_mencao_passa_test() {
-  // Comandos (começando com ".") devem passar mesmo em grupo sem menção
+pub fn processar_grupo_comando_ignora_test() {
+  // Em grupo, nem comando responde: .reset ou .modelo de um membro qualquer
+  // mudariam a configuração do grupo inteiro.
   let msg =
     mensagem.Mensagem(
       ..fixtures.mensagem_texto(".ajuda"),
@@ -284,8 +283,7 @@ pub fn processar_grupo_comando_sem_mencao_passa_test() {
     )
   let cfg = fixtures.config_padrao()
   let result = processador.processar(msg, cfg, [])
-  result |> should.be_ok
-  let assert Ok([acao.EnviarResposta(_, _)]) = result
+  let assert Ok([acao.NaoResponder]) = result
 }
 
 pub fn processar_comando_status_test() {

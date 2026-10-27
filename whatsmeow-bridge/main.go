@@ -229,6 +229,7 @@ type Bridge struct {
 	pendingMediaRetries map[string]mediaRetryPending
 	mediaRetryAttempts  map[string]int
 	queueDB             *sql.DB
+	groupLeaves         *leaveAttempts
 }
 
 type mediaRetryPending struct {
@@ -260,6 +261,7 @@ func NewBridge(cfg Config) (*Bridge, error) {
 		client:              client,
 		pendingMediaRetries: make(map[string]mediaRetryPending),
 		mediaRetryAttempts:  make(map[string]int),
+		groupLeaves:         newLeaveAttempts(),
 	}
 
 	if err := b.initQueueDB(); err != nil {
@@ -384,6 +386,9 @@ func (b *Bridge) handleEvent(rawEvt interface{}) {
 	switch evt := rawEvt.(type) {
 	case *events.Message:
 		b.processMessage(evt)
+	case *events.JoinedGroup:
+		// Sai assim que é adicionada, sem esperar a primeira mensagem.
+		b.leaveGroup(evt.JID)
 	case *events.MediaRetry:
 		b.handleMediaRetry(evt)
 	case *events.Connected:
@@ -544,8 +549,38 @@ func (b *Bridge) availabilityError() *APIError {
 	return nil
 }
 
+// leaveGroup sai do grupo em segundo plano, no máximo uma tentativa por
+// grupo a cada groupLeaveRetry. Não loga o JID: grupos antigos carregam o
+// telefone de quem os criou no identificador.
+func (b *Bridge) leaveGroup(group types.JID) {
+	if b.client == nil || b.groupLeaves == nil {
+		return
+	}
+	if !b.groupLeaves.shouldAttempt(group.String(), time.Now()) {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := b.client.LeaveGroup(ctx, group); err != nil {
+			log.Printf("[Grupos] Falha ao sair de um grupo (nova tentativa em até %s): %v", groupLeaveRetry, err)
+			return
+		}
+		log.Printf("[Grupos] A Amélie foi adicionada a um grupo e saiu, como manda a política")
+	}()
+}
+
 func (b *Bridge) processMessage(evt *events.Message) {
 	if evt.Info.IsFromMe {
+		return
+	}
+
+	// Só conversas privadas. Decidido antes de qualquer download de mídia.
+	switch chatPolicyFor(evt.Info.Chat.Server) {
+	case chatLeave:
+		b.leaveGroup(evt.Info.Chat)
+		return
+	case chatDrop:
 		return
 	}
 
@@ -568,18 +603,12 @@ func (b *Bridge) processMessage(evt *events.Message) {
 		}
 	}
 
-	var groupName string
-	if inGroup {
-		groupName = evt.Info.PushName
-	}
-
 	payload := IncomingWebhook{
 		ChatID:    chatID,
 		From:      from,
 		MessageID: evt.Info.ID,
 		Timestamp: timestamp,
 		InGroup:   inGroup,
-		GroupName: groupName,
 	}
 
 	text := extractText(evt.Message)

@@ -438,18 +438,33 @@ pub fn resumo_historico_curto_avisa_usuario_test() {
 }
 
 pub fn admin_exige_remetente_chat_privado_e_configuracao_test() {
-  verificar_reset_bloqueado("424242", "tg:424242", "tg:111222", False)
-  verificar_reset_bloqueado("424242", "tg:111222", "tg:424242", False)
-  verificar_reset_bloqueado("424242", "tg:424242", "tg:424242", True)
-  verificar_reset_bloqueado("", "tg:924255495", "tg:924255495", False)
+  verificar_reset_bloqueado("424242", "tg:424242", "tg:111222")
+  verificar_reset_bloqueado("424242", "tg:111222", "tg:424242")
+  verificar_reset_bloqueado("", "tg:924255495", "tg:924255495")
 }
 
-fn verificar_reset_bloqueado(
-  admin: String,
-  chat: String,
-  remetente: String,
-  grupo: Bool,
-) {
+pub fn admin_em_grupo_nao_recebe_resposta_test() {
+  use <- env.com_variavel("TELEGRAM_ADMIN_CHAT_ID", "424242")
+  use <- env.com_variavel("WHATSMEOW_URL", "http://127.0.0.1:0")
+  let envios = process.new_subject()
+  let cfg = config.Config(..fixtures.config_padrao(), chat_id: "tg:424242")
+  let portas =
+    Portas(
+      ..portas_fake.portas_ok(cfg, "unused"),
+      mensageiro: portas_fake.mensageiro_capturar(envios),
+    )
+  let msg =
+    mensagem.Mensagem(
+      ..fixtures.mensagem_comando("reset_whatsapp", ""),
+      chat_id: "tg:424242",
+      remetente: "tg:424242",
+      em_grupo: True,
+    )
+  handler_mensagem.handle(msg, portas) |> should.be_ok
+  process.receive(envios, 200) |> should.equal(Error(Nil))
+}
+
+fn verificar_reset_bloqueado(admin: String, chat: String, remetente: String) {
   use <- env.com_variavel("TELEGRAM_ADMIN_CHAT_ID", admin)
   use <- env.com_variavel("WHATSMEOW_URL", "http://127.0.0.1:0")
   let envios = process.new_subject()
@@ -464,7 +479,6 @@ fn verificar_reset_bloqueado(
       ..fixtures.mensagem_comando("reset_whatsapp", ""),
       chat_id: chat,
       remetente: remetente,
-      em_grupo: grupo,
     )
   handler_mensagem.handle(msg, portas) |> should.be_ok
   let assert Ok(#(_, texto)) = process.receive(envios, 1000)
