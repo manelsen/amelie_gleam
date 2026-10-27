@@ -98,7 +98,7 @@ amelie_gleam.gleam — Entry point: wires adapters → ports → Mist HTTP serve
    - `EnviarResposta`: directly sends text (commands, help, errors) without invoking AI.
    - `EnfileirarMidia`: dispatches to `shell/fila_midia` — dedicated OTP actors for `imagem`, `audio`, `video`, `documento`, and `sticker`.
    - `BuscarUrlEResponder`: fetches public web content through the bridge’s authenticated `/fetch` endpoint, with DNS pinning, redirect checks, time and size limits.
-   - `BaixarVideoUrlEDescrever`: returns an explicit disabled-feature message; downloading external video links is disabled for SSRF protection.
+   - Video links (YouTube, TikTok, Instagram…) are answered by the core with `EnviarResposta(processador.aviso_link_video_desativado)`: downloading external video is disabled for SSRF protection.
 
 ### Conversas privadas apenas
 
@@ -108,7 +108,7 @@ A Amélie só atende conversas privadas, nos dois canais. No WhatsApp, a ponte d
 
 - `dominio/mensagem.Mensagem` — chat_id, remetente, corpo (`Conteudo`), timestamp, em_grupo, menciona_bot, legenda.
 - `dominio/mensagem.Conteudo` — `Texto | Imagem | Audio | Video | Documento | Sticker | MidiaIndisponivel | Comando`.
-- `dominio/acao.Acao` — `GerarEEnviar | BuscarUrlEResponder | BaixarVideoUrlEDescrever | EnviarResposta | EnviarReacao | EnfileirarMidia | SalvarConfig | LimparHistorico | AlterarModelo | SnapshotHistorico | NaoResponder`.
+- `dominio/acao.Acao` — `GerarEEnviar | BuscarUrlEResponder | EnviarResposta | EnviarReacao | EnfileirarMidia | SalvarConfig | LimparHistorico | AlterarModelo | SnapshotHistorico | NaoResponder`.
 - `dominio/config.Config` — per-chat configuration (provedor, modelo default `gemini-3.5-flash-lite`, historico_max, media toggles, modo_descricao).
 - `shell/handler_mensagem.Portas` — record bundling all active port implementations.
 

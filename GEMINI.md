@@ -65,8 +65,7 @@ src/
 │   ├── ia_resiliente.gleam
 │   ├── manutencao.gleam
 │   ├── metricas.gleam
-│   ├── url_scraper.gleam
-│   └── ytdlp.gleam
+│   └── url_scraper.gleam
 ├── amelie_gleam_ffi.erl # Erlang FFI (OS env, file IO, BEAM metrics)
 └── amelie_gleam.gleam   # Entry point: Wires everything and starts Mist HTTP server
 whatsmeow-bridge/     # Go bridge for connecting to WhatsApp via whatsmeow
@@ -117,7 +116,7 @@ test/                 # Test suite (mirrors src/ structure)
   - `EnviarResposta(para, corpo)`: sends canned or command output directly.
   - `EnfileirarMidia(chat_id, tipo)`: routes to concurrent OTP media workers.
   - `BuscarUrlEResponder(para, texto, url)`: fetches web page content before generating AI response.
-  - `BaixarVideoUrlEDescrever(chat_id, url)`: processes YouTube, Instagram or TikTok videos via `yt-dlp`.
+  - Video links (YouTube, Instagram, TikTok) get `EnviarResposta` with `processador.aviso_link_video_desativado`; downloading them is disabled for SSRF protection.
 
 ### Workflow & Reliability
 - **Non-blocking Webhooks:** Both `/webhook` (WhatsApp) and `/webhook/telegram` return `202 Accepted` immediately. Processing happens in an isolated process via `spawn_fn`.

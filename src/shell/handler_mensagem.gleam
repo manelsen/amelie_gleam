@@ -10,11 +10,11 @@ import core/privacidade
 import core/processador
 import core/prompt/builder
 import dominio/acao.{
-  AlterarModelo, AtivarPrompt, BaixarVideoUrlEDescrever, BuscarUrlEResponder,
-  ConsultarMetricas, ConsultarSpammers, ConsultarStatus, DesbloquearChat,
-  EnfileirarMidia, EnviarReacao, EnviarResposta, ExcluirPrompt, GerarEEnviar,
-  LimparHistorico, ListarGrupos, ListarPrompts, ListarUsuarios, MidiaVideo,
-  NaoResponder, ResetarWhatsApp, SalvarConfig, SalvarPrompt, SnapshotHistorico,
+  AlterarModelo, AtivarPrompt, BuscarUrlEResponder, ConsultarMetricas,
+  ConsultarSpammers, ConsultarStatus, DesbloquearChat, EnfileirarMidia,
+  EnviarReacao, EnviarResposta, ExcluirPrompt, GerarEEnviar, LimparHistorico,
+  ListarGrupos, ListarPrompts, ListarUsuarios, MidiaVideo, NaoResponder,
+  ResetarWhatsApp, SalvarConfig, SalvarPrompt, SnapshotHistorico,
   SolicitarPareamento,
 }
 import dominio/config
@@ -45,7 +45,6 @@ import shell/entrega_auditada
 import shell/fila_midia.{type FilasMidia}
 import shell/metricas.{type Metricas}
 import shell/url_scraper
-import shell/ytdlp
 
 @external(erlang, "amelie_gleam_ffi", "now_ms")
 fn now_ms() -> Int
@@ -768,139 +767,56 @@ fn executar_acao_autorizada(
       }
     }
 
-    BaixarVideoUrlEDescrever(chat_id, url) -> {
-      case msg.message_id {
-        option.Some(mid) -> {
-          let _ = portas.mensageiro.reagir(chat_id, mid, msg.remetente, "⌛")
-          Nil
-        }
-        option.None -> Nil
-      }
-      let ia_porta =
-        ia_dispatcher.como_porta(ia_dispatcher.IADispatcherPorta(
-          dispatcher: portas.ia_dispatcher,
-          provedor: cfg.provedor,
-          modelo: cfg.modelo,
-        ))
-      let _ =
-        spawn_fn(fn() {
-          case ytdlp.baixar(url) {
-            Error(e) -> {
-              logging.log(
-                logging.Warning,
-                "[YtDlp] Falha em " <> url <> ": " <> erro.descricao(e),
-              )
-              let _ =
-                portas.mensageiro.enviar(
-                  chat_id,
-                  "O download de links de vídeo está desativado. Envie o arquivo de vídeo diretamente.",
-                )
-              Nil
-            }
-            Ok(caminho) -> {
-              let msg_video =
-                mensagem.Mensagem(
-                  ..msg,
-                  corpo: mensagem.Video(
-                    caminho_temp: caminho,
-                    mime: "video/mp4",
-                  ),
-                )
-              let _ =
-                portas.historico.adicionar(
-                  chat_id,
-                  TurnoUsuario("[vídeo: " <> url <> "]"),
-                )
-              let _ =
-                fila_midia.enfileirar(
-                  portas.fila,
-                  chat_id,
-                  msg_video,
-                  MidiaVideo,
-                  cfg,
-                  ia_porta,
-                  portas.mensageiro,
-                  portas.transacoes,
-                  portas.historico,
-                  portas.video_contexto,
-                )
-              Nil
-            }
-          }
-        })
-      Ok(Nil)
-    }
-
     SolicitarPareamento(chat_id, args) -> {
-      let admin_id =
-        get_env("TELEGRAM_ADMIN_CHAT_ID")
-        |> result.unwrap(or: "")
-      let eh_admin =
-        admin_id != ""
-        && !msg.em_grupo
-        && msg.remetente == "tg:" <> admin_id
-        && msg.chat_id == "tg:" <> admin_id
-      case eh_admin {
-        False -> {
+      let bridge_url =
+        get_env("WHATSMEOW_URL")
+        |> result.unwrap(or: "http://localhost:8080")
+      case whatsmeow_http.checar_status(bridge_url) {
+        Ok(whatsmeow_http.StatusBridge(_, True)) -> {
           let _ =
             portas.mensageiro.enviar(
               chat_id,
-              "⛔ Comando restrito ao administrador.",
+              "✅ O WhatsApp já está conectado e funcionando perfeitamente!",
             )
           Ok(Nil)
         }
-        True -> {
-          let bridge_url =
-            get_env("WHATSMEOW_URL")
-            |> result.unwrap(or: "http://localhost:8080")
-          case whatsmeow_http.checar_status(bridge_url) {
-            Ok(whatsmeow_http.StatusBridge(_, True)) -> {
+        _ -> {
+          let tel = case string.trim(args) {
+            "" ->
+              get_env("MOBILE_NUMBER")
+              |> result.unwrap(or: "")
+            outro -> outro
+          }
+          case tel {
+            "" -> {
               let _ =
                 portas.mensageiro.enviar(
                   chat_id,
-                  "✅ O WhatsApp já está conectado e funcionando perfeitamente!",
+                  "⚠️ WhatsApp desconectado. Por favor, informe seu número com DDD.\nEx: `/parear 5531999990000`",
                 )
               Ok(Nil)
             }
-            _ -> {
-              let tel = case string.trim(args) {
-                "" ->
-                  get_env("MOBILE_NUMBER")
-                  |> result.unwrap(or: "")
-                outro -> outro
-              }
-              case tel {
-                "" -> {
+            numero -> {
+              case whatsmeow_http.pedir_pairing_code(bridge_url, numero) {
+                Ok(code) -> {
+                  let texto =
+                    "📱 *Código de pareamento gerado:*\n`"
+                    <> code
+                    <> "` (para +"
+                    <> numero
+                    <> ")\n\n"
+                    <> "👉 *No WhatsApp do seu celular:*\n"
+                    <> "Aparelhos conectados > Conectar com número de telefone > Digite o código."
+                  let _ = portas.mensageiro.enviar(chat_id, texto)
+                  Ok(Nil)
+                }
+                Error(motivo) -> {
                   let _ =
                     portas.mensageiro.enviar(
                       chat_id,
-                      "⚠️ WhatsApp desconectado. Por favor, informe seu número com DDD.\nEx: `/parear 5531999990000`",
+                      "❌ Falha ao gerar pairing code: " <> motivo,
                     )
                   Ok(Nil)
-                }
-                numero -> {
-                  case whatsmeow_http.pedir_pairing_code(bridge_url, numero) {
-                    Ok(code) -> {
-                      let texto =
-                        "📱 *Código de pareamento gerado:*\n`"
-                        <> code
-                        <> "` (para +"
-                        <> numero
-                        <> ")\n\n"
-                        <> "👉 *No WhatsApp do seu celular:*\n"
-                        <> "Aparelhos conectados > Conectar com número de telefone > Digite o código."
-                      let _ = portas.mensageiro.enviar(chat_id, texto)
-                      Ok(Nil)
-                    }
-                    Error(motivo) -> {
-                      let _ =
-                        portas.mensageiro.enviar(
-                          chat_id,
-                          "❌ Falha ao gerar pairing code: " <> motivo,
-                        )
-                      Ok(Nil)
-                    }
-                  }
                 }
               }
             }
@@ -910,236 +826,156 @@ fn executar_acao_autorizada(
     }
 
     ConsultarStatus(chat_id) -> {
-      let admin_id =
-        get_env("TELEGRAM_ADMIN_CHAT_ID")
-        |> result.unwrap(or: "")
-      let eh_admin =
-        admin_id != ""
-        && !msg.em_grupo
-        && msg.remetente == "tg:" <> admin_id
-        && msg.chat_id == "tg:" <> admin_id
-      case eh_admin {
-        False -> {
-          let _ =
-            portas.mensageiro.enviar(
-              chat_id,
-              "⛔ Comando restrito ao administrador.",
-            )
-          Ok(Nil)
-        }
-        True -> {
-          let bridge_url =
-            get_env("WHATSMEOW_URL")
-            |> result.unwrap(or: "http://localhost:8080")
-          let status_wa = case whatsmeow_http.checar_status(bridge_url) {
-            Ok(whatsmeow_http.StatusBridge(_, True)) -> "🟢 Conectado"
-            Ok(whatsmeow_http.StatusBridge(_, False)) ->
-              "🟡 Desconectado (aguardando login)"
-            Error(_) -> "🔴 Inacessível"
-          }
-          let mem_total = metricas.memoria_total_mb()
-          let mem_proc = metricas.memoria_processos_mb()
-          let proc_count = metricas.contagem_processos()
-          let estado_metricas = metricas.consultar(portas.metricas)
-          let silenciados = anti_spam.contar_silenciados(portas.anti_spam)
-          let total_midias =
-            estado_metricas.imagens
-            + estado_metricas.audios
-            + estado_metricas.videos
-            + estado_metricas.documentos
-            + estado_metricas.stickers
-
-          let corpo =
-            "📊 *Painel Administrativo — Amélie*\n\n"
-            <> "*Canais de Mensageria:*\n"
-            <> "• *WhatsApp:* "
-            <> status_wa
-            <> "\n"
-            <> "• *Telegram:* 🟢 Ativo (Poller operacional)\n\n"
-            <> "*Métricas BEAM:*\n"
-            <> "• Memória total: `"
-            <> int.to_string(mem_total)
-            <> " MB`\n"
-            <> "• Memória processos: `"
-            <> int.to_string(mem_proc)
-            <> " MB`\n"
-            <> "• Processos OTP: `"
-            <> int.to_string(proc_count)
-            <> "`\n\n"
-            <> "*Mensagens & Mídia:*\n"
-            <> "• Mensagens processadas: `"
-            <> int.to_string(estado_metricas.mensagens)
-            <> "`\n"
-            <> "• Erros registrados: `"
-            <> int.to_string(estado_metricas.erros)
-            <> "`\n"
-            <> "• Mídias processadas: `"
-            <> int.to_string(total_midias)
-            <> "`\n"
-            <> "• Chats em quarentena (anti-spam): `"
-            <> int.to_string(silenciados)
-            <> "`"
-          let _ = portas.mensageiro.enviar(chat_id, corpo)
-          Ok(Nil)
-        }
+      let bridge_url =
+        get_env("WHATSMEOW_URL")
+        |> result.unwrap(or: "http://localhost:8080")
+      let status_wa = case whatsmeow_http.checar_status(bridge_url) {
+        Ok(whatsmeow_http.StatusBridge(_, True)) -> "🟢 Conectado"
+        Ok(whatsmeow_http.StatusBridge(_, False)) ->
+          "🟡 Desconectado (aguardando login)"
+        Error(_) -> "🔴 Inacessível"
       }
+      let mem_total = metricas.memoria_total_mb()
+      let mem_proc = metricas.memoria_processos_mb()
+      let proc_count = metricas.contagem_processos()
+      let estado_metricas = metricas.consultar(portas.metricas)
+      let silenciados = anti_spam.contar_silenciados(portas.anti_spam)
+      let total_midias =
+        estado_metricas.imagens
+        + estado_metricas.audios
+        + estado_metricas.videos
+        + estado_metricas.documentos
+        + estado_metricas.stickers
+
+      let corpo =
+        "📊 *Painel Administrativo — Amélie*\n\n"
+        <> "*Canais de Mensageria:*\n"
+        <> "• *WhatsApp:* "
+        <> status_wa
+        <> "\n"
+        <> "• *Telegram:* 🟢 Ativo (Poller operacional)\n\n"
+        <> "*Métricas BEAM:*\n"
+        <> "• Memória total: `"
+        <> int.to_string(mem_total)
+        <> " MB`\n"
+        <> "• Memória processos: `"
+        <> int.to_string(mem_proc)
+        <> " MB`\n"
+        <> "• Processos OTP: `"
+        <> int.to_string(proc_count)
+        <> "`\n\n"
+        <> "*Mensagens & Mídia:*\n"
+        <> "• Mensagens processadas: `"
+        <> int.to_string(estado_metricas.mensagens)
+        <> "`\n"
+        <> "• Erros registrados: `"
+        <> int.to_string(estado_metricas.erros)
+        <> "`\n"
+        <> "• Mídias processadas: `"
+        <> int.to_string(total_midias)
+        <> "`\n"
+        <> "• Chats em quarentena (anti-spam): `"
+        <> int.to_string(silenciados)
+        <> "`"
+      let _ = portas.mensageiro.enviar(chat_id, corpo)
+      Ok(Nil)
     }
 
     ResetarWhatsApp(chat_id, args) -> {
-      let admin_id =
-        get_env("TELEGRAM_ADMIN_CHAT_ID")
-        |> result.unwrap(or: "")
-      let eh_admin =
-        admin_id != ""
-        && !msg.em_grupo
-        && msg.remetente == "tg:" <> admin_id
-        && msg.chat_id == "tg:" <> admin_id
-      case eh_admin {
-        False -> {
+      let bridge_url =
+        get_env("WHATSMEOW_URL")
+        |> result.unwrap(or: "http://localhost:8080")
+      let tel = case string.trim(args) {
+        "" ->
+          get_env("MOBILE_NUMBER")
+          |> result.unwrap(or: "")
+        outro -> outro
+      }
+      case whatsmeow_http.resetar_sessao(bridge_url, tel) {
+        Ok(Nil) -> {
+          let msg_ret = case tel {
+            "" ->
+              "🔄 *Reset do WhatsApp iniciado!*\n\nSessão anterior desconectada e dados locais limpos.\nPara parear um novo celular, execute: `/parear <telefone>`"
+            num ->
+              "🔄 *Reset do WhatsApp iniciado!*\n\nSessão anterior desconectada e dados locais limpos para o número `+"
+              <> num
+              <> "`.\nUm novo código de pareamento será enviado aqui em instantes."
+          }
+          let _ = portas.mensageiro.enviar(chat_id, msg_ret)
+          Ok(Nil)
+        }
+        Error(motivo) -> {
           let _ =
             portas.mensageiro.enviar(
               chat_id,
-              "⛔ Comando restrito ao administrador.",
+              "❌ Falha ao solicitar reset do WhatsApp: " <> motivo,
             )
           Ok(Nil)
-        }
-        True -> {
-          let bridge_url =
-            get_env("WHATSMEOW_URL")
-            |> result.unwrap(or: "http://localhost:8080")
-          let tel = case string.trim(args) {
-            "" ->
-              get_env("MOBILE_NUMBER")
-              |> result.unwrap(or: "")
-            outro -> outro
-          }
-          case whatsmeow_http.resetar_sessao(bridge_url, tel) {
-            Ok(Nil) -> {
-              let msg_ret = case tel {
-                "" ->
-                  "🔄 *Reset do WhatsApp iniciado!*\n\nSessão anterior desconectada e dados locais limpos.\nPara parear um novo celular, execute: `/parear <telefone>`"
-                num ->
-                  "🔄 *Reset do WhatsApp iniciado!*\n\nSessão anterior desconectada e dados locais limpos para o número `+"
-                  <> num
-                  <> "`.\nUm novo código de pareamento será enviado aqui em instantes."
-              }
-              let _ = portas.mensageiro.enviar(chat_id, msg_ret)
-              Ok(Nil)
-            }
-            Error(motivo) -> {
-              let _ =
-                portas.mensageiro.enviar(
-                  chat_id,
-                  "❌ Falha ao solicitar reset do WhatsApp: " <> motivo,
-                )
-              Ok(Nil)
-            }
-          }
         }
       }
     }
 
     DesbloquearChat(chat_id, alvo) -> {
-      let admin_id =
-        get_env("TELEGRAM_ADMIN_CHAT_ID")
-        |> result.unwrap(or: "")
-      let eh_admin =
-        admin_id != ""
-        && !msg.em_grupo
-        && msg.remetente == "tg:" <> admin_id
-        && msg.chat_id == "tg:" <> admin_id
-      case eh_admin {
-        False -> {
+      case string.trim(alvo) {
+        "" -> {
           let _ =
             portas.mensageiro.enviar(
               chat_id,
-              "⛔ Comando restrito ao administrador.",
+              "⚠️ Informe o chat_id a ser desbloqueado.\nEx: `.unban 5531999990000`",
             )
           Ok(Nil)
         }
-        True -> {
-          case string.trim(alvo) {
-            "" -> {
-              let _ =
-                portas.mensageiro.enviar(
-                  chat_id,
-                  "⚠️ Informe o chat_id a ser desbloqueado.\nEx: `.unban 5531999990000`",
-                )
-              Ok(Nil)
-            }
-            alvo_id -> {
-              let desbloqueou = anti_spam.desbloquear(portas.anti_spam, alvo_id)
-              let resposta = case desbloqueou {
-                True -> "✅ Chat `" <> alvo_id <> "` desbloqueado com sucesso!"
-                False ->
-                  "ℹ️ O chat `"
-                  <> alvo_id
-                  <> "` não estava em quarentena ou bloqueio."
-              }
-              let _ = portas.mensageiro.enviar(chat_id, resposta)
-              Ok(Nil)
-            }
+        alvo_id -> {
+          let desbloqueou = anti_spam.desbloquear(portas.anti_spam, alvo_id)
+          let resposta = case desbloqueou {
+            True -> "✅ Chat `" <> alvo_id <> "` desbloqueado com sucesso!"
+            False ->
+              "ℹ️ O chat `"
+              <> alvo_id
+              <> "` não estava em quarentena ou bloqueio."
           }
+          let _ = portas.mensageiro.enviar(chat_id, resposta)
+          Ok(Nil)
         }
       }
     }
 
     ConsultarSpammers(chat_id) -> {
-      let admin_id =
-        get_env("TELEGRAM_ADMIN_CHAT_ID")
-        |> result.unwrap(or: "")
-      let eh_admin =
-        admin_id != ""
-        && !msg.em_grupo
-        && msg.remetente == "tg:" <> admin_id
-        && msg.chat_id == "tg:" <> admin_id
-      case eh_admin {
-        False -> {
+      case portas.spammers.listar_top(10) {
+        Ok([]) -> {
           let _ =
             portas.mensageiro.enviar(
               chat_id,
-              "⛔ Comando restrito ao administrador.",
+              "🛡️ *Anti-Spam:* Nenhum incidente registrado no banco de dados.",
             )
           Ok(Nil)
         }
-        True -> {
-          case portas.spammers.listar_top(10) {
-            Ok([]) -> {
-              let _ =
-                portas.mensageiro.enviar(
-                  chat_id,
-                  "🛡️ *Anti-Spam:* Nenhum incidente registrado no banco de dados.",
-                )
-              Ok(Nil)
-            }
-            Ok(lista) -> {
-              let linhas =
-                list.map(lista, fn(spammer) {
-                  "• `"
-                  <> spammer.telefone
-                  <> "` — "
-                  <> int.to_string(spammer.total_incidentes)
-                  <> " ocorrência(s) (strike máx: "
-                  <> int.to_string(spammer.ultimo_strike)
-                  <> ")"
-                })
-                |> string.join("\n")
-              let resposta =
-                "🛡️ *Spammers Registrados (Top 10):*\n\n"
-                <> linhas
-                <> "\n\n💡 Use `.unban <chat_id_ou_telefone>` para liberar."
-              let _ = portas.mensageiro.enviar(chat_id, resposta)
-              Ok(Nil)
-            }
-            Error(_) -> {
-              let _ =
-                portas.mensageiro.enviar(
-                  chat_id,
-                  "Erro ao consultar spammers no banco de dados.",
-                )
-              Ok(Nil)
-            }
-          }
+        Ok(lista) -> {
+          let linhas =
+            list.map(lista, fn(spammer) {
+              "• `"
+              <> spammer.telefone
+              <> "` — "
+              <> int.to_string(spammer.total_incidentes)
+              <> " ocorrência(s) (strike máx: "
+              <> int.to_string(spammer.ultimo_strike)
+              <> ")"
+            })
+            |> string.join("\n")
+          let resposta =
+            "🛡️ *Spammers Registrados (Top 10):*\n\n"
+            <> linhas
+            <> "\n\n💡 Use `.unban <chat_id_ou_telefone>` para liberar."
+          let _ = portas.mensageiro.enviar(chat_id, resposta)
+          Ok(Nil)
+        }
+        Error(_) -> {
+          let _ =
+            portas.mensageiro.enviar(
+              chat_id,
+              "Erro ao consultar spammers no banco de dados.",
+            )
+          Ok(Nil)
         }
       }
     }

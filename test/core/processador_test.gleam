@@ -1,8 +1,8 @@
 import core/processador
 import dominio/acao.{
-  BaixarVideoUrlEDescrever, BuscarUrlEResponder, ConsultarStatus,
-  EnfileirarMidia, EnviarResposta, GerarEEnviar, MidiaAudio, MidiaImagem,
-  MidiaSticker, MidiaVideo, NaoResponder, ResetarWhatsApp, SnapshotHistorico,
+  BuscarUrlEResponder, ConsultarStatus, EnfileirarMidia, EnviarResposta,
+  GerarEEnviar, MidiaAudio, MidiaImagem, MidiaSticker, MidiaVideo, NaoResponder,
+  ResetarWhatsApp, SnapshotHistorico,
 }
 import dominio/erro
 import dominio/mensagem
@@ -189,7 +189,10 @@ pub fn processar_url_tiktok_video_ativo_test() {
   let cfg = fixtures.config_padrao()
   let result = processador.processar(msg, cfg, [])
   result |> should.be_ok
-  let assert Ok([BaixarVideoUrlEDescrever(_, _)]) = result
+  result
+  |> should.equal(
+    Ok([EnviarResposta(cfg.chat_id, processador.aviso_link_video_desativado)]),
+  )
 }
 
 pub fn processar_url_youtube_shorts_video_ativo_test() {
@@ -197,15 +200,18 @@ pub fn processar_url_youtube_shorts_video_ativo_test() {
   let cfg = fixtures.config_padrao()
   let result = processador.processar(msg, cfg, [])
   result |> should.be_ok
-  let assert Ok([BaixarVideoUrlEDescrever(_, _)]) = result
+  result
+  |> should.equal(
+    Ok([EnviarResposta(cfg.chat_id, processador.aviso_link_video_desativado)]),
+  )
 }
 
 pub fn processar_url_em_linha_propria_test() {
   let msg = fixtures.mensagem_texto("Olha isso:\nhttps://youtu.be/abcdefgh")
-  let cfg = fixtures.config_padrao()
+  let cfg = fixtures.config_midia_off()
   let result = processador.processar(msg, cfg, [])
   result |> should.be_ok
-  let assert Ok([BaixarVideoUrlEDescrever(_, url)]) = result
+  let assert Ok([BuscarUrlEResponder(_, _, url)]) = result
   url |> should.equal("https://youtu.be/abcdefgh")
 }
 
@@ -218,15 +224,15 @@ pub fn processar_url_depois_de_tab_test() {
   url |> should.equal("https://example.com/artigo")
 }
 
-pub fn processar_url_youtube_live_video_ativo_test() {
+pub fn processar_url_youtube_live_extrai_url_test() {
   let msg =
     fixtures.mensagem_texto(
       "Olha isso: https://www.youtube.com/live/abcdefgh?si=123.",
     )
-  let cfg = fixtures.config_padrao()
+  let cfg = fixtures.config_midia_off()
   let result = processador.processar(msg, cfg, [])
   result |> should.be_ok
-  let assert Ok([BaixarVideoUrlEDescrever(_, url)]) = result
+  let assert Ok([BuscarUrlEResponder(_, _, url)]) = result
   url |> should.equal("https://www.youtube.com/live/abcdefgh?si=123")
 }
 
@@ -235,7 +241,10 @@ pub fn processar_url_youtube_mobile_video_ativo_test() {
   let cfg = fixtures.config_padrao()
   let result = processador.processar(msg, cfg, [])
   result |> should.be_ok
-  let assert Ok([BaixarVideoUrlEDescrever(_, _)]) = result
+  result
+  |> should.equal(
+    Ok([EnviarResposta(cfg.chat_id, processador.aviso_link_video_desativado)]),
+  )
 }
 
 pub fn processar_url_instagram_reels_video_ativo_test() {
@@ -243,7 +252,10 @@ pub fn processar_url_instagram_reels_video_ativo_test() {
   let cfg = fixtures.config_padrao()
   let result = processador.processar(msg, cfg, [])
   result |> should.be_ok
-  let assert Ok([BaixarVideoUrlEDescrever(_, _)]) = result
+  result
+  |> should.equal(
+    Ok([EnviarResposta(cfg.chat_id, processador.aviso_link_video_desativado)]),
+  )
 }
 
 pub fn processar_url_instagram_stories_video_ativo_test() {
@@ -252,7 +264,10 @@ pub fn processar_url_instagram_stories_video_ativo_test() {
   let cfg = fixtures.config_padrao()
   let result = processador.processar(msg, cfg, [])
   result |> should.be_ok
-  let assert Ok([BaixarVideoUrlEDescrever(_, _)]) = result
+  result
+  |> should.equal(
+    Ok([EnviarResposta(cfg.chat_id, processador.aviso_link_video_desativado)]),
+  )
 }
 
 pub fn processar_url_video_inativo_cai_em_buscar_url_test() {

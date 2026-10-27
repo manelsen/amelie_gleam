@@ -1,9 +1,9 @@
 -module(amelie_gleam_ffi).
 -include_lib("kernel/include/file.hrl").
--export([read_file/1, int_to_string/1, get_env/1, now_ms/0,
+-export([read_file/1, get_env/1, now_ms/0,
          sha256_hex/1, memoria_total_mb/0, memoria_processos_mb/0,
-         contagem_processos/0, spawn_fn/1, upload_file/3, debug_log/1,
-         strip_timestamps/1, ytdlp_download/1, video_tem_audio/1,
+         contagem_processos/0, spawn_fn/1, upload_file/3,
+         strip_timestamps/1, video_tem_audio/1,
          constant_time_equal/2, validate_bridge_media/1, read_bridge_media/1,
          cache_key/3, write_private_media/1, limpar_midias_antigas/1,
          delete_file/1, ensure_applications_started/0, safe_mime/1]).
@@ -15,9 +15,6 @@ read_file(Path) ->
         {ok, Bin} -> {ok, Bin};
         {error, Reason} -> {error, atom_to_binary(Reason, utf8)}
     end.
-
-int_to_string(N) ->
-    list_to_binary(integer_to_list(N)).
 
 %% Retorna timestamp atual em milissegundos.
 now_ms() ->
@@ -264,17 +261,6 @@ get_env(Name) ->
 strip_timestamps(Text) ->
     {ok, Re} = re:compile(<<"\\s*\\d{1,2}:\\d{2}(?::\\d{2})?\\s*">>),
     re:replace(Text, Re, <<" ">>, [global, {return, binary}]).
-
-%% Extratores externos podem abrir conexões que escapam da validação da URL
-%% inicial. Só reativar num serviço com política de egress própria.
-ytdlp_download(_Url) ->
-    {error, <<"Downloads de links de vídeo estão desativados por segurança. Envie o arquivo de vídeo diretamente."/utf8>>}.
-
-%% Debug: writes to stdout immediately (no buffering).
-%% Retorna ok — Result(Nil, String) no Gleam.
-debug_log(Msg) ->
-    io:format(<<"DEBUG: ~s~n">>, [Msg]),
-    ok.
 
 %% Verifica se o arquivo de vídeo possui faixa/stream de áudio.
 %% Executa em processo efêmero dedicado para nunca poluir a mailbox
