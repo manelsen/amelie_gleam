@@ -1,5 +1,5 @@
 // Adaptador HTTP para o bridge Whatsmeow (Go).
-// Implementa MensageiroPorta chamando o microserviço local.
+// Implementa MensageiroPorta e PontePorta chamando o microserviço local.
 
 import dominio/erro.{type Erro}
 import gleam/dynamic/decode
@@ -11,6 +11,9 @@ import gleam/json
 import gleam/result
 import gleam/string
 import portas/mensageiro_porta.{type MensageiroPorta, MensageiroPorta}
+import portas/ponte_porta.{
+  type PontePorta, type StatusBridge, PontePorta, StatusBridge,
+}
 import shell/seguranca_http
 
 pub fn criar(base_url: String) -> MensageiroPorta {
@@ -22,6 +25,15 @@ pub fn criar(base_url: String) -> MensageiroPorta {
     reagir: fn(chat_id, message_id, sender, emoji) {
       reagir(base_url, chat_id, message_id, sender, emoji)
     },
+  )
+}
+
+pub fn criar_ponte(base_url: String) -> PontePorta {
+  PontePorta(
+    checar_status: fn() { checar_status(base_url) },
+    pedir_pairing_code: fn(telefone) { pedir_pairing_code(base_url, telefone) },
+    resetar_sessao: fn(telefone) { resetar_sessao(base_url, telefone) },
+    buscar_pagina: fn(url) { buscar_pagina(base_url, url) },
   )
 }
 
@@ -157,10 +169,6 @@ fn descrever_erro_conexao(error: httpc.ConnectError) -> String {
     httpc.TlsAlert(codigo, detalhes) ->
       "TLS " <> codigo <> " (" <> detalhes <> ")"
   }
-}
-
-pub type StatusBridge {
-  StatusBridge(conectado: Bool, logado: Bool)
 }
 
 pub fn checar_status(base_url: String) -> Result(StatusBridge, Erro) {

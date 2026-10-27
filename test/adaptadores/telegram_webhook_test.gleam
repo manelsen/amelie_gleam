@@ -109,6 +109,7 @@ pub fn fluxo_telegram_com_handler_mensagem_test() {
       anti_spam: portas_fake.anti_spam_ok(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
 
   let json =
@@ -150,6 +151,7 @@ pub fn fluxo_telegram_conversa_ia_test() {
       anti_spam: portas_fake.anti_spam_ok(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
 
   let json =
@@ -191,6 +193,7 @@ pub fn fluxo_telegram_conversa_ia_sem_midia_orienta_test() {
       anti_spam: portas_fake.anti_spam_ok(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
 
   let json =

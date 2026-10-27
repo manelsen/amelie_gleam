@@ -2,7 +2,6 @@
 
 import dominio/erro.{type Erro}
 import dominio/provedor
-import gleam/bit_array
 import gleam/dict
 import gleam/list
 import gleam/option
@@ -58,25 +57,6 @@ pub fn padrao() -> ProvidersConfig {
       ),
     ]),
   )
-}
-
-@external(erlang, "amelie_gleam_ffi", "read_file")
-fn read_file(path: String) -> Result(BitArray, String)
-
-pub fn ler_arquivo(caminho: String) -> Result(ProvidersConfig, Erro) {
-  use contents <- result.try(
-    read_file(caminho)
-    |> result.map_error(fn(e) {
-      erro.ErroComunicacao("erro ao ler providers yaml: " <> e)
-    }),
-  )
-  use text <- result.try(
-    bit_array.to_string(contents)
-    |> result.map_error(fn(_) {
-      erro.ErroComunicacao("providers yaml inválido")
-    }),
-  )
-  parsear_yaml(text)
 }
 
 pub fn validar_modelo(
@@ -158,7 +138,8 @@ pub fn parsear_modelo_str(s: String) -> Result(ModeloConfig, Erro) {
   }
 }
 
-fn parsear_yaml(text: String) -> Result(ProvidersConfig, Erro) {
+/// Lê o conteúdo de providers.yaml. Quem chama é responsável por ler o arquivo.
+pub fn parsear(text: String) -> Result(ProvidersConfig, Erro) {
   let initial =
     ParseState(
       providers: dict.new(),

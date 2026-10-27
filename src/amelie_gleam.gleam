@@ -28,6 +28,7 @@ import gleam/option
 import gleam/result
 import gleam/string
 import mist.{type Connection, type ResponseData}
+import portas/ponte_porta
 import shell/arvore_supervisao
 import shell/fila_offline
 import shell/handler_mensagem.{type Portas, Portas}
@@ -36,6 +37,7 @@ import shell/metricas
 import shell/seguranca_http
 import shell/sistema
 import shell/telegram_poller
+import simplifile
 import sqlight
 
 import dot_env
@@ -95,7 +97,11 @@ pub fn main() {
     |> result.unwrap(or: 3_600_000)
 
   let providers_config =
-    providers_config.ler_arquivo("./config/providers.yaml")
+    simplifile.read("./config/providers.yaml")
+    |> result.replace_error(Nil)
+    |> result.try(fn(texto) {
+      providers_config.parsear(texto) |> result.replace_error(Nil)
+    })
     |> result.unwrap(providers_config.padrao())
 
   use conn <- sqlight.with_connection(db_path)
@@ -158,9 +164,13 @@ pub fn main() {
       anti_spam: procs.anti_spam,
       spammers: spammers_p,
       video_contexto: video_contexto_p,
+      ponte: whatsmeow_http.criar_ponte(bridge_url),
     )
 
-  let _ = telegram_poller.iniciar(telegram_bot_token, portas)
+  case string.trim(telegram_bot_token) {
+    "" -> Nil
+    token -> telegram_poller.iniciar(telegram_http.criar_api(token), portas)
+  }
 
   let assert Ok(_) =
     mist.new(fn(req) {
@@ -255,7 +265,7 @@ pub fn handle_health(
   let #(wa_status, wa_connected, wa_logged_in) = case
     whatsmeow_http.checar_status(bridge_url)
   {
-    Ok(whatsmeow_http.StatusBridge(conectado, logado)) -> {
+    Ok(ponte_porta.StatusBridge(conectado, logado)) -> {
       let st = case logado {
         True -> "ok"
         False -> "unauthenticated"
@@ -335,7 +345,7 @@ pub fn handle_health_publico(
     Error(_) -> False
   }
   let wa_logado = case whatsmeow_http.checar_status(bridge_url) {
-    Ok(whatsmeow_http.StatusBridge(_, logado)) -> logado
+    Ok(ponte_porta.StatusBridge(_, logado)) -> logado
     Error(_) -> False
   }
   let #(codigo, status) = case sqlite_ok, wa_logado {
@@ -458,7 +468,11 @@ fn processar_telegram_body(
         Ok(telegram_webhook.EventoIgnorado(_)) ->
           json_response(200, "{\"ok\":true,\"ignored\":true}")
         Ok(evento) -> {
-          telegram_poller.despachar_evento(evento, bot_token, portas)
+          telegram_poller.despachar_evento(
+            evento,
+            telegram_http.criar_api(bot_token),
+            portas,
+          )
           json_response(200, "{\"ok\":true}")
         }
       }

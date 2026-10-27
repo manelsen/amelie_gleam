@@ -1,7 +1,6 @@
 // Shell — executa os efeitos prescritos pelo core.
 // Este módulo tem side effects: chama portas, grava histórico.
 
-import adaptadores/whatsmeow_http
 import core/acessibilidade
 import core/anti_spam as core_anti_spam
 import core/autorizacao
@@ -36,6 +35,7 @@ import portas/config_porta.{type ConfigPorta}
 import portas/grupo_porta.{type GrupoPorta}
 import portas/historico_porta.{type HistoricoPorta}
 import portas/mensageiro_porta.{type MensageiroPorta}
+import portas/ponte_porta.{type PontePorta, StatusBridge}
 import portas/prompt_porta.{type PromptPorta}
 import portas/spammer_porta.{type SpammerPorta}
 import portas/transacao_porta.{type TransacaoPorta}
@@ -82,6 +82,7 @@ pub type Portas {
     anti_spam: AntiSpam,
     spammers: SpammerPorta,
     video_contexto: VideoContextoPorta,
+    ponte: PontePorta,
   )
 }
 
@@ -403,7 +404,7 @@ fn buscar_url_e_responder(
   hist: List(Turno),
   portas: Portas,
 ) -> Result(Nil, Erro) {
-  let prompt = case url_scraper.buscar(url) {
+  let prompt = case url_scraper.buscar(portas.ponte, url) {
     Ok(conteudo) -> builder.montar_com_url(texto, url, conteudo, cfg, hist)
     Error(_) -> builder.montar(texto, cfg, hist)
   }
@@ -705,8 +706,7 @@ fn solicitar_pareamento(
   args: String,
   portas: Portas,
 ) -> Result(Nil, Erro) {
-  let ponte = sistema.url_ponte()
-  use <- bool.lazy_guard(whatsapp_conectado(ponte), fn() {
+  use <- bool.lazy_guard(whatsapp_conectado(portas.ponte), fn() {
     avisar(
       chat_id,
       "✅ O WhatsApp já está conectado e funcionando perfeitamente!",
@@ -721,7 +721,7 @@ fn solicitar_pareamento(
         portas,
       )
     numero ->
-      case whatsmeow_http.pedir_pairing_code(ponte, numero) {
+      case portas.ponte.pedir_pairing_code(numero) {
         Ok(codigo) ->
           avisar(
             chat_id,
@@ -740,9 +740,9 @@ fn solicitar_pareamento(
   }
 }
 
-fn whatsapp_conectado(ponte: String) -> Bool {
-  case whatsmeow_http.checar_status(ponte) {
-    Ok(whatsmeow_http.StatusBridge(_, True)) -> True
+fn whatsapp_conectado(ponte: PontePorta) -> Bool {
+  case ponte.checar_status() {
+    Ok(StatusBridge(_, True)) -> True
     _ -> False
   }
 }
@@ -756,10 +756,9 @@ fn telefone_informado(args: String) -> String {
 }
 
 fn consultar_status(chat_id: String, portas: Portas) -> Result(Nil, Erro) {
-  let status_wa = case whatsmeow_http.checar_status(sistema.url_ponte()) {
-    Ok(whatsmeow_http.StatusBridge(_, True)) -> "🟢 Conectado"
-    Ok(whatsmeow_http.StatusBridge(_, False)) ->
-      "🟡 Desconectado (aguardando login)"
+  let status_wa = case portas.ponte.checar_status() {
+    Ok(StatusBridge(_, True)) -> "🟢 Conectado"
+    Ok(StatusBridge(_, False)) -> "🟡 Desconectado (aguardando login)"
     Error(_) -> "🔴 Inacessível"
   }
   let estado = metricas.consultar(portas.metricas)
@@ -811,7 +810,7 @@ fn resetar_whatsapp(
   portas: Portas,
 ) -> Result(Nil, Erro) {
   let tel = telefone_informado(args)
-  case whatsmeow_http.resetar_sessao(sistema.url_ponte(), tel) {
+  case portas.ponte.resetar_sessao(tel) {
     Ok(Nil) -> {
       let texto = case tel {
         "" ->
