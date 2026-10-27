@@ -21,7 +21,7 @@ pub type CacheIA =
   Subject(MensagemCache)
 
 pub type MensagemCache {
-  Obter(chave: String, reply: Subject(Option(String)))
+  Obter(chave: String, resposta: Subject(Option(String)))
   Guardar(chave: String, valor: String)
 }
 
@@ -63,8 +63,8 @@ fn tratar(
   msg: MensagemCache,
 ) -> actor.Next(Estado, MensagemCache) {
   case msg {
-    Obter(chave, reply) -> {
-      process.send(reply, buscar(estado, chave))
+    Obter(chave, resposta) -> {
+      process.send(resposta, buscar(estado, chave))
       actor.continue(estado)
     }
     Guardar(chave, valor) -> actor.continue(inserir(estado, chave, valor))
@@ -113,9 +113,9 @@ fn evict(estado: Estado) -> Estado {
 pub fn chave(prompt: String, historico: List(Turno), modelo: String) -> String
 
 pub fn obter(cache: CacheIA, k: String) -> Option(String) {
-  let reply = process.new_subject()
-  process.send(cache, Obter(k, reply))
-  case process.receive(reply, 1000) {
+  let resposta = process.new_subject()
+  process.send(cache, Obter(k, resposta))
+  case process.receive(resposta, 1000) {
     Ok(resp) -> resp
     Error(_) -> None
   }

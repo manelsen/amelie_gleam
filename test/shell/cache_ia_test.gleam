@@ -3,7 +3,7 @@ import gleeunit/should
 import helpers/portas_fake
 import portas/ia_porta
 import shell/cache_ia
-import shell/circuit_breaker
+import shell/disjuntor
 import shell/ia_resiliente
 
 pub fn historico_completo_faz_parte_da_chave_test() {
@@ -27,7 +27,7 @@ pub fn argumentos_identicos_mantem_a_chave_test() {
 
 pub fn resposta_de_outra_conversa_nao_e_reutilizada_test() {
   let assert Ok(cache) = cache_ia.iniciar()
-  let assert Ok(circuito) = circuit_breaker.iniciar()
+  let assert Ok(circuito) = disjuntor.iniciar()
   let porta =
     ia_porta.IAPorta(
       ..portas_fake.ia_ok("unused"),

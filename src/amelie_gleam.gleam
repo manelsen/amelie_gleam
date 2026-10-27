@@ -12,10 +12,10 @@ import adaptadores/transacao_sqlite
 import adaptadores/usuario_sqlite
 import adaptadores/video_contexto_sqlite
 import adaptadores/whatsmeow_http
-import core/ia_dispatcher
+import core/despachante_ia
 import core/privacidade
 import dominio/mensagem.{type Mensagem, Mensagem, Texto}
-import dominio/providers_config
+import dominio/provedores_config
 import gleam/bit_array
 import gleam/bytes_tree
 import gleam/dynamic/decode
@@ -31,12 +31,12 @@ import mist.{type Connection, type ResponseData}
 import portas/ponte_porta
 import shell/arvore_supervisao
 import shell/fila_offline
-import shell/handler_mensagem.{type Portas, Portas}
 import shell/ia_resiliente
 import shell/metricas
+import shell/receptor_telegram
 import shell/seguranca_http
 import shell/sistema
-import shell/telegram_poller
+import shell/tratador_mensagem.{type Portas, Portas}
 import simplifile
 import sqlight
 
@@ -48,13 +48,13 @@ import logging
 // ---------------------------------------------------------------------------
 
 @external(erlang, "amelie_gleam_ffi", "read_bridge_media")
-fn read_file(path: String) -> Result(BitArray, String)
+fn ler_midia_da_ponte(path: String) -> Result(BitArray, String)
 
 @external(erlang, "amelie_gleam_ffi", "validate_bridge_media")
 fn validar_arquivo(path: String) -> Result(String, String)
 
 @external(erlang, "amelie_gleam_ffi", "ensure_applications_started")
-fn ensure_applications_started() -> Nil
+fn garantir_aplicacoes_iniciadas() -> Nil
 
 /// Webhook decodificado. `arquivo` aponta para a mídia que o bridge gravou em
 /// disco e que ainda precisa ser lida para preencher `msg.corpo`.
@@ -67,9 +67,9 @@ pub fn main() {
   |> dot_env.load
 
   logging.configure()
-  ensure_applications_started()
+  garantir_aplicacoes_iniciadas()
 
-  let bridge_token = seguranca_http.token_bridge()
+  let bridge_token = seguranca_http.token_ponte()
   let assert True = string.byte_size(bridge_token) >= 32
     as "Defina BRIDGE_TOKEN com pelo menos 32 caracteres aleatórios"
 
@@ -79,7 +79,7 @@ pub fn main() {
   let telegram_secret_token = sistema.ler_env_ou("TELEGRAM_SECRET_TOKEN", "")
   let telegram_admin_chat_id = sistema.ler_env_ou("TELEGRAM_ADMIN_CHAT_ID", "")
 
-  let bridge_url = sistema.url_ponte()
+  let url_ponte = sistema.url_ponte()
   let db_path = sistema.ler_env_ou("DB_PATH", "./db/amelie.sqlite")
   let port_str = sistema.ler_env_ou("PORT", "4000")
   let offline_retry_interval_str =
@@ -96,13 +96,13 @@ pub fn main() {
     int.parse(manutencao_intervalo_str)
     |> result.unwrap(or: 3_600_000)
 
-  let providers_config =
+  let provedores_config =
     simplifile.read("./config/providers.yaml")
     |> result.replace_error(Nil)
     |> result.try(fn(texto) {
-      providers_config.parsear(texto) |> result.replace_error(Nil)
+      provedores_config.parsear(texto) |> result.replace_error(Nil)
     })
-    |> result.unwrap(providers_config.padrao())
+    |> result.unwrap(provedores_config.padrao())
 
   use conn <- sqlight.with_connection(db_path)
 
@@ -118,7 +118,7 @@ pub fn main() {
   let transacoes_p = transacao_sqlite.criar(conn)
   let spammers_p = spammer_sqlite.criar(conn)
   let video_contexto_p = video_contexto_sqlite.criar(conn)
-  let whatsapp = whatsmeow_http.criar(bridge_url)
+  let whatsapp = whatsmeow_http.criar(url_ponte)
   let telegram = telegram_http.criar(telegram_bot_token)
   let mensageiro = roteador_mensageiro.criar(whatsapp, telegram)
 
@@ -139,8 +139,8 @@ pub fn main() {
   let openrouter_ia =
     openrouter_http.criar(openrouter_api_key)
     |> ia_resiliente.envolver(procs.cb_openrouter, procs.cache_openrouter)
-  let ia_dispatcher =
-    ia_dispatcher.IADispatcher(gemini: gemini_ia, openrouter: openrouter_ia)
+  let despachante_ia =
+    despachante_ia.DespachanteIA(gemini: gemini_ia, openrouter: openrouter_ia)
 
   let _ =
     fila_offline.agendar_processamento(
@@ -151,7 +151,7 @@ pub fn main() {
   let portas =
     Portas(
       mensageiro: mensageiro,
-      ia_dispatcher: ia_dispatcher,
+      despachante_ia: despachante_ia,
       config: config_p,
       historico: historico_p,
       fila: procs.fila,
@@ -160,25 +160,25 @@ pub fn main() {
       usuarios: usuarios_p,
       grupos: grupos_p,
       transacoes: transacoes_p,
-      providers_config: providers_config,
+      provedores_config: provedores_config,
       anti_spam: procs.anti_spam,
       spammers: spammers_p,
       video_contexto: video_contexto_p,
-      ponte: whatsmeow_http.criar_ponte(bridge_url),
+      ponte: whatsmeow_http.criar_ponte(url_ponte),
     )
 
   case string.trim(telegram_bot_token) {
     "" -> Nil
-    token -> telegram_poller.iniciar(telegram_http.criar_api(token), portas)
+    token -> receptor_telegram.iniciar(telegram_http.criar_api(token), portas)
   }
 
   let assert Ok(_) =
     mist.new(fn(req) {
-      handle_request(
+      tratar_requisicao(
         req,
         portas,
         conn,
-        bridge_url,
+        url_ponte,
         telegram_secret_token,
         telegram_bot_token,
         telegram_admin_chat_id,
@@ -196,11 +196,11 @@ pub fn main() {
 // HTTP handlers
 // ---------------------------------------------------------------------------
 
-fn handle_request(
+fn tratar_requisicao(
   req: Request(Connection),
   portas: Portas,
   conn: sqlight.Connection,
-  bridge_url: String,
+  url_ponte: String,
   telegram_secret: String,
   telegram_bot_token: String,
   telegram_admin_chat_id: String,
@@ -212,17 +212,17 @@ fn handle_request(
         req,
         seguranca_http.cabecalho_bridge,
         bridge_token,
-        fn(req) { handle_webhook(req, portas) },
+        fn(req) { tratar_webhook(req, portas) },
       )
     "/webhook/telegram" ->
-      handle_telegram_webhook(req, portas, telegram_secret, telegram_bot_token)
+      tratar_webhook_telegram(req, portas, telegram_secret, telegram_bot_token)
     "/webhook/bridge-event" ->
       proteger_webhook(
         req,
         seguranca_http.cabecalho_bridge,
         bridge_token,
         fn(req) {
-          handle_bridge_event(req, telegram_bot_token, telegram_admin_chat_id)
+          tratar_evento_ponte(req, telegram_bot_token, telegram_admin_chat_id)
         },
       )
     "/health" ->
@@ -233,10 +233,10 @@ fn handle_request(
           bridge_token,
         )
       {
-        True -> handle_health(conn, bridge_url, telegram_bot_token)
-        False -> handle_health_publico(conn, bridge_url)
+        True -> tratar_saude(conn, url_ponte, telegram_bot_token)
+        False -> tratar_saude_publica(conn, url_ponte)
       }
-    _ -> json_response(404, "{\"error\":\"not found\"}")
+    _ -> resposta_json(404, "{\"error\":\"not found\"}")
   }
 }
 
@@ -248,13 +248,13 @@ fn proteger_webhook(
 ) -> response.Response(ResponseData) {
   case seguranca_http.autorizar_webhook(req, cabecalho, segredo) {
     Ok(_) -> handler(req)
-    Error(status) -> json_response(status, "{\"error\":\"request rejected\"}")
+    Error(status) -> resposta_json(status, "{\"error\":\"request rejected\"}")
   }
 }
 
-pub fn handle_health(
+pub fn tratar_saude(
   conn: sqlight.Connection,
-  bridge_url: String,
+  url_ponte: String,
   telegram_bot_token: String,
 ) -> response.Response(ResponseData) {
   let #(sqlite_status, sqlite_ok) = case sqlight.exec("SELECT 1;", conn) {
@@ -263,9 +263,9 @@ pub fn handle_health(
   }
 
   let #(wa_status, wa_connected, wa_logged_in) = case
-    whatsmeow_http.checar_status(bridge_url)
+    whatsmeow_http.checar_status(url_ponte)
   {
-    Ok(ponte_porta.StatusBridge(conectado, logado)) -> {
+    Ok(ponte_porta.StatusPonte(conectado, logado)) -> {
       let st = case logado {
         True -> "ok"
         False -> "unauthenticated"
@@ -330,22 +330,22 @@ pub fn handle_health(
     ])
     |> json.to_string
 
-  json_response(http_code, body)
+  resposta_json(http_code, body)
 }
 
 /// Healthcheck sem autenticação: só o status agregado. O detalhe (estado do
 /// WhatsApp, métricas da BEAM, mensagem de erro do SQLite) exige o mesmo
 /// token da ponte, em `x-amelie-bridge-token`.
-pub fn handle_health_publico(
+pub fn tratar_saude_publica(
   conn: sqlight.Connection,
-  bridge_url: String,
+  url_ponte: String,
 ) -> response.Response(ResponseData) {
   let sqlite_ok = case sqlight.exec("SELECT 1;", conn) {
     Ok(_) -> True
     Error(_) -> False
   }
-  let wa_logado = case whatsmeow_http.checar_status(bridge_url) {
-    Ok(ponte_porta.StatusBridge(_, logado)) -> logado
+  let wa_logado = case whatsmeow_http.checar_status(url_ponte) {
+    Ok(ponte_porta.StatusPonte(_, logado)) -> logado
     Error(_) -> False
   }
   let #(codigo, status) = case sqlite_ok, wa_logado {
@@ -353,30 +353,30 @@ pub fn handle_health_publico(
     True, True -> #(200, "ok")
     True, False -> #(200, "degraded")
   }
-  json_response(codigo, "{\"status\":\"" <> status <> "\"}")
+  resposta_json(codigo, "{\"status\":\"" <> status <> "\"}")
 }
 
-type BridgeEvento {
-  BridgePairingCode(phone: String, code: String)
-  BridgeWhatsappDown(motivo: String)
+type EventoPonte {
+  CodigoPareamentoGerado(telefone: String, codigo: String)
+  WhatsappCaiu(motivo: String)
 }
 
-fn handle_bridge_event(
+fn tratar_evento_ponte(
   req: Request(Connection),
   bot_token: String,
   admin_chat_id: String,
 ) -> response.Response(ResponseData) {
   case mist.read_body(req, 1024 * 1024) {
-    Error(_) -> json_response(400, "{\"error\":\"failed to read body\"}")
+    Error(_) -> resposta_json(400, "{\"error\":\"failed to read body\"}")
     Ok(req_with_body) -> {
-      case parse_bridge_event(req_with_body.body) {
-        Error(_) -> json_response(400, "{\"error\":\"invalid payload\"}")
+      case decodificar_evento_ponte(req_with_body.body) {
+        Error(_) -> resposta_json(400, "{\"error\":\"invalid payload\"}")
         Ok(evt) -> {
           case bot_token == "" || admin_chat_id == "" {
             True -> Nil
             _ -> {
               case evt {
-                BridgePairingCode(phone, code) -> {
+                CodigoPareamentoGerado(phone, code) -> {
                   let texto =
                     "⚠️ *Alerta: WhatsApp desconectado!*\n\n"
                     <> "📱 *Novo código de pareamento para* `+"
@@ -395,7 +395,7 @@ fn handle_bridge_event(
                     )
                   Nil
                 }
-                BridgeWhatsappDown(motivo) -> {
+                WhatsappCaiu(motivo) -> {
                   let texto =
                     "⚠️ *Alerta: A conexão do WhatsApp caiu!*\n\n"
                     <> "Motivo: "
@@ -414,14 +414,14 @@ fn handle_bridge_event(
               }
             }
           }
-          json_response(200, "{\"ok\":true}")
+          resposta_json(200, "{\"ok\":true}")
         }
       }
     }
   }
 }
 
-fn parse_bridge_event(body: BitArray) -> Result(BridgeEvento, Nil) {
+fn decodificar_evento_ponte(body: BitArray) -> Result(EventoPonte, Nil) {
   use s <- result.try(
     bit_array.to_string(body)
     |> result.map_error(fn(_) { Nil }),
@@ -432,15 +432,15 @@ fn parse_bridge_event(body: BitArray) -> Result(BridgeEvento, Nil) {
     use code <- decode.optional_field("code", "", decode.string)
     use motivo <- decode.optional_field("motivo", "Desconectado", decode.string)
     case evento {
-      "pairing_code" -> decode.success(BridgePairingCode(phone, code))
-      _ -> decode.success(BridgeWhatsappDown(motivo))
+      "pairing_code" -> decode.success(CodigoPareamentoGerado(phone, code))
+      _ -> decode.success(WhatsappCaiu(motivo))
     }
   }
   json.parse(s, decoder)
   |> result.map_error(fn(_) { Nil })
 }
 
-fn handle_telegram_webhook(
+fn tratar_webhook_telegram(
   req: Request(Connection),
   portas: Portas,
   secret_token: String,
@@ -450,57 +450,57 @@ fn handle_telegram_webhook(
     req,
     "x-telegram-bot-api-secret-token",
     secret_token,
-    fn(req) { processar_telegram_body(req, portas, bot_token) },
+    fn(req) { processar_corpo_telegram(req, portas, bot_token) },
   )
 }
 
-fn processar_telegram_body(
+fn processar_corpo_telegram(
   req: Request(Connection),
   portas: Portas,
   bot_token: String,
 ) -> response.Response(ResponseData) {
   case mist.read_body(req, 1024 * 1024) {
-    Error(_) -> json_response(400, "{\"error\":\"failed to read body\"}")
+    Error(_) -> resposta_json(400, "{\"error\":\"failed to read body\"}")
     Ok(req_with_body) ->
       case telegram_webhook.parsear_evento(req_with_body.body) {
         Error(_) ->
-          json_response(400, "{\"error\":\"invalid telegram payload\"}")
+          resposta_json(400, "{\"error\":\"invalid telegram payload\"}")
         Ok(telegram_webhook.EventoIgnorado(_)) ->
-          json_response(200, "{\"ok\":true,\"ignored\":true}")
+          resposta_json(200, "{\"ok\":true,\"ignored\":true}")
         Ok(evento) -> {
-          telegram_poller.despachar_evento(
+          receptor_telegram.despachar_evento(
             evento,
             telegram_http.criar_api(bot_token),
             portas,
           )
-          json_response(200, "{\"ok\":true}")
+          resposta_json(200, "{\"ok\":true}")
         }
       }
   }
 }
 
-fn handle_webhook(
+fn tratar_webhook(
   req: Request(Connection),
   portas: Portas,
 ) -> response.Response(ResponseData) {
   case mist.read_body(req, 20 * 1024 * 1024) {
-    Error(_) -> json_response(400, "{\"error\":\"failed to read body\"}")
+    Error(_) -> resposta_json(400, "{\"error\":\"failed to read body\"}")
     Ok(req_with_body) ->
-      case parse_webhook(req_with_body.body) {
-        Error(_) -> json_response(400, "{\"error\":\"invalid payload\"}")
+      case decodificar_webhook(req_with_body.body) {
+        Error(_) -> resposta_json(400, "{\"error\":\"invalid payload\"}")
         Ok(webhook) -> {
           // Processa em processo isolado — webhook retorna imediatamente.
           // Evita bloquear o Mist durante chamadas à IA (2-10s).
           sistema.disparar(fn() {
-            handler_mensagem.handle(carregar_midia(webhook), portas)
+            tratador_mensagem.tratar(carregar_midia(webhook), portas)
           })
-          json_response(202, "{\"ok\":true}")
+          resposta_json(202, "{\"ok\":true}")
         }
       }
   }
 }
 
-fn parse_webhook(body: BitArray) -> Result(Webhook, Nil) {
+fn decodificar_webhook(body: BitArray) -> Result(Webhook, Nil) {
   case bit_array.to_string(body) {
     Error(_) -> Error(Nil)
     Ok(s) ->
@@ -634,7 +634,7 @@ fn carregar_midia(webhook: Webhook) -> Mensagem {
   case webhook.arquivo {
     option.None -> webhook.msg
     option.Some(caminho) -> {
-      let corpo = case read_file(caminho) {
+      let corpo = case ler_midia_da_ponte(caminho) {
         Ok(bytes) -> com_bytes(webhook.msg.corpo, bytes)
         Error(motivo) -> {
           logging.log(
@@ -668,7 +668,7 @@ fn com_bytes(corpo: mensagem.Conteudo, bytes: BitArray) -> mensagem.Conteudo {
   }
 }
 
-fn json_response(status: Int, body: String) -> response.Response(ResponseData) {
+fn resposta_json(status: Int, body: String) -> response.Response(ResponseData) {
   response.new(status)
   |> response.set_header("content-type", "application/json")
   |> response.set_body(mist.Bytes(bytes_tree.from_string(body)))

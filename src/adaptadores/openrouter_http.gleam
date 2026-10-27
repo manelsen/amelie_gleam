@@ -67,14 +67,14 @@ fn historico_para_messages(
   let turnos_json =
     list.map(historico, fn(turno) {
       case turno {
-        TurnoUsuario(c) -> message_json("user", c)
-        TurnoAssistente(c) -> message_json("assistant", c)
+        TurnoUsuario(c) -> mensagem_json("user", c)
+        TurnoAssistente(c) -> mensagem_json("assistant", c)
       }
     })
-  list.append(turnos_json, [message_json("user", prompt_atual)])
+  list.append(turnos_json, [mensagem_json("user", prompt_atual)])
 }
 
-fn message_json(role: String, text: String) -> json.Json {
+fn mensagem_json(role: String, text: String) -> json.Json {
   json.object([
     #("role", json.string(role)),
     #("content", json.string(text)),

@@ -139,7 +139,7 @@ de integração entre os processos Gleam e Go.
 ### P3 — Acessibilidade e evolução de produto
 
 - [x] **Acessibilidade para Leitores de Tela / TTS:**
-  - Extração limpa de artigos e páginas com remoção de scripts, styles, headers, footers e navegações em `url_scraper`.
+  - Extração limpa de artigos e páginas com remoção de scripts, styles, headers, footers e navegações em `extrator_url`.
   - Sanitização de texto com remoção de poluição visual (linhas de traços repetidos, divisores, suavização de tabelas com pipes, colapso de sequências de emojis) em `acessibilidade`.
   - Análise estruturada de documentos e PDFs (foco prioritário em contas, faturas, boletos, código de barras/PIX copia-e-cola e contratos).
   - Compactação inteligente de histórico e comando `.resumo` / `/resumo` preservando contexto essencial.

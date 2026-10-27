@@ -1,8 +1,8 @@
 // Core puro — recebe dados, devolve Acoes.
 // Não executa nenhum efeito. Testável sem infraestrutura.
 
-import core/comando/dispatcher
-import core/prompt/builder
+import core/comando/despachante
+import core/prompt/montador
 import core/validacao
 import dominio/acao.{
   type Acao, BuscarUrlEResponder, EnfileirarMidia, EnviarResposta, GerarEEnviar,
@@ -91,7 +91,7 @@ fn processar_texto(
         option.None -> {
           case tem_midia_no_historico(historico) {
             True -> {
-              let prompt = builder.montar(texto_val, config, historico)
+              let prompt = montador.montar(texto_val, config, historico)
               Ok([GerarEEnviar(para: config.chat_id, prompt: prompt)])
             }
             False -> {
@@ -229,7 +229,7 @@ fn processar_comando(
   args: String,
   config: Config,
 ) -> Result(List(Acao), Erro) {
-  dispatcher.executar(nome, args, config)
+  despachante.executar(nome, args, config)
 }
 
 fn processar_midia(

@@ -10,7 +10,7 @@ import portas/mensageiro_porta.{type MensageiroPorta}
 import portas/transacao_porta.{type TransacaoPorta}
 import shell/anti_spam
 import shell/cache_ia
-import shell/circuit_breaker
+import shell/disjuntor
 import shell/fila_midia
 import shell/fila_offline
 import shell/manutencao
@@ -18,8 +18,8 @@ import shell/metricas
 
 pub type ProcessosSupervisionados {
   ProcessosSupervisionados(
-    cb_gemini: Subject(circuit_breaker.Mensagem),
-    cb_openrouter: Subject(circuit_breaker.Mensagem),
+    cb_gemini: Subject(disjuntor.Mensagem),
+    cb_openrouter: Subject(disjuntor.Mensagem),
     cache_gemini: Subject(cache_ia.MensagemCache),
     cache_openrouter: Subject(cache_ia.MensagemCache),
     metricas: Subject(metricas.MensagemMetrica),
@@ -96,8 +96,8 @@ pub fn iniciar_completo(
   let builder =
     static_supervisor.new(static_supervisor.OneForOne)
     |> static_supervisor.restart_tolerance(intensity: 5, period: 10)
-    |> static_supervisor.add(circuit_breaker.supervisionado(name_cb_gemini))
-    |> static_supervisor.add(circuit_breaker.supervisionado(name_cb_openrouter))
+    |> static_supervisor.add(disjuntor.supervisionado(name_cb_gemini))
+    |> static_supervisor.add(disjuntor.supervisionado(name_cb_openrouter))
     |> static_supervisor.add(cache_ia.supervisionado(name_cache_gemini))
     |> static_supervisor.add(cache_ia.supervisionado(name_cache_openrouter))
     |> static_supervisor.add(metricas.supervisionado(name_metricas))

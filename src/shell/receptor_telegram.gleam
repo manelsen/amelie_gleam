@@ -1,4 +1,4 @@
-// shell/telegram_poller.gleam
+// shell/receptor_telegram.gleam
 // Poller assíncrono de updates do Telegram (long polling via OTP / BEAM).
 // Permite recepção de mensagens sem depender de webhook ou IP público.
 // Toda chamada à Bot API passa pela TelegramPorta.
@@ -17,8 +17,8 @@ import portas/telegram_porta.{
   WebhookAtivo,
 }
 import shell/arquivos_temporarios
-import shell/handler_mensagem.{type Portas}
 import shell/sistema
+import shell/tratador_mensagem.{type Portas}
 
 pub fn iniciar(api: TelegramPorta, portas: Portas) -> Nil {
   logging.log(logging.Info, "Iniciando Telegram poller (long polling)...")
@@ -232,7 +232,7 @@ fn processar_com(base: Mensagem, corpo: Conteudo, portas: Portas) -> Nil {
 }
 
 fn processar(msg: Mensagem, portas: Portas) -> Nil {
-  let _ = handler_mensagem.handle(msg, portas)
+  let _ = tratador_mensagem.tratar(msg, portas)
   Nil
 }
 

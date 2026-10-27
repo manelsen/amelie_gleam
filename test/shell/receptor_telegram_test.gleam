@@ -9,9 +9,9 @@ import helpers/fixtures
 import helpers/portas_fake
 import portas/telegram_porta
 import shell/fila_midia
-import shell/handler_mensagem.{type Portas, Portas}
 import shell/metricas
-import shell/telegram_poller
+import shell/receptor_telegram
+import shell/tratador_mensagem.{type Portas, Portas}
 
 pub fn extrair_updates_json_test() {
   let json =
@@ -43,7 +43,7 @@ pub fn processar_updates_avanca_offset_e_despacha_test() {
   let portas =
     Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
-      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_ok(
         config.Config(..fixtures.config_padrao(), chat_id: "tg:887766"),
       ),
@@ -54,7 +54,7 @@ pub fn processar_updates_avanca_offset_e_despacha_test() {
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
-      providers_config: portas_fake.providers_config_ok(),
+      provedores_config: portas_fake.provedores_config_ok(),
       anti_spam: portas_fake.anti_spam_ok(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
@@ -66,7 +66,7 @@ pub fn processar_updates_avanca_offset_e_despacha_test() {
 
   let assert Ok(updates) = telegram_webhook.extrair_updates(json)
   let novo_offset =
-    telegram_poller.processar_updates(
+    receptor_telegram.processar_updates(
       updates,
       0,
       portas_fake.telegram_api(Ok(<<>>), process.new_subject()),
@@ -90,7 +90,7 @@ pub fn despachar_arquivo_muito_grande_notifica_usuario_test() {
   let portas =
     Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
-      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_ok(
         config.Config(..fixtures.config_padrao(), chat_id: "tg:887766"),
       ),
@@ -101,7 +101,7 @@ pub fn despachar_arquivo_muito_grande_notifica_usuario_test() {
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
-      providers_config: portas_fake.providers_config_ok(),
+      provedores_config: portas_fake.provedores_config_ok(),
       anti_spam: portas_fake.anti_spam_ok(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
@@ -109,7 +109,7 @@ pub fn despachar_arquivo_muito_grande_notifica_usuario_test() {
     )
 
   let evento = telegram_webhook.EventoArquivoMuitoGrande(9999, "tg:887766", 25)
-  telegram_poller.despachar_evento(
+  receptor_telegram.despachar_evento(
     evento,
     portas_fake.telegram_api(Ok(<<>>), process.new_subject()),
     portas,
@@ -146,7 +146,7 @@ pub fn despachar_foto_sinaliza_envio_de_foto_test() {
   let evento =
     telegram_webhook.EventoFotoParaBaixar(7001, base_telegram(), "foto_1")
 
-  telegram_poller.despachar_evento(evento, api, portas_capturando(ref_envio))
+  receptor_telegram.despachar_evento(evento, api, portas_capturando(ref_envio))
 
   process.receive(ref_acoes, 2000)
   |> should.equal(Ok(telegram_porta.EnviandoFoto))
@@ -162,7 +162,7 @@ pub fn despachar_foto_com_falha_no_download_avisa_usuario_test() {
   let evento =
     telegram_webhook.EventoFotoParaBaixar(7002, base_telegram(), "foto_2")
 
-  telegram_poller.despachar_evento(evento, api, portas_capturando(ref_envio))
+  receptor_telegram.despachar_evento(evento, api, portas_capturando(ref_envio))
 
   let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 2000)
   chat_id |> should.equal("tg:887766")

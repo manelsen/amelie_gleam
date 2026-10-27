@@ -19,14 +19,14 @@ const max_idade_midia_segundos = 3600
 
 pub type MensagemManutencao {
   Tick
-  ExecutarManutencao(reply: Subject(Nil))
+  ExecutarManutencao(resposta: Subject(Nil))
 }
 
 pub type EstadoManutencao {
   EstadoManutencao(
     transacoes: TransacaoPorta,
     intervalo_ms: Int,
-    self_name: process.Name(MensagemManutencao),
+    nome_proprio: process.Name(MensagemManutencao),
   )
 }
 
@@ -44,7 +44,7 @@ pub fn iniciar_actor(
     actor.new(EstadoManutencao(
       transacoes: transacoes,
       intervalo_ms: intervalo_ms,
-      self_name: name_val,
+      nome_proprio: name_val,
     ))
     |> actor.on_message(tratar)
     |> actor.named(name_val)
@@ -76,13 +76,13 @@ fn tratar(
   case msg {
     Tick -> {
       executar(estado.transacoes)
-      let subj = process.named_subject(estado.self_name)
+      let subj = process.named_subject(estado.nome_proprio)
       process.send_after(subj, estado.intervalo_ms, Tick)
       actor.continue(estado)
     }
-    ExecutarManutencao(reply) -> {
+    ExecutarManutencao(resposta) -> {
       executar(estado.transacoes)
-      process.send(reply, Nil)
+      process.send(resposta, Nil)
       actor.continue(estado)
     }
   }
@@ -90,9 +90,9 @@ fn tratar(
 
 /// Dispara execução imediata de manutenção via ator.
 pub fn executar_agora(manutencao: Subject(MensagemManutencao)) -> Nil {
-  let reply = process.new_subject()
-  process.send(manutencao, ExecutarManutencao(reply))
-  case process.receive(reply, 10_000) {
+  let resposta = process.new_subject()
+  process.send(manutencao, ExecutarManutencao(resposta))
+  case process.receive(resposta, 10_000) {
     Ok(Nil) -> Nil
     Error(_) -> Nil
   }

@@ -6,23 +6,23 @@ import dominio/mensagem.{type Turno}
 import dominio/provedor.{type Provedor, Gemini, OpenRouter}
 import portas/ia_porta.{type IAPorta, IAPorta}
 
-pub type IADispatcher {
-  IADispatcher(gemini: IAPorta, openrouter: IAPorta)
+pub type DespachanteIA {
+  DespachanteIA(gemini: IAPorta, openrouter: IAPorta)
 }
 
-pub type IADispatcherPorta {
-  IADispatcherPorta(
-    dispatcher: IADispatcher,
+pub type DespachanteIAPorta {
+  DespachanteIAPorta(
+    despachante: DespachanteIA,
     provedor: Provedor,
     modelo: String,
   )
 }
 
-pub fn como_porta(disp_porta: IADispatcherPorta) -> IAPorta {
+pub fn como_porta(disp_porta: DespachanteIAPorta) -> IAPorta {
   IAPorta(
     gerar_texto: fn(prompt, historico, _modelo) {
       gerar_texto(
-        disp_porta.dispatcher,
+        disp_porta.despachante,
         prompt,
         historico,
         disp_porta.provedor,
@@ -31,7 +31,7 @@ pub fn como_porta(disp_porta: IADispatcherPorta) -> IAPorta {
     },
     processar_imagem: fn(dados, mime, prompt, _modelo) {
       processar_imagem(
-        disp_porta.dispatcher,
+        disp_porta.despachante,
         dados,
         mime,
         prompt,
@@ -41,7 +41,7 @@ pub fn como_porta(disp_porta: IADispatcherPorta) -> IAPorta {
     },
     processar_audio: fn(dados, mime, prompt, _modelo) {
       processar_audio(
-        disp_porta.dispatcher,
+        disp_porta.despachante,
         dados,
         mime,
         prompt,
@@ -51,7 +51,7 @@ pub fn como_porta(disp_porta: IADispatcherPorta) -> IAPorta {
     },
     processar_video: fn(uri, prompt, _modelo) {
       processar_video(
-        disp_porta.dispatcher,
+        disp_porta.despachante,
         uri,
         prompt,
         disp_porta.provedor,
@@ -60,7 +60,7 @@ pub fn como_porta(disp_porta: IADispatcherPorta) -> IAPorta {
     },
     processar_documento: fn(dados, mime, prompt, _modelo) {
       processar_documento(
-        disp_porta.dispatcher,
+        disp_porta.despachante,
         dados,
         mime,
         prompt,
@@ -70,23 +70,23 @@ pub fn como_porta(disp_porta: IADispatcherPorta) -> IAPorta {
     },
     fazer_upload_video: fn(caminho, mime) {
       fazer_upload_video(
-        disp_porta.dispatcher,
+        disp_porta.despachante,
         caminho,
         mime,
         disp_porta.provedor,
       )
     },
     aguardar_video_ativo: fn(uri) {
-      aguardar_video_ativo(disp_porta.dispatcher, uri, disp_porta.provedor)
+      aguardar_video_ativo(disp_porta.despachante, uri, disp_porta.provedor)
     },
     deletar_arquivo: fn(uri) {
-      deletar_arquivo(disp_porta.dispatcher, uri, disp_porta.provedor)
+      deletar_arquivo(disp_porta.despachante, uri, disp_porta.provedor)
     },
   )
 }
 
 pub fn gerar_texto(
-  disp: IADispatcher,
+  disp: DespachanteIA,
   prompt: String,
   historico: List(Turno),
   provedor: Provedor,
@@ -97,7 +97,7 @@ pub fn gerar_texto(
 }
 
 pub fn processar_imagem(
-  disp: IADispatcher,
+  disp: DespachanteIA,
   dados: BitArray,
   mime: String,
   prompt: String,
@@ -109,7 +109,7 @@ pub fn processar_imagem(
 }
 
 pub fn processar_audio(
-  disp: IADispatcher,
+  disp: DespachanteIA,
   dados: BitArray,
   mime: String,
   prompt: String,
@@ -121,7 +121,7 @@ pub fn processar_audio(
 }
 
 pub fn processar_video(
-  disp: IADispatcher,
+  disp: DespachanteIA,
   uri: String,
   prompt: String,
   provedor: Provedor,
@@ -132,7 +132,7 @@ pub fn processar_video(
 }
 
 pub fn processar_documento(
-  disp: IADispatcher,
+  disp: DespachanteIA,
   dados: BitArray,
   mime: String,
   prompt: String,
@@ -144,7 +144,7 @@ pub fn processar_documento(
 }
 
 pub fn fazer_upload_video(
-  disp: IADispatcher,
+  disp: DespachanteIA,
   caminho: String,
   mime: String,
   provedor: Provedor,
@@ -154,7 +154,7 @@ pub fn fazer_upload_video(
 }
 
 pub fn aguardar_video_ativo(
-  disp: IADispatcher,
+  disp: DespachanteIA,
   uri: String,
   provedor: Provedor,
 ) -> Result(Nil, Erro) {
@@ -163,7 +163,7 @@ pub fn aguardar_video_ativo(
 }
 
 pub fn deletar_arquivo(
-  disp: IADispatcher,
+  disp: DespachanteIA,
   uri: String,
   provedor: Provedor,
 ) -> Result(Nil, Erro) {
@@ -171,7 +171,7 @@ pub fn deletar_arquivo(
   porta.deletar_arquivo(uri)
 }
 
-fn escolher_porta(disp: IADispatcher, provedor: Provedor) -> IAPorta {
+fn escolher_porta(disp: DespachanteIA, provedor: Provedor) -> IAPorta {
   case provedor {
     Gemini -> disp.gemini
     OpenRouter -> disp.openrouter

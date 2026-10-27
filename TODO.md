@@ -61,7 +61,7 @@ Funcionalidades migradas e ativas no `amelie_gleam`:
 ### 4. UX e mídia
 
 - [x] Resposta citando a mensagem original com fallback automático quando `message_id` for ausente.
-- [x] Extração e leitura de URLs em mensagens de texto (`url_scraper.gleam`).
+- [x] Extração e leitura de URLs em mensagens de texto (`extrator_url.gleam`).
 - [x] Suporte completo a figurinhas animadas (conversão para vídeo MP4 ou grade de quadros).
 - [x] Fallback de metadados quando mídia de sticker expira no WhatsApp.
 - [x] Suporte a links de vídeo (YouTube Shorts/Live, Instagram Reels, TikTok) via `yt-dlp`.
@@ -69,7 +69,7 @@ Funcionalidades migradas e ativas no `amelie_gleam`:
 ### 5. Resiliência de IA
 
 - [x] Retry com backoff exponencial (max 3 tentativas) para erros transientes (429, 503, ErroComunicacao) — `shell/ia_resiliente.gleam`.
-- [x] Circuit breaker por provedor (5 falhas → Aberto 60s → SemiAberto) — `shell/circuit_breaker.gleam`.
+- [x] Circuit breaker por provedor (5 falhas → Aberto 60s → SemiAberto) — `shell/disjuntor.gleam`.
 - [x] Cache de respostas em memória (SHA-256 de prompt+modelo, TTL 1h, max 500) — `shell/cache_ia.gleam`.
 - [ ] Rate limiting granular na borda — baixa prioridade graças ao modelo de concorrência por atores do BEAM.
 

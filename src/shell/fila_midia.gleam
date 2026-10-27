@@ -3,7 +3,7 @@
 
 import core/acessibilidade
 import core/privacidade
-import core/prompt/builder
+import core/prompt/montador
 import dominio/acao.{
   type TipoMidia, MidiaAudio, MidiaDocumento, MidiaImagem, MidiaSticker,
   MidiaVideo,
@@ -147,24 +147,24 @@ fn processar(
   case tipo, msg.corpo {
     MidiaImagem, Imagem(mime:, dados:) ->
       descrever(chat_id, msg, tipo, ctx, fn() {
-        let prompt = builder.montar_para_imagem(cfg, msg.legenda)
+        let prompt = montador.montar_para_imagem(cfg, msg.legenda)
         ia.processar_imagem(dados, mime, prompt, cfg.modelo)
       })
     MidiaAudio, Audio(mime:, dados:) ->
       descrever(chat_id, msg, tipo, ctx, fn() {
-        let prompt = builder.montar_para_audio(cfg)
+        let prompt = montador.montar_para_audio(cfg)
         ia.processar_audio(dados, mime, prompt, cfg.modelo)
         |> result.map(limpar_timestamps)
       })
     MidiaDocumento, Documento(mime:, dados:, ..) ->
       descrever(chat_id, msg, tipo, ctx, fn() {
-        let prompt = builder.montar_para_documento(cfg, msg.legenda)
+        let prompt = montador.montar_para_documento(cfg, msg.legenda)
         ia.processar_documento(dados, mime, prompt, cfg.modelo)
       })
     // Stickers são tratados como imagens para a IA
     MidiaSticker, mensagem.Sticker(mime:, dados:) ->
       descrever(chat_id, msg, tipo, ctx, fn() {
-        let prompt = builder.montar_para_sticker(cfg, msg.legenda)
+        let prompt = montador.montar_para_sticker(cfg, msg.legenda)
         ia.processar_imagem(dados, mime, prompt, cfg.modelo)
       })
     MidiaVideo, Video(caminho_temp:, mime:) ->
@@ -237,12 +237,12 @@ fn prompt_video(cfg: Config, legenda: Option(String), caminho: String) -> String
     |> option.unwrap("")
     |> string.contains("figurinha/sticker")
   use <- bool.lazy_guard(eh_sticker_animado, fn() {
-    builder.montar_para_sticker_animado(cfg, legenda)
+    montador.montar_para_sticker_animado(cfg, legenda)
   })
   let tem_audio = video_tem_audio(caminho)
   case cfg.legenda_ativo && tem_audio {
-    True -> builder.montar_para_legenda(cfg)
-    False -> builder.montar_para_video_com_audio(cfg, legenda, tem_audio)
+    True -> montador.montar_para_legenda(cfg)
+    False -> montador.montar_para_video_com_audio(cfg, legenda, tem_audio)
   }
 }
 
@@ -349,7 +349,7 @@ fn entregar(
 // Remove timestamps (MM:SS ou HH:MM:SS) que o Gemini insiste em gerar,
 // e colapsa linhas vazias resultantes.
 fn limpar_timestamps(texto: String) -> String {
-  let limpo = strip_timestamps_ffi(texto)
+  let limpo = remover_timestamps_ffi(texto)
   // Colapsa múltiplas quebras de linha em no máximo duas (separador de parágrafo)
   colapsar_linhas_vazias(limpo)
 }
@@ -362,7 +362,7 @@ fn colapsar_linhas_vazias(texto: String) -> String {
 }
 
 @external(erlang, "amelie_gleam_ffi", "strip_timestamps")
-fn strip_timestamps_ffi(texto: String) -> String
+fn remover_timestamps_ffi(texto: String) -> String
 
 @external(erlang, "amelie_gleam_ffi", "video_tem_audio")
 fn video_tem_audio(caminho: String) -> Bool
