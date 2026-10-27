@@ -13,7 +13,7 @@ Amélie is an intelligent WhatsApp assistant written in Gleam, targeting the Erl
   - **Database:** SQLite (via [sqlight](https://github.com/lpil/sqlight))
   - **AI Providers:** Google Gemini (primary), OpenRouter (fallback/alternative)
   - **WhatsApp Bridge:** [whatsmeow](https://github.com/tulir/whatsmeow) (Go)
-  - **Media Processing:** `ffmpeg`, Python PIL, `libwebp-tools` (`webpmux`, `dwebp`), and `yt-dlp`
+  - **Media Processing:** `ffmpeg`, Python PIL, and `libwebp-tools` (`webpmux`, `dwebp`)
 
 ## Directory Structure
 
@@ -103,7 +103,6 @@ test/                 # Test suite (mirrors src/ structure)
 | `PORT` | `4000` | HTTP server port |
 | `BRIDGE_PORT` | `8080` | Internal bridge port |
 | `OFFLINE_RETRY_INTERVAL_MS`| `30000` | Interval for retrying offline messages (ms) |
-| `YTDLP_COOKIES_PATH` | `""` | Path to Netscape cookies file for Instagram (optional) |
 
 ## Development Conventions
 

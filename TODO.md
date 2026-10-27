@@ -14,7 +14,7 @@ Funcionalidades migradas e ativas no `amelie_gleam`:
   - Vídeo (upload assíncrono na Gemini File API, polling e descrição).
   - Documentos (leitura e resumo de PDFs e arquivos textuais).
   - Figurinhas / Stickers (WebP estático, figurinhas animadas convertidas para MP4 via PIL/ffmpeg ou grade de quadros via `webpmux`/`dwebp`, além de fallback textual por metadados).
-  - Links de redes sociais (extração e descrição de vídeos de YouTube, Instagram e TikTok via `yt-dlp`).
+  - Links de vídeo (YouTube, Instagram, TikTok) recebem aviso pedindo o arquivo; o download externo foi desativado por risco de SSRF.
 - **Persistência SQLite:**
   - Configuração por chat com migração automática para `gemini-3.5-flash-lite`.
   - Histórico de turnos com limite configurável.
@@ -64,7 +64,7 @@ Funcionalidades migradas e ativas no `amelie_gleam`:
 - [x] Extração e leitura de URLs em mensagens de texto (`extrator_url.gleam`).
 - [x] Suporte completo a figurinhas animadas (conversão para vídeo MP4 ou grade de quadros).
 - [x] Fallback de metadados quando mídia de sticker expira no WhatsApp.
-- [x] Suporte a links de vídeo (YouTube Shorts/Live, Instagram Reels, TikTok) via `yt-dlp`.
+- [x] Links de vídeo (YouTube, Instagram, TikTok) respondidos com aviso; download externo desativado por SSRF.
 
 ### 5. Resiliência de IA
 
