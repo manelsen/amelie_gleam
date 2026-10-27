@@ -2,6 +2,7 @@
 // Shell: tem side effects (chama IA, envia mensagens).
 
 import core/acessibilidade
+import core/privacidade
 import core/prompt/builder
 import dominio/acao.{
   type TipoMidia, MidiaAudio, MidiaDocumento, MidiaImagem, MidiaSticker,
@@ -66,7 +67,7 @@ pub fn iniciar_uma_actor(
               logging.log(
                 logging.Warning,
                 "Erro ao processar mídia em "
-                  <> chat_id
+                  <> privacidade.mascarar_id(chat_id)
                   <> ": "
                   <> erro.descricao(e),
               )
@@ -177,7 +178,7 @@ fn processar_imagem(
         "[Imagem]"
           <> tag_trace(msg)
           <> " Iniciando processamento para "
-          <> chat_id,
+          <> privacidade.mascarar_id(chat_id),
       )
       reagir(msg, "⌛", mensageiro)
       let prompt = builder.montar_para_imagem(cfg, msg.legenda)
@@ -189,7 +190,10 @@ fn processar_imagem(
       ))
       logging.log(
         logging.Info,
-        "[Imagem]" <> tag_trace(msg) <> " Concluído para " <> chat_id,
+        "[Imagem]"
+          <> tag_trace(msg)
+          <> " Concluído para "
+          <> privacidade.mascarar_id(chat_id),
       )
       reagir(msg, "🆗", mensageiro)
       entregar(chat_id, "imagem", resposta, msg, mensageiro, transacoes)
@@ -213,7 +217,7 @@ fn processar_audio(
         "[Áudio]"
           <> tag_trace(msg)
           <> " Iniciando processamento para "
-          <> chat_id,
+          <> privacidade.mascarar_id(chat_id),
       )
       reagir(msg, "⌛", mensageiro)
       let prompt = builder.montar_para_audio(cfg)
@@ -226,7 +230,10 @@ fn processar_audio(
       let resposta = limpar_timestamps(resposta)
       logging.log(
         logging.Info,
-        "[Áudio]" <> tag_trace(msg) <> " Concluído para " <> chat_id,
+        "[Áudio]"
+          <> tag_trace(msg)
+          <> " Concluído para "
+          <> privacidade.mascarar_id(chat_id),
       )
       reagir(msg, "🆗", mensageiro)
       entregar(chat_id, "audio", resposta, msg, mensageiro, transacoes)
@@ -250,7 +257,7 @@ fn processar_video(
         "[Vídeo]"
           <> tag_trace(msg)
           <> " Iniciando upload e processamento para "
-          <> chat_id,
+          <> privacidade.mascarar_id(chat_id),
       )
       reagir(msg, "⌛", mensageiro)
       let eh_sticker_animado =
@@ -287,7 +294,10 @@ fn processar_video(
           use resposta <- result.try(processamento)
           logging.log(
             logging.Info,
-            "[Vídeo]" <> tag_trace(msg) <> " Concluído para " <> chat_id,
+            "[Vídeo]"
+              <> tag_trace(msg)
+              <> " Concluído para "
+              <> privacidade.mascarar_id(chat_id),
           )
           reagir(msg, "🆗", mensageiro)
           entregar(chat_id, "video", resposta, msg, mensageiro, transacoes)
@@ -310,7 +320,10 @@ fn processar_documento(
     Documento(mime: mime, dados: dados, nome: _nome) -> {
       logging.log(
         logging.Info,
-        "[Doc]" <> tag_trace(msg) <> " Iniciando processamento para " <> chat_id,
+        "[Doc]"
+          <> tag_trace(msg)
+          <> " Iniciando processamento para "
+          <> privacidade.mascarar_id(chat_id),
       )
       reagir(msg, "⌛", mensageiro)
       let prompt = builder.montar_para_documento(cfg, msg.legenda)
@@ -322,7 +335,10 @@ fn processar_documento(
       ))
       logging.log(
         logging.Info,
-        "[Doc]" <> tag_trace(msg) <> " Concluído para " <> chat_id,
+        "[Doc]"
+          <> tag_trace(msg)
+          <> " Concluído para "
+          <> privacidade.mascarar_id(chat_id),
       )
       reagir(msg, "🆗", mensageiro)
       entregar(chat_id, "documento", resposta, msg, mensageiro, transacoes)
@@ -346,7 +362,7 @@ fn processar_sticker(
         "[Sticker]"
           <> tag_trace(msg)
           <> " Iniciando processamento para "
-          <> chat_id,
+          <> privacidade.mascarar_id(chat_id),
       )
       reagir(msg, "⌛", mensageiro)
       let prompt = builder.montar_para_sticker(cfg, msg.legenda)
@@ -359,7 +375,10 @@ fn processar_sticker(
       ))
       logging.log(
         logging.Info,
-        "[Sticker]" <> tag_trace(msg) <> " Concluído para " <> chat_id,
+        "[Sticker]"
+          <> tag_trace(msg)
+          <> " Concluído para "
+          <> privacidade.mascarar_id(chat_id),
       )
       reagir(msg, "🆗", mensageiro)
       entregar(chat_id, "sticker", resposta, msg, mensageiro, transacoes)

@@ -1,6 +1,7 @@
 // Adaptador HTTP para Google Gemini API.
 // Implementa IAPorta.
 
+import adaptadores/gemini_diagnostico
 import adaptadores/gemini_url
 import dominio/erro.{type Erro}
 import dominio/mensagem.{type Turno, TurnoAssistente, TurnoUsuario}
@@ -423,7 +424,8 @@ fn extrair_texto_resposta(json_str: String) -> Result(String, Erro) {
     _ -> {
       logging.log(
         logging.Warning,
-        "[Gemini] Resposta inesperada ao extrair texto: " <> json_str,
+        "[Gemini] Resposta sem texto: "
+          <> gemini_diagnostico.resumir_resposta_sem_texto(json_str),
       )
       Error(erro.ErroIA("formato de resposta Gemini inesperado"))
     }

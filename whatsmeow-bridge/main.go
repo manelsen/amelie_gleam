@@ -277,7 +277,7 @@ func (b *Bridge) Start() error {
 
 	phone := cleanPhoneNumber(b.cfg.BotPhone)
 	if phone != "" && b.client.Store.ID != nil && !samePhoneNumber(b.client.Store.ID.User, phone) {
-		log.Printf("[WhatsApp] MOBILE_NUMBER (%s) difere da sessão salva (%s). Limpando sessão anterior para novo pareamento.", phone, b.client.Store.ID.User)
+		log.Printf("[WhatsApp] MOBILE_NUMBER (%s) difere da sessão salva (%s). Limpando sessão anterior para novo pareamento.", maskID(phone), maskID(b.client.Store.ID.User))
 		b.deleteSessionStore()
 	}
 
@@ -348,12 +348,7 @@ func (b *Bridge) loginPairingCode() error {
 		"code":   code,
 	})
 
-	log.Println("==================================================")
-	log.Printf("📱 PAIRING CODE GERADO PARA %s: %s\n", phone, code)
-	log.Println("👉 No WhatsApp do celular:")
-	log.Println("   Aparelhos conectados > Conectar com número de telefone")
-	log.Printf("   e digite o código: %s\n", code)
-	log.Println("==================================================")
+	logPairingCode(phone, code)
 
 	for evt := range qrChan {
 		switch evt.Event {
@@ -417,8 +412,8 @@ func (b *Bridge) handleEvent(rawEvt interface{}) {
 		if phone != "" {
 			go func(targetPhone string) {
 				time.Sleep(3 * time.Second)
-				log.Printf("[WhatsApp] Sessão caiu. Tentando gerar novo pairing code para %s...\n", targetPhone)
-				code, err := b.requestPairingCode(targetPhone)
+				log.Printf("[WhatsApp] Sessão caiu. Tentando gerar novo pairing code para %s...\n", maskID(targetPhone))
+				_, err := b.requestPairingCode(targetPhone)
 				if err != nil {
 					log.Printf("[WhatsApp] Erro ao gerar pairing code pós-logout: %v\n", err)
 					b.notifyGleamEvent(map[string]interface{}{
@@ -426,7 +421,7 @@ func (b *Bridge) handleEvent(rawEvt interface{}) {
 						"motivo": fmt.Sprintf("Sessão desconectada. Falha ao gerar pairing code: %v", err),
 					})
 				} else {
-					log.Printf("[WhatsApp] Novo pairing code pós-logout gerado: %s\n", code)
+					log.Printf("[WhatsApp] Novo pairing code pós-logout gerado para %s\n", maskID(targetPhone))
 				}
 			}(phone)
 		} else {
@@ -721,7 +716,7 @@ func (b *Bridge) processMessage(evt *events.Message) {
 		payload.Tipo = "sticker"
 		payload.Mime = normalizeStickerMime(sticker.GetMimetype())
 		payload.Legenda = stickerPromptContext(sticker)
-		log.Printf("Figurinha recebida: chat=%s mensagem=%s mime=%s animada=%v", chatID, evt.Info.ID, payload.Mime, sticker.GetIsAnimated())
+		log.Printf("Figurinha recebida: chat=%s mensagem=%s mime=%s animada=%v", maskID(chatID), evt.Info.ID, payload.Mime, sticker.GetIsAnimated())
 		applyDirectPath := func(path string) {
 			sticker.URL = nil
 			sticker.DirectPath = proto.String(path)
@@ -737,11 +732,11 @@ func (b *Bridge) processMessage(evt *events.Message) {
 			if fallbackOK {
 				data = fallbackData
 				payload.Mime = fallbackMime
-				log.Printf("Usando thumbnail PNG da figurinha como fallback: chat=%s mensagem=%s", chatID, evt.Info.ID)
+				log.Printf("Usando thumbnail PNG da figurinha como fallback: chat=%s mensagem=%s", maskID(chatID), evt.Info.ID)
 			} else {
-				log.Printf("Figurinha sem dados e sem thumbnail: chat=%s mensagem=%s mime=%s animada=%v", chatID, evt.Info.ID, payload.Mime, sticker.GetIsAnimated())
+				log.Printf("Figurinha sem dados e sem thumbnail: chat=%s mensagem=%s mime=%s animada=%v", maskID(chatID), evt.Info.ID, payload.Mime, sticker.GetIsAnimated())
 				if err := b.enqueueAndDeliver(stickerMetadataFallbackPayload(payload, sticker)); err != nil {
-					log.Printf("Erro ao enfileirar fallback textual de figurinha: chat=%s mensagem=%s erro=%v", chatID, evt.Info.ID, err)
+					log.Printf("Erro ao enfileirar fallback textual de figurinha: chat=%s mensagem=%s erro=%v", maskID(chatID), evt.Info.ID, err)
 				}
 				return
 			}
@@ -801,7 +796,7 @@ func (b *Bridge) downloadMediaBytes(
 	}
 	if err == nil {
 		if len(data) == 0 {
-			log.Printf("%s vazio recebido do WhatsApp: chat=%s mime=%s arquivo=%q", kind, evt.Info.Chat.String(), mime, fileName)
+			log.Printf("%s vazio recebido do WhatsApp: chat=%s mime=%s arquivo=%q", kind, maskID(evt.Info.Chat.String()), mime, fileName)
 			return nil, false
 		}
 		return data, true
@@ -809,21 +804,21 @@ func (b *Bridge) downloadMediaBytes(
 
 	if shouldRequestMediaRetry(err) {
 		if retryErr := b.requestMediaRetry(evt, kind, msg.GetMediaKey(), applyDirectPath); retryErr != nil {
-			log.Printf("Falha ao solicitar media retry para %s: chat=%s mime=%s arquivo=%q erro_download=%v erro_retry=%v", kind, evt.Info.Chat.String(), mime, fileName, err, retryErr)
+			log.Printf("Falha ao solicitar media retry para %s: chat=%s mime=%s arquivo=%q erro_download=%v erro_retry=%v", kind, maskID(evt.Info.Chat.String()), mime, fileName, err, retryErr)
 			b.clearMediaRetryState(evt.Info.Chat, evt.Info.ID)
 		} else {
-			log.Printf("Media retry solicitado para %s: chat=%s mime=%s arquivo=%q erro_download=%v", kind, evt.Info.Chat.String(), mime, fileName, err)
+			log.Printf("Media retry solicitado para %s: chat=%s mime=%s arquivo=%q erro_download=%v", kind, maskID(evt.Info.Chat.String()), mime, fileName, err)
 		}
 		return nil, false
 	}
 
 	// Se for erro de conexão ou timeout curto, não insiste 15s
 	if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "context deadline exceeded") {
-		log.Printf("Download de %s abortado rapidamente: chat=%s mime=%s arquivo=%q erro=%v", kind, evt.Info.Chat.String(), mime, fileName, err)
+		log.Printf("Download de %s abortado rapidamente: chat=%s mime=%s arquivo=%q erro=%v", kind, maskID(evt.Info.Chat.String()), mime, fileName, err)
 		return nil, false
 	}
 
-	log.Printf("Falha ao baixar %s do WhatsApp: chat=%s mime=%s arquivo=%q erro=%v", kind, evt.Info.Chat.String(), mime, fileName, err)
+	log.Printf("Falha ao baixar %s do WhatsApp: chat=%s mime=%s arquivo=%q erro=%v", kind, maskID(evt.Info.Chat.String()), mime, fileName, err)
 	return nil, false
 }
 
@@ -860,13 +855,13 @@ func (b *Bridge) downloadStickerBytes(
 		}
 		if err == nil {
 			if len(data) == 0 {
-				log.Printf("figurinha vazia recebida do WhatsApp com mms-type=sticker: chat=%s mime=%s", evt.Info.Chat.String(), mime)
+				log.Printf("figurinha vazia recebida do WhatsApp com mms-type=sticker: chat=%s mime=%s", maskID(evt.Info.Chat.String()), mime)
 				return nil, false
 			}
-			log.Printf("Figurinha baixada com mms-type=sticker: chat=%s mensagem=%s bytes=%d", evt.Info.Chat.String(), evt.Info.ID, len(data))
+			log.Printf("Figurinha baixada com mms-type=sticker: chat=%s mensagem=%s bytes=%d", maskID(evt.Info.Chat.String()), evt.Info.ID, len(data))
 			return data, true
 		}
-		log.Printf("Falha ao baixar figurinha com mms-type=sticker: chat=%s mensagem=%s mime=%s erro=%v", evt.Info.Chat.String(), evt.Info.ID, mime, err)
+		log.Printf("Falha ao baixar figurinha com mms-type=sticker: chat=%s mensagem=%s mime=%s erro=%v", maskID(evt.Info.Chat.String()), evt.Info.ID, mime, err)
 	}
 
 	return b.downloadMediaBytes(evt, "figurinha", mime, "", sticker, applyDirectPath)
@@ -924,26 +919,26 @@ func (b *Bridge) handleMediaRetry(evt *events.MediaRetry) {
 	b.retryMu.Unlock()
 
 	if !ok {
-		log.Printf("Media retry recebido sem contexto local: chat=%s mensagem=%s", evt.ChatID.String(), evt.MessageID)
+		log.Printf("Media retry recebido sem contexto local: chat=%s mensagem=%s", maskID(evt.ChatID.String()), evt.MessageID)
 		return
 	}
 
 	retryData, err := whatsmeow.DecryptMediaRetryNotification(evt, pending.mediaKey)
 	if err != nil {
-		log.Printf("Falha ao descriptografar media retry de %s: chat=%s mensagem=%s erro=%v", pending.kind, evt.ChatID.String(), evt.MessageID, err)
+		log.Printf("Falha ao descriptografar media retry de %s: chat=%s mensagem=%s erro=%v", pending.kind, maskID(evt.ChatID.String()), evt.MessageID, err)
 		b.clearMediaRetryState(evt.ChatID, evt.MessageID)
 		return
 	}
 
 	if retryData.GetResult() != waMmsRetry.MediaRetryNotification_SUCCESS {
-		log.Printf("Media retry sem sucesso para %s: chat=%s mensagem=%s resultado=%v", pending.kind, evt.ChatID.String(), evt.MessageID, retryData.GetResult())
+		log.Printf("Media retry sem sucesso para %s: chat=%s mensagem=%s resultado=%v", pending.kind, maskID(evt.ChatID.String()), evt.MessageID, retryData.GetResult())
 		b.clearMediaRetryState(evt.ChatID, evt.MessageID)
 		return
 	}
 
 	directPath := retryData.GetDirectPath()
 	if directPath == "" {
-		log.Printf("Media retry sem directPath para %s: chat=%s mensagem=%s", pending.kind, evt.ChatID.String(), evt.MessageID)
+		log.Printf("Media retry sem directPath para %s: chat=%s mensagem=%s", pending.kind, maskID(evt.ChatID.String()), evt.MessageID)
 		b.clearMediaRetryState(evt.ChatID, evt.MessageID)
 		return
 	}
@@ -1129,9 +1124,9 @@ func (b *Bridge) scheduleStickerMetadataFallback(
 		if !b.takePendingMediaRetry(chat, messageID) {
 			return
 		}
-		log.Printf("Media retry de figurinha não respondeu; enfileirando fallback textual: chat=%s mensagem=%s", chat.String(), messageID)
+		log.Printf("Media retry de figurinha não respondeu; enfileirando fallback textual: chat=%s mensagem=%s", maskID(chat.String()), messageID)
 		if err := b.enqueueAndDeliver(fallback); err != nil {
-			log.Printf("Erro ao enfileirar fallback textual de figurinha: chat=%s mensagem=%s erro=%v", chat.String(), messageID, err)
+			log.Printf("Erro ao enfileirar fallback textual de figurinha: chat=%s mensagem=%s erro=%v", maskID(chat.String()), messageID, err)
 		}
 	}()
 }
@@ -1456,7 +1451,7 @@ func writeMediaTemp(kind, ext string, data []byte) (string, error) {
 func (b *Bridge) attachMediaFile(payload *IncomingWebhook, kind, ext string, data []byte) bool {
 	path, err := writeMediaTemp(kind, ext, data)
 	if err != nil {
-		log.Printf("Falha ao gravar mídia temporária: chat=%s mensagem=%s tipo=%s mime=%s bytes=%d erro=%v", payload.ChatID, payload.MessageID, kind, payload.Mime, len(data), err)
+		log.Printf("Falha ao gravar mídia temporária: chat=%s mensagem=%s tipo=%s mime=%s bytes=%d erro=%v", maskID(payload.ChatID), payload.MessageID, kind, payload.Mime, len(data), err)
 		return false
 	}
 	payload.Dados = ""
@@ -1524,9 +1519,8 @@ func (b *Bridge) initQueueDB() error {
 		return err
 	}
 
-	// Limpar entregas antigas na inicialização
-	db.Exec(`DELETE FROM webhook_queue WHERE delivered_at IS NOT NULL AND created_at < unixepoch() - 3600`)
-	db.Exec(`DELETE FROM webhook_queue WHERE attempts >= 100 AND created_at < unixepoch() - 86400`)
+	// Aplica a retenção já na inicialização
+	pruneWebhookQueue(db)
 
 	b.queueDB = db
 	return nil
@@ -1629,8 +1623,7 @@ func (b *Bridge) processQueue() {
 }
 
 func (b *Bridge) cleanupQueue() {
-	b.queueDB.Exec(`DELETE FROM webhook_queue WHERE delivered_at IS NOT NULL AND created_at < unixepoch() - 3600`)
-	b.queueDB.Exec(`DELETE FROM webhook_queue WHERE attempts >= 100 AND created_at < unixepoch() - 86400`)
+	pruneWebhookQueue(b.queueDB)
 	b.queueDB.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
 	b.queueDB.Exec(`PRAGMA optimize`)
 	b.queueDB.Exec(`VACUUM`)
@@ -1946,8 +1939,8 @@ func (b *Bridge) handleResetSession(w http.ResponseWriter, r *http.Request) {
 	if phone != "" {
 		go func(targetPhone string) {
 			time.Sleep(2 * time.Second)
-			log.Printf("[WhatsApp] Gerando novo pairing code pós-reset para %s...\n", targetPhone)
-			code, err := b.requestPairingCode(targetPhone)
+			log.Printf("[WhatsApp] Gerando novo pairing code pós-reset para %s...\n", maskID(targetPhone))
+			_, err := b.requestPairingCode(targetPhone)
 			if err != nil {
 				log.Printf("[WhatsApp] Erro ao gerar pairing code pós-reset: %v\n", err)
 				b.notifyGleamEvent(map[string]interface{}{
@@ -1955,7 +1948,7 @@ func (b *Bridge) handleResetSession(w http.ResponseWriter, r *http.Request) {
 					"motivo": fmt.Sprintf("Reset executado. Falha ao gerar pairing code: %v", err),
 				})
 			} else {
-				log.Printf("[WhatsApp] Novo pairing code pós-reset gerado com sucesso: %s\n", code)
+				log.Printf("[WhatsApp] Novo pairing code pós-reset gerado para %s\n", maskID(targetPhone))
 			}
 		}(phone)
 	}
@@ -2019,12 +2012,7 @@ func (b *Bridge) requestPairingCode(phone string) (string, error) {
 		"code":   code,
 	})
 
-	log.Println("==================================================")
-	log.Printf("📱 PAIRING CODE GERADO PARA %s: %s\n", phone, code)
-	log.Println("👉 No WhatsApp do celular:")
-	log.Println("   Aparelhos conectados > Conectar com número de telefone")
-	log.Printf("   e digite o código: %s\n", code)
-	log.Println("==================================================")
+	logPairingCode(phone, code)
 
 	go func() {
 		for evt := range qrChan {

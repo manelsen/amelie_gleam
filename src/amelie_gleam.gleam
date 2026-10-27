@@ -12,6 +12,7 @@ import adaptadores/transacao_sqlite
 import adaptadores/usuario_sqlite
 import adaptadores/whatsmeow_http
 import core/ia_dispatcher
+import core/privacidade
 import dominio/mensagem.{type Mensagem, Mensagem, Texto}
 import dominio/providers_config
 import gleam/bit_array
@@ -647,7 +648,7 @@ fn carregar_midia(webhook: Webhook) -> Mensagem {
             "Falha ao ler mídia temporária "
               <> caminho
               <> " de "
-              <> webhook.msg.chat_id
+              <> privacidade.mascarar_id(webhook.msg.chat_id)
               <> ": "
               <> motivo,
           )
