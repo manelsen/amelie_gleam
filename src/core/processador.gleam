@@ -5,9 +5,9 @@ import core/comando/dispatcher
 import core/prompt/builder
 import core/validacao
 import dominio/acao.{
-  type Acao, BaixarVideoUrlEDescrever, BuscarUrlEResponder, EnfileirarMidia,
-  EnviarResposta, GerarEEnviar, MidiaAudio, MidiaDocumento, MidiaImagem,
-  MidiaSticker, MidiaVideo, NaoResponder,
+  type Acao, BuscarUrlEResponder, EnfileirarMidia, EnviarResposta, GerarEEnviar,
+  MidiaAudio, MidiaDocumento, MidiaImagem, MidiaSticker, MidiaVideo,
+  NaoResponder,
 }
 import dominio/config.{type Config}
 import dominio/erro.{type Erro}
@@ -55,6 +55,10 @@ fn processar_filtrado(
   }
 }
 
+/// Downloads de links de vídeo ficam desativados: os extratores abririam
+/// conexões fora da validação de URL (SSRF).
+pub const aviso_link_video_desativado = "O download de links de vídeo está desativado. Envie o arquivo de vídeo diretamente."
+
 fn processar_texto(
   body: String,
   config: Config,
@@ -69,7 +73,12 @@ fn processar_texto(
         option.Some(url) ->
           case e_url_video(url) && config.video_ativo {
             True ->
-              Ok([BaixarVideoUrlEDescrever(chat_id: config.chat_id, url: url)])
+              Ok([
+                EnviarResposta(
+                  para: config.chat_id,
+                  corpo: aviso_link_video_desativado,
+                ),
+              ])
             False ->
               Ok([
                 BuscarUrlEResponder(

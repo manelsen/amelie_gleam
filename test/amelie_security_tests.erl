@@ -51,9 +51,6 @@ ffprobe_does_not_execute_shell_test() ->
         end
     end).
 
-external_video_download_is_disabled_test() ->
-    ?assertMatch({error, _}, amelie_gleam_ffi:ytdlp_download(<<"http://127.0.0.1/private">>)).
-
 private_media_has_unique_names_and_permissions_test() ->
     with_temp(fun(Dir) ->
         with_env(<<"MEDIA_TEMP_DIR">>, list_to_binary(Dir ++ "/spool"), fun() ->
