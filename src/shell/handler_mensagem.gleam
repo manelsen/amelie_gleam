@@ -149,7 +149,7 @@ fn ja_processada(msg: Mensagem, portas: Portas) -> Bool {
         Ok(True) -> True
         Ok(False) -> {
           portas.transacoes.marcar_recebida(msg_id)
-          |> registrar_falha("Falha ao marcar mensagem como recebida")
+          |> sistema.registrar_falha("Falha ao marcar mensagem como recebida")
           False
         }
         Error(_) -> False
@@ -182,7 +182,7 @@ fn avisar_limite(
     False -> 1
   }
   portas.spammers.registrar(msg.chat_id, msg.remetente, tel, motivo, strike)
-  |> registrar_falha("Falha ao registrar incidente de spam")
+  |> sistema.registrar_falha("Falha ao registrar incidente de spam")
   logging.log(
     logging.Warning,
     "["
@@ -211,7 +211,7 @@ fn descartar_silenciado(
     "Quarentena / Blackhole",
     3,
   )
-  |> registrar_falha("Falha ao registrar incidente de spam")
+  |> sistema.registrar_falha("Falha ao registrar incidente de spam")
   logging.log(
     logging.Warning,
     "["
@@ -251,14 +251,14 @@ fn processar_mensagem(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
   )
 
   portas.usuarios.registrar(msg.chat_id)
-  |> registrar_falha("Falha ao registrar usuário")
+  |> sistema.registrar_falha("Falha ao registrar usuário")
   case msg.em_grupo {
     True ->
       portas.grupos.registrar(
         msg.chat_id,
         option.unwrap(msg.nome_grupo, "Grupo"),
       )
-      |> registrar_falha("Falha ao registrar grupo")
+      |> sistema.registrar_falha("Falha ao registrar grupo")
     False -> Nil
   }
 
@@ -490,7 +490,7 @@ fn responder_sobre_video(
     portas,
   ))
   portas.historico.adicionar(msg.chat_id, TurnoAssistente(resposta_limpa))
-  |> registrar_falha("Falha ao gravar resposta no histórico")
+  |> sistema.registrar_falha("Falha ao gravar resposta no histórico")
 
   let restantes =
     portas.video_contexto.decrementar_perguntas(para)
@@ -533,13 +533,13 @@ fn encerrar_contexto_video(
   portas: Portas,
 ) -> Nil {
   portas.video_contexto.remover(chat_id)
-  |> registrar_falha("Falha ao remover contexto de vídeo")
+  |> sistema.registrar_falha("Falha ao remover contexto de vídeo")
   apagar_video_no_provedor(uri, cfg, portas)
 }
 
 fn apagar_video_no_provedor(uri: String, cfg: Config, portas: Portas) -> Nil {
   ia_dispatcher.deletar_arquivo(portas.ia_dispatcher, uri, cfg.provedor)
-  |> registrar_falha("Falha ao apagar vídeo no provedor de IA")
+  |> sistema.registrar_falha("Falha ao apagar vídeo no provedor de IA")
 }
 
 // ---------------------------------------------------------------------------
@@ -571,7 +571,7 @@ fn enfileirar_midia(
       <> privacidade.mascarar_id(chat_id),
   )
   portas.historico.adicionar(chat_id, TurnoUsuario(extrair_texto_usuario(msg)))
-  |> registrar_falha("Falha ao gravar mídia no histórico")
+  |> sistema.registrar_falha("Falha ao gravar mídia no histórico")
   let ia_porta =
     ia_dispatcher.como_porta(ia_dispatcher.IADispatcherPorta(
       dispatcher: portas.ia_dispatcher,
@@ -583,12 +583,14 @@ fn enfileirar_midia(
     chat_id,
     msg,
     tipo,
-    cfg,
-    ia_porta,
-    portas.mensageiro,
-    portas.transacoes,
-    portas.historico,
-    portas.video_contexto,
+    fila_midia.Contexto(
+      cfg:,
+      ia: ia_porta,
+      mensageiro: portas.mensageiro,
+      transacoes: portas.transacoes,
+      historico: portas.historico,
+      video_contexto: portas.video_contexto,
+    ),
   )
 }
 
@@ -963,19 +965,10 @@ fn responder(para: String, texto: String, portas: Portas) -> Result(Nil, Erro) {
 /// erro da mensagem, porque o usuário não teria como receber o aviso de erro.
 fn avisar(para: String, texto: String, portas: Portas) -> Result(Nil, Erro) {
   portas.mensageiro.enviar(para, texto)
-  |> registrar_falha(
+  |> sistema.registrar_falha(
     "Falha ao enviar aviso para " <> privacidade.mascarar_id(para),
   )
   Ok(Nil)
-}
-
-/// Efeito acessório: a falha não interrompe o fluxo, mas fica no log.
-fn registrar_falha(resultado: Result(a, Erro), contexto: String) -> Nil {
-  case resultado {
-    Ok(_) -> Nil
-    Error(e) ->
-      logging.log(logging.Warning, contexto <> ": " <> erro.descricao(e))
-  }
 }
 
 fn extrair_texto_usuario(msg: Mensagem) -> String {
