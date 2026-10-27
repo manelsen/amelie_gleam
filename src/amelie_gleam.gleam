@@ -125,11 +125,13 @@ pub fn main() {
   let whatsapp = whatsmeow_http.criar(conexao_ponte)
   let telegram = telegram_http.criar(telegram_bot_token)
   let mensageiro = roteador_mensageiro.criar(whatsapp, telegram)
+  let ponte = whatsmeow_http.criar_ponte(conexao_ponte)
 
   let #(_supervisor, procs) =
     arvore_supervisao.iniciar_completo(
       transacoes_p,
       mensageiro,
+      ponte,
       manutencao_intervalo_ms,
       telegram_admin_chat_id,
     )
@@ -168,7 +170,7 @@ pub fn main() {
       anti_spam: procs.anti_spam,
       spammers: spammers_p,
       video_contexto: video_contexto_p,
-      ponte: whatsmeow_http.criar_ponte(conexao_ponte),
+      ponte: ponte,
     )
 
   case string.trim(telegram_bot_token) {

@@ -9,6 +9,7 @@ import gleam/option.{type Option, None}
 import gleam/otp/actor
 import gleam/otp/static_supervisor
 import portas/mensageiro_porta.{type MensageiroPorta}
+import portas/ponte_porta.{type PontePorta}
 import portas/transacao_porta.{type TransacaoPorta}
 import shell/anti_spam
 import shell/cache_ia
@@ -35,27 +36,36 @@ pub type ProcessosSupervisionados {
 pub fn iniciar(
   transacoes: TransacaoPorta,
   mensageiro: MensageiroPorta,
+  ponte: PontePorta,
 ) -> Result(
   #(static_supervisor.Supervisor, ProcessosSupervisionados),
   actor.StartError,
 ) {
-  iniciar_completo(transacoes, mensageiro, manutencao.intervalo_padrao_ms, None)
+  iniciar_completo(
+    transacoes,
+    mensageiro,
+    ponte,
+    manutencao.intervalo_padrao_ms,
+    None,
+  )
 }
 
 pub fn iniciar_com_intervalo_manutencao(
   transacoes: TransacaoPorta,
   mensageiro: MensageiroPorta,
+  ponte: PontePorta,
   intervalo_manutencao_ms: Int,
 ) -> Result(
   #(static_supervisor.Supervisor, ProcessosSupervisionados),
   actor.StartError,
 ) {
-  iniciar_completo(transacoes, mensageiro, intervalo_manutencao_ms, None)
+  iniciar_completo(transacoes, mensageiro, ponte, intervalo_manutencao_ms, None)
 }
 
 pub fn iniciar_completo(
   transacoes: TransacaoPorta,
   mensageiro: MensageiroPorta,
+  ponte: PontePorta,
   intervalo_manutencao_ms: Int,
   admin_chat_id: Option(IdChat),
 ) -> Result(
@@ -111,6 +121,7 @@ pub fn iniciar_completo(
     |> static_supervisor.add(fila_offline.supervisionado(
       transacoes,
       mensageiro,
+      ponte,
       3,
       name_fila_offline,
     ))

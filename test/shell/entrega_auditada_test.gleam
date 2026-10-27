@@ -120,6 +120,34 @@ pub fn envio_sucesso_marca_entregue_test() {
 // enviar — falha no envio
 // ---------------------------------------------------------------------------
 
+pub fn envio_com_sessao_fora_do_ar_nao_gasta_tentativa_test() {
+  let ref = process.new_subject()
+  let transacoes = transacao_capturar_erro(ref, 8)
+  let mensageiro =
+    MensageiroPorta(
+      enviar: fn(_, _) {
+        Error(erro.ErroComunicacao(
+          "whatsmeow retornou status 503 [whatsapp_logged_out]: sessão removida",
+        ))
+      },
+      enviar_citando: fn(_, _, _, _) { Ok(Nil) },
+      reagir: fn(_, _, _, _) { Ok(Nil) },
+    )
+
+  let _ =
+    entrega_auditada.enviar(
+      fixtures.id("chat1@c.us"),
+      transacao.RespostaTexto,
+      "oi",
+      mensageiro,
+      transacoes,
+    )
+
+  let assert Ok(#(id, tentativas)) = process.receive(ref, 100)
+  id |> should.equal(8)
+  tentativas |> should.equal(0)
+}
+
 pub fn envio_falha_registra_erro_com_tentativa_test() {
   let ref = process.new_subject()
   let transacoes = transacao_capturar_erro(ref, 7)

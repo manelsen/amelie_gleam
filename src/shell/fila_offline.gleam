@@ -1,4 +1,5 @@
 import dominio/erro
+import dominio/id_chat
 import dominio/transacao as t
 import gleam/erlang/process
 import gleam/int
@@ -10,7 +11,9 @@ import gleam/result
 import gleam/string
 import logging
 import portas/mensageiro_porta.{type MensageiroPorta}
+import portas/ponte_porta.{type PontePorta}
 import portas/transacao_porta.{type TransacaoPorta}
+import shell/sistema
 
 pub type FilaOffline =
   process.Subject(Mensagem)
@@ -24,8 +27,38 @@ pub type Estado {
   Estado(
     transacoes: TransacaoPorta,
     mensageiro: MensageiroPorta,
+    ponte: PontePorta,
     tentativas_max: Int,
   )
+}
+
+/// Quanto tempo uma resposta para o WhatsApp espera a sessão voltar
+/// (reconexão ou novo pareamento) antes de ser descartada.
+pub const prazo_espera_sessao_s = 86_400
+
+/// Códigos da ponte que indicam a sessão do WhatsApp fora do ar. A falha é
+/// do canal, não da mensagem: ela volta a ser enviável quando a sessão voltar.
+const codigos_sessao = [
+  "whatsapp_logged_out", "whatsapp_session_missing", "whatsapp_disconnected",
+  "whatsapp_unauthenticated", "whatsapp_client_unavailable",
+  "whatsapp_stream_replaced", "whatsapp_connect_failure",
+  "whatsapp_stream_error", "whatsapp_client_outdated",
+  "whatsapp_cat_refresh_failed", "whatsapp_temporarily_banned",
+  "whatsapp_pair_failed",
+]
+
+/// Identifica falhas causadas pela sessão do WhatsApp indisponível. Essas
+/// falhas não consomem tentativas: a transação espera a sessão voltar.
+pub fn e_erro_sessao(e: erro.Erro) -> Bool {
+  case e {
+    erro.ErroComunicacao(desc) -> {
+      let desc_baixa = string.lowercase(desc)
+      list.any(codigos_sessao, fn(codigo) {
+        string.contains(desc_baixa, "[" <> codigo <> "]")
+      })
+    }
+    _ -> False
+  }
 }
 
 /// Identifica se um erro é permanente (não deve ser retentado).
@@ -41,8 +74,6 @@ pub fn e_erro_definitivo(e: erro.Erro) -> Bool {
       || string.contains(desc_baixa, "chat not found")
       || string.contains(desc_baixa, "bot was blocked")
       || string.contains(desc_baixa, "user is deactivated")
-      || string.contains(desc_baixa, "whatsapp_logged_out")
-      || string.contains(desc_baixa, "whatsapp_session_deleted")
       || string.contains(desc_baixa, "status 400")
       || string.contains(desc_baixa, "status 403")
       || string.contains(desc_baixa, "status 404")
@@ -54,15 +85,17 @@ pub fn e_erro_definitivo(e: erro.Erro) -> Bool {
 pub fn iniciar(
   transacoes: TransacaoPorta,
   mensageiro: MensageiroPorta,
+  ponte: PontePorta,
   tentativas_max: Int,
 ) -> Result(FilaOffline, actor.StartError) {
-  iniciar_actor(transacoes, mensageiro, tentativas_max, None)
+  iniciar_actor(transacoes, mensageiro, ponte, tentativas_max, None)
   |> result.map(fn(started) { started.data })
 }
 
 pub fn iniciar_actor(
   transacoes: TransacaoPorta,
   mensageiro: MensageiroPorta,
+  ponte: PontePorta,
   tentativas_max: Int,
   name: Option(process.Name(Mensagem)),
 ) -> Result(actor.Started(FilaOffline), actor.StartError) {
@@ -70,6 +103,7 @@ pub fn iniciar_actor(
     Estado(
       transacoes: transacoes,
       mensageiro: mensageiro,
+      ponte: ponte,
       tentativas_max: tentativas_max,
     )
 
@@ -88,11 +122,12 @@ pub fn iniciar_actor(
 pub fn supervisionado(
   transacoes: TransacaoPorta,
   mensageiro: MensageiroPorta,
+  ponte: PontePorta,
   tentativas_max: Int,
   name: process.Name(Mensagem),
 ) -> supervision.ChildSpecification(FilaOffline) {
   supervision.worker(fn() {
-    iniciar_actor(transacoes, mensageiro, tentativas_max, Some(name))
+    iniciar_actor(transacoes, mensageiro, ponte, tentativas_max, Some(name))
   })
 }
 
@@ -124,7 +159,20 @@ fn processar_pendentes(state: Estado) -> actor.Next(Estado, Mensagem) {
           <> int.to_string(list.length(pendentes))
           <> " transações pendentes",
       )
-      let _ = list.each(pendentes, fn(tx) { reenviar_transacao(state, tx) })
+      // A ponte só é consultada se houver pendente do WhatsApp, uma vez por ciclo.
+      let tem_whatsapp =
+        list.any(pendentes, fn(tx) {
+          id_chat.canal(tx.chat_id) == id_chat.CanalWhatsapp
+        })
+      let whatsapp_disponivel = tem_whatsapp && whatsapp_disponivel(state)
+      let agora = sistema.agora_s()
+      let _ =
+        list.each(pendentes, fn(tx) {
+          case id_chat.canal(tx.chat_id), whatsapp_disponivel {
+            id_chat.CanalWhatsapp, False -> aguardar_sessao(state, tx, agora)
+            _, _ -> reenviar_transacao(state, tx)
+          }
+        })
       actor.continue(state)
     }
 
@@ -135,6 +183,46 @@ fn processar_pendentes(state: Estado) -> actor.Next(Estado, Mensagem) {
       )
       actor.continue(state)
     }
+  }
+}
+
+fn whatsapp_disponivel(state: Estado) -> Bool {
+  case state.ponte.checar_status() {
+    Ok(status) -> status.conectado && status.logado
+    Error(_) -> False
+  }
+}
+
+/// Mantém a transação pendente enquanto a sessão está fora do ar, sem gastar
+/// tentativas, e descarta só depois do prazo de espera.
+fn aguardar_sessao(state: Estado, tx: t.Transacao, agora: Int) -> Nil {
+  case tx.id {
+    None -> Nil
+    Some(id) ->
+      case agora - tx.criado_em > prazo_espera_sessao_s {
+        True -> {
+          let _ =
+            state.transacoes.atualizar_erro(
+              id,
+              "sessão do WhatsApp indisponível além do prazo de espera",
+              tx.tentativas,
+            )
+          let _ = state.transacoes.atualizar_status(id, t.Descartada)
+          logging.log(
+            logging.Warning,
+            "FilaOffline: transação "
+              <> int.to_string(id)
+              <> " descartada: sessão do WhatsApp indisponível além do prazo",
+          )
+        }
+        False ->
+          logging.log(
+            logging.Debug,
+            "FilaOffline: transação "
+              <> int.to_string(id)
+              <> " aguardando a sessão do WhatsApp",
+          )
+      }
   }
 }
 
@@ -164,8 +252,23 @@ fn reenviar_transacao(state: Estado, tx: t.Transacao) -> Nil {
               )
             }
             Error(e) -> {
-              case e_erro_definitivo(e) {
-                True -> {
+              case e_erro_sessao(e), e_erro_definitivo(e) {
+                True, _ -> {
+                  let _ =
+                    state.transacoes.atualizar_erro(
+                      id,
+                      erro.descricao(e),
+                      tx.tentativas,
+                    )
+                  logging.log(
+                    logging.Info,
+                    "FilaOffline: transação "
+                      <> int.to_string(id)
+                      <> " aguardando a sessão do WhatsApp: "
+                      <> erro.descricao(e),
+                  )
+                }
+                _, True -> {
                   let _ =
                     state.transacoes.atualizar_erro(
                       id,
@@ -181,7 +284,7 @@ fn reenviar_transacao(state: Estado, tx: t.Transacao) -> Nil {
                       <> erro.descricao(e),
                   )
                 }
-                False -> {
+                _, False -> {
                   let _ =
                     state.transacoes.atualizar_erro(
                       id,
