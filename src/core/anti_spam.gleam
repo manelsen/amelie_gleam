@@ -38,6 +38,16 @@ pub const quarentena_strike3_ms: Int = 1_800_000
 /// Tempo de inatividade após o qual os strikes de um usuário são perdoados (10 min).
 pub const perdao_strikes_inatividade_ms: Int = 600_000
 
+/// Teto diário de mensagens aceitas por chat (dia UTC). O token bucket sozinho
+/// permite ~7.200 chamadas de IA por dia por número; o custo é do dono do bot.
+pub const limite_diario_mensagens: Int = 300
+
+/// Duração de um dia em milissegundos, para o contador diário.
+pub const dia_ms: Int = 86_400_000
+
+/// Aviso enviado uma única vez quando o chat atinge o teto diário.
+pub const aviso_limite_diario: String = "📅 Você atingiu o limite diário de mensagens da Amélie. O contador zera à meia-noite (UTC)."
+
 // ---------------------------------------------------------------------------
 // Tipos de Domínio
 // ---------------------------------------------------------------------------
@@ -59,6 +69,10 @@ pub type RegistroChat {
     strikes: Int,
     quarentena_ate_ms: Int,
     recentes_ts: List(Int),
+    /// Dia (agora_ms / dia_ms) a que `mensagens_no_dia` se refere.
+    dia: Int,
+    /// Mensagens aceitas nesse dia.
+    mensagens_no_dia: Int,
   )
 }
 
@@ -119,6 +133,8 @@ pub fn avaliar(
             strikes: 0,
             quarentena_ate_ms: 0,
             recentes_ts: [],
+            dia: agora_ms / dia_ms,
+            mensagens_no_dia: 0,
           )
       }
 
@@ -225,6 +241,8 @@ fn avaliar_livre(
           strikes: 3,
           quarentena_ate_ms: agora_ms + quarentena_strike3_ms,
           recentes_ts: novos_recentes,
+          dia: reg.dia,
+          mensagens_no_dia: reg.mensagens_no_dia,
         )
       #(dict.insert(estado, chat_id, novo_reg), Silenciado(Some(alerta)))
     }
@@ -238,15 +256,36 @@ fn avaliar_livre(
 
       case tokens_recarregados >=. peso {
         True -> {
+          let dia_atual = agora_ms / dia_ms
+          let contagem = case reg.dia == dia_atual {
+            True -> reg.mensagens_no_dia
+            False -> 0
+          }
+          let decisao = case contagem {
+            c if c < limite_diario_mensagens -> Permitido
+            c if c == limite_diario_mensagens ->
+              AvisoLimite(aviso_limite_diario)
+            _ -> Silenciado(None)
+          }
+          // Acima do teto não consome token nem soma strike: só descarta.
+          let tokens_restantes = case decisao {
+            Permitido -> tokens_recarregados -. peso
+            _ -> tokens_recarregados
+          }
           let novo_reg =
             RegistroChat(
-              tokens: tokens_recarregados -. peso,
+              tokens: tokens_restantes,
               ultimo_ts_ms: agora_ms,
               strikes: strikes_atuais,
               quarentena_ate_ms: 0,
               recentes_ts: novos_recentes,
+              dia: dia_atual,
+              mensagens_no_dia: int.min(
+                contagem + 1,
+                limite_diario_mensagens + 1,
+              ),
             )
-          #(dict.insert(estado, chat_id, novo_reg), Permitido)
+          #(dict.insert(estado, chat_id, novo_reg), decisao)
         }
 
         False -> {
@@ -264,6 +303,8 @@ fn avaliar_livre(
               strikes: int.max(1, strikes_atuais + 1),
               quarentena_ate_ms: agora_ms + cooldown_strike1_ms,
               recentes_ts: novos_recentes,
+              dia: reg.dia,
+              mensagens_no_dia: reg.mensagens_no_dia,
             )
           #(dict.insert(estado, chat_id, novo_reg), AvisoLimite(aviso))
         }
@@ -300,9 +341,12 @@ pub fn limpar_inativos(
   agora_ms: Int,
   ttl_inatividade_ms: Int,
 ) -> EstadoAntiSpam {
+  let hoje = agora_ms / dia_ms
+  // Registro com contagem de hoje fica, senão uma pausa curta zeraria o teto.
   dict.filter(estado, fn(_k, reg) {
     agora_ms < reg.quarentena_ate_ms
     || agora_ms - reg.ultimo_ts_ms < ttl_inatividade_ms
+    || { reg.dia == hoje && reg.mensagens_no_dia > 0 }
   })
 }
 

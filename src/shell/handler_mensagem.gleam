@@ -4,6 +4,7 @@
 import adaptadores/whatsmeow_http
 import core/acessibilidade
 import core/anti_spam as core_anti_spam
+import core/autorizacao
 import core/ia_dispatcher
 import core/processador
 import core/prompt/builder
@@ -282,13 +283,8 @@ fn handle_interno(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
   let admin_id =
     get_env("TELEGRAM_ADMIN_CHAT_ID")
     |> result.unwrap(or: "")
-  let eh_admin =
-    admin_id != ""
-    && {
-      msg.chat_id == "tg:" <> admin_id || msg.remetente == "tg:" <> admin_id
-    }
-  let hist_efetivo = case eh_admin {
-    True -> [TurnoUsuario("[admin]"), ..hist]
+  let hist_efetivo = case autorizacao.eh_admin(admin_id, msg) {
+    True -> [TurnoUsuario(processador.marcador_admin), ..hist]
     False -> hist
   }
   use acoes <- result.try(processador.processar(msg, cfg, hist_efetivo))
@@ -309,7 +305,33 @@ fn handle_interno(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
   |> result.map(fn(_) { Nil })
 }
 
+/// Executa uma ação prescrita pelo core, depois de passar pelo portão único
+/// de autorização: ações administrativas de quem não é admin são recusadas
+/// aqui, antes de qualquer efeito.
 fn executar_acao(
+  acao: acao.Acao,
+  msg: Mensagem,
+  cfg: config.Config,
+  hist: List(Turno),
+  portas: Portas,
+) -> Result(Nil, Erro) {
+  let admin_id =
+    get_env("TELEGRAM_ADMIN_CHAT_ID")
+    |> result.unwrap(or: "")
+  case autorizacao.permitido(acao, admin_id, msg) {
+    False -> {
+      let _ =
+        portas.mensageiro.enviar(
+          msg.chat_id,
+          "⛔ Comando restrito ao administrador.",
+        )
+      Ok(Nil)
+    }
+    True -> executar_acao_autorizada(acao, msg, cfg, hist, portas)
+  }
+}
+
+fn executar_acao_autorizada(
   acao: acao.Acao,
   msg: Mensagem,
   cfg: config.Config,
