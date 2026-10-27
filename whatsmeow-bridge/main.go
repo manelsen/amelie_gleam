@@ -230,6 +230,8 @@ type Bridge struct {
 	mediaRetryAttempts  map[string]int
 	queueDB             *sql.DB
 	groupLeaves         *leaveAttempts
+	historyMu           sync.Mutex
+	historySeen         map[types.MessageID]struct{}
 }
 
 type mediaRetryPending struct {
@@ -386,6 +388,8 @@ func (b *Bridge) handleEvent(rawEvt interface{}) {
 		b.leaveGroup(evt.JID)
 	case *events.MediaRetry:
 		b.handleMediaRetry(evt)
+	case *events.HistorySync:
+		b.handleHistorySync(evt)
 	case *events.Connected:
 		b.clearConnectionError()
 		log.Printf("[WhatsApp] Conectado e autenticado")

@@ -91,7 +91,7 @@ amelie_gleam.gleam — Entry point: wires adapters → ports → Mist HTTP serve
 
 1. `POST /webhook` (WhatsApp) or `POST /webhook/telegram` (Telegram) → `amelie_gleam.gleam` decodes payload into `Webhook(msg, arquivo)`.
 2. Large incoming media from WhatsApp is offloaded to `MEDIA_TEMP_DIR/amelie_midia_*` by the bridge. `amelie_gleam.gleam` reads the file via Erlang FFI into `BitArray`, then deletes the temporary file. Telegram media is fetched asynchronously via `getFile`.
-   Messages sent while Amélie was offline, on either channel (timestamp more than `fila_atrasadas.limiar_atraso_s` behind arrival), go to `shell/fila_atrasadas`, a serial queue, and through `tratador_mensagem.tratar_atrasada`, which skips the rate limit (token bucket and flood) but keeps strike-3 quarantine and the daily cap.
+   Messages sent while Amélie was offline, on either channel (timestamp more than `fila_atrasadas.limiar_atraso_s` behind arrival), go to `shell/fila_atrasadas`, a serial queue, and through `tratador_mensagem.tratar_atrasada`, which skips the rate limit (token bucket and flood) but keeps strike-3 quarantine and the daily cap. After a re-pairing, the bridge recovers them from the history sync (`history_recovery.go`): per private chat, user messages after Amélie's last reply, up to 48 h old.
 3. `shell/tratador_mensagem.tratar` fetches `Config` + `Historico` from ports, calls `core/processador.processar`.
 4. `core/processador` (pure) returns `List(Acao)` — never performs IO.
 5. Shell executes each `Acao`:
