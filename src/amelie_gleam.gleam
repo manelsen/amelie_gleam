@@ -12,7 +12,6 @@ import adaptadores/transacao_sqlite
 import adaptadores/usuario_sqlite
 import adaptadores/video_contexto_sqlite
 import adaptadores/whatsmeow_http
-import core/despachante_ia
 import core/privacidade
 import dominio/mensagem.{type Mensagem, Mensagem, Texto}
 import dominio/provedores_config
@@ -29,7 +28,9 @@ import gleam/result
 import gleam/string
 import mist.{type Connection, type ResponseData}
 import portas/ponte_porta
+import portas/telegram_porta
 import shell/arvore_supervisao
+import shell/despachante_ia
 import shell/fila_offline
 import shell/ia_resiliente
 import shell/metricas
@@ -455,7 +456,7 @@ fn processar_corpo_telegram(
       case telegram_webhook.parsear_evento(req_with_body.body) {
         Error(_) ->
           resposta_json(400, "{\"error\":\"invalid telegram payload\"}")
-        Ok(telegram_webhook.EventoIgnorado(_)) ->
+        Ok(telegram_porta.EventoIgnorado(_)) ->
           resposta_json(200, "{\"ok\":true,\"ignored\":true}")
         Ok(evento) -> {
           receptor_telegram.despachar_evento(

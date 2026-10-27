@@ -8,6 +8,7 @@ import gleam/string
 import gleeunit/should
 import helpers/fixtures
 import helpers/portas_fake
+import portas/telegram_porta
 import shell/fila_midia
 import shell/metricas
 import shell/tratador_mensagem.{Portas}
@@ -215,7 +216,7 @@ pub fn parsear_evento_foto_alta_resolucao_test() {
 
   let assert Ok(evento) = telegram_webhook.parsear_evento(json)
   case evento {
-    telegram_webhook.EventoFotoParaBaixar(update_id, base, file_id) -> {
+    telegram_porta.EventoFotoParaBaixar(update_id, base, file_id) -> {
       update_id |> should.equal(3001)
       file_id |> should.equal("hd_file_id")
       base.chat_id |> should.equal("tg:998877")
@@ -234,7 +235,7 @@ pub fn parsear_evento_foto_com_legenda_test() {
 
   let assert Ok(evento) = telegram_webhook.parsear_evento(json)
   case evento {
-    telegram_webhook.EventoFotoParaBaixar(update_id, base, file_id) -> {
+    telegram_porta.EventoFotoParaBaixar(update_id, base, file_id) -> {
       update_id |> should.equal(3002)
       file_id |> should.equal("pic_123")
       base.legenda |> should.equal(Some("Descreva esta imagem por favor"))
@@ -250,7 +251,7 @@ pub fn parsear_evento_voice_audio_ogg_test() {
 
   let assert Ok(evento) = telegram_webhook.parsear_evento(json)
   case evento {
-    telegram_webhook.EventoAudioParaBaixar(update_id, base, file_id, mime) -> {
+    telegram_porta.EventoAudioParaBaixar(update_id, base, file_id, mime) -> {
       update_id |> should.equal(3003)
       file_id |> should.equal("voice_abc")
       mime |> should.equal("audio/ogg")
@@ -267,7 +268,7 @@ pub fn parsear_evento_audio_mp3_test() {
 
   let assert Ok(evento) = telegram_webhook.parsear_evento(json)
   case evento {
-    telegram_webhook.EventoAudioParaBaixar(update_id, base, file_id, mime) -> {
+    telegram_porta.EventoAudioParaBaixar(update_id, base, file_id, mime) -> {
       update_id |> should.equal(3004)
       file_id |> should.equal("audio_xyz")
       mime |> should.equal("audio/mp3")
@@ -284,7 +285,7 @@ pub fn parsear_evento_midia_em_grupo_rejeitada_test() {
 
   let assert Ok(evento) = telegram_webhook.parsear_evento(json_foto_grupo)
   case evento {
-    telegram_webhook.EventoIgnorado(id) -> id |> should.equal(3005)
+    telegram_porta.EventoIgnorado(id) -> id |> should.equal(3005)
     _ -> should.fail()
   }
 
@@ -294,7 +295,7 @@ pub fn parsear_evento_midia_em_grupo_rejeitada_test() {
 
   let assert Ok(evento2) = telegram_webhook.parsear_evento(json_voz_supergrupo)
   case evento2 {
-    telegram_webhook.EventoIgnorado(id) -> id |> should.equal(3006)
+    telegram_porta.EventoIgnorado(id) -> id |> should.equal(3006)
     _ -> should.fail()
   }
 }
@@ -306,7 +307,7 @@ pub fn parsear_evento_video_test() {
 
   let assert Ok(evento) = telegram_webhook.parsear_evento(json)
   case evento {
-    telegram_webhook.EventoVideoParaBaixar(update_id, base, file_id, mime) -> {
+    telegram_porta.EventoVideoParaBaixar(update_id, base, file_id, mime) -> {
       update_id |> should.equal(4001)
       file_id |> should.equal("vid_abc123")
       mime |> should.equal("video/mp4")
@@ -324,7 +325,7 @@ pub fn parsear_evento_video_com_legenda_test() {
 
   let assert Ok(evento) = telegram_webhook.parsear_evento(json)
   case evento {
-    telegram_webhook.EventoVideoParaBaixar(update_id, base, file_id, mime) -> {
+    telegram_porta.EventoVideoParaBaixar(update_id, base, file_id, mime) -> {
       update_id |> should.equal(4002)
       file_id |> should.equal("vid_xyz789")
       mime |> should.equal("video/quicktime")
@@ -341,7 +342,7 @@ pub fn parsear_evento_video_note_test() {
 
   let assert Ok(evento) = telegram_webhook.parsear_evento(json)
   case evento {
-    telegram_webhook.EventoVideoParaBaixar(update_id, base, file_id, mime) -> {
+    telegram_porta.EventoVideoParaBaixar(update_id, base, file_id, mime) -> {
       update_id |> should.equal(4003)
       file_id |> should.equal("note_round1")
       mime |> should.equal("video/mp4")
@@ -358,7 +359,7 @@ pub fn parsear_evento_video_em_grupo_rejeitado_test() {
 
   let assert Ok(evento) = telegram_webhook.parsear_evento(json)
   case evento {
-    telegram_webhook.EventoIgnorado(id) -> id |> should.equal(4004)
+    telegram_porta.EventoIgnorado(id) -> id |> should.equal(4004)
     _ -> should.fail()
   }
 }
@@ -370,7 +371,7 @@ pub fn parsear_evento_animation_test() {
 
   let assert Ok(evento) = telegram_webhook.parsear_evento(json)
   case evento {
-    telegram_webhook.EventoVideoParaBaixar(update_id, base, file_id, mime) -> {
+    telegram_porta.EventoVideoParaBaixar(update_id, base, file_id, mime) -> {
       update_id |> should.equal(4005)
       file_id |> should.equal("anim_gif123")
       mime |> should.equal("video/mp4")
@@ -388,7 +389,7 @@ pub fn parsear_evento_video_muito_grande_rejeitado_test() {
 
   let assert Ok(evento) = telegram_webhook.parsear_evento(json)
   case evento {
-    telegram_webhook.EventoArquivoMuitoGrande(update_id, chat_id, tamanho_mb) -> {
+    telegram_porta.EventoArquivoMuitoGrande(update_id, chat_id, tamanho_mb) -> {
       update_id |> should.equal(4007)
       chat_id |> should.equal("tg:998877")
       tamanho_mb |> should.equal(23)
@@ -404,7 +405,7 @@ pub fn parsear_evento_documento_muito_grande_rejeitado_test() {
 
   let assert Ok(evento) = telegram_webhook.parsear_evento(json)
   case evento {
-    telegram_webhook.EventoArquivoMuitoGrande(update_id, chat_id, tamanho_mb) -> {
+    telegram_porta.EventoArquivoMuitoGrande(update_id, chat_id, tamanho_mb) -> {
       update_id |> should.equal(4008)
       chat_id |> should.equal("tg:998877")
       tamanho_mb |> should.equal(30)
@@ -420,7 +421,7 @@ pub fn parsear_evento_document_como_video_test() {
 
   let assert Ok(evento) = telegram_webhook.parsear_evento(json)
   case evento {
-    telegram_webhook.EventoVideoParaBaixar(update_id, base, file_id, mime) -> {
+    telegram_porta.EventoVideoParaBaixar(update_id, base, file_id, mime) -> {
       update_id |> should.equal(4006)
       file_id |> should.equal("doc_vid_123")
       mime |> should.equal("video/x-matroska")
@@ -437,7 +438,7 @@ pub fn parsear_evento_documento_generico_test() {
 
   let assert Ok(evento) = telegram_webhook.parsear_evento(json)
   case evento {
-    telegram_webhook.EventoDocumentoParaBaixar(
+    telegram_porta.EventoDocumentoParaBaixar(
       update_id,
       base,
       file_id,
@@ -461,7 +462,7 @@ pub fn parsear_evento_sticker_estatico_test() {
 
   let assert Ok(evento) = telegram_webhook.parsear_evento(json)
   case evento {
-    telegram_webhook.EventoStickerParaBaixar(update_id, base, file_id, mime) -> {
+    telegram_porta.EventoStickerParaBaixar(update_id, base, file_id, mime) -> {
       update_id |> should.equal(5002)
       file_id |> should.equal("stk_webp_123")
       mime |> should.equal("image/webp")
@@ -479,7 +480,7 @@ pub fn parsear_evento_sticker_video_test() {
 
   let assert Ok(evento) = telegram_webhook.parsear_evento(json)
   case evento {
-    telegram_webhook.EventoStickerParaBaixar(update_id, base, file_id, mime) -> {
+    telegram_porta.EventoStickerParaBaixar(update_id, base, file_id, mime) -> {
       update_id |> should.equal(5003)
       file_id |> should.equal("stk_webm_456")
       mime |> should.equal("video/webm")
@@ -497,7 +498,7 @@ pub fn parsear_evento_documento_em_grupo_rejeitado_test() {
 
   let assert Ok(evento) = telegram_webhook.parsear_evento(json)
   case evento {
-    telegram_webhook.EventoIgnorado(id) -> id |> should.equal(5004)
+    telegram_porta.EventoIgnorado(id) -> id |> should.equal(5004)
     _ -> should.fail()
   }
 }
@@ -509,7 +510,7 @@ pub fn parsear_evento_sticker_em_grupo_rejeitado_test() {
 
   let assert Ok(evento) = telegram_webhook.parsear_evento(json)
   case evento {
-    telegram_webhook.EventoIgnorado(id) -> id |> should.equal(5005)
+    telegram_porta.EventoIgnorado(id) -> id |> should.equal(5005)
     _ -> should.fail()
   }
 }
@@ -523,7 +524,7 @@ pub fn parsear_evento_gif_com_animation_e_document_vira_video_test() {
 
   let assert Ok(evento) = telegram_webhook.parsear_evento(json)
   case evento {
-    telegram_webhook.EventoVideoParaBaixar(_, _, file_id, mime) -> {
+    telegram_porta.EventoVideoParaBaixar(_, _, file_id, mime) -> {
       file_id |> should.equal("anim_789")
       mime |> should.equal("video/mp4")
     }
@@ -538,7 +539,7 @@ pub fn parsear_evento_voice_muito_grande_rejeitado_test() {
 
   let assert Ok(evento) = telegram_webhook.parsear_evento(json)
   case evento {
-    telegram_webhook.EventoArquivoMuitoGrande(update_id, _, tamanho_mb) -> {
+    telegram_porta.EventoArquivoMuitoGrande(update_id, _, tamanho_mb) -> {
       update_id |> should.equal(4011)
       tamanho_mb |> should.equal(21)
     }
@@ -553,7 +554,7 @@ pub fn parsear_evento_documento_extensao_maiuscula_vira_video_test() {
 
   let assert Ok(evento) = telegram_webhook.parsear_evento(json)
   case evento {
-    telegram_webhook.EventoVideoParaBaixar(_, _, file_id, mime) -> {
+    telegram_porta.EventoVideoParaBaixar(_, _, file_id, mime) -> {
       file_id |> should.equal("doc_mov")
       mime |> should.equal("application/octet-stream")
     }

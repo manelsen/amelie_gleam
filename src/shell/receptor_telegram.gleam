@@ -3,8 +3,6 @@
 // Permite recepção de mensagens sem depender de webhook ou IP público.
 // Toda chamada à Bot API passa pela TelegramPorta.
 
-import adaptadores/telegram_webhook
-import dominio/erro
 import dominio/mensagem.{type Conteudo, type Mensagem, Mensagem}
 import gleam/erlang/process
 import gleam/int
@@ -27,33 +25,19 @@ pub fn iniciar(api: TelegramPorta, portas: Portas) -> Nil {
 
 fn loop(api: TelegramPorta, offset: Int, portas: Portas) -> Nil {
   case api.obter_updates(offset) {
-    NovosUpdates(corpo) ->
-      case telegram_webhook.extrair_updates(corpo) {
-        Ok(updates) -> {
-          case updates {
-            [] -> Nil
-            _ ->
-              logging.log(
-                logging.Info,
-                "Telegram poller recebeu "
-                  <> int.to_string(list.length(updates))
-                  <> " updates",
-              )
-          }
-          loop(api, processar_updates(updates, offset, api, portas), portas)
-        }
-        Error(e) -> {
+    NovosUpdates(updates) -> {
+      case updates {
+        [] -> Nil
+        _ ->
           logging.log(
-            logging.Warning,
-            "Telegram poller: falha ao extrair updates: "
-              <> erro.descricao(e)
-              <> " raw="
-              <> corpo,
+            logging.Info,
+            "Telegram poller recebeu "
+              <> int.to_string(list.length(updates))
+              <> " updates",
           )
-          process.sleep(1000)
-          loop(api, offset, portas)
-        }
       }
+      loop(api, processar_updates(updates, offset, api, portas), portas)
+    }
     WebhookAtivo ->
       logging.log(
         logging.Info,
@@ -79,17 +63,17 @@ fn loop(api: TelegramPorta, offset: Int, portas: Portas) -> Nil {
 }
 
 pub fn despachar_evento(
-  evento: telegram_webhook.EventoUpdate,
+  evento: telegram_porta.EventoUpdate,
   api: TelegramPorta,
   portas: Portas,
 ) -> Nil {
   case evento {
-    telegram_webhook.EventoMensagemPronta(_, msg) ->
+    telegram_porta.EventoMensagemPronta(_, msg) ->
       sistema.disparar(fn() {
         let _ = api.sinalizar(msg.chat_id, telegram_porta.Digitando)
         processar(msg, portas)
       })
-    telegram_webhook.EventoFotoParaBaixar(_, base, file_id) ->
+    telegram_porta.EventoFotoParaBaixar(_, base, file_id) ->
       sistema.disparar(fn() {
         use bytes <- baixar_ou_avisar(
           api,
@@ -102,7 +86,7 @@ pub fn despachar_evento(
         )
         processar_com(base, mensagem.Imagem("image/jpeg", bytes), portas)
       })
-    telegram_webhook.EventoAudioParaBaixar(_, base, file_id, mime) ->
+    telegram_porta.EventoAudioParaBaixar(_, base, file_id, mime) ->
       sistema.disparar(fn() {
         use bytes <- baixar_ou_avisar(
           api,
@@ -115,7 +99,7 @@ pub fn despachar_evento(
         )
         processar_com(base, mensagem.Audio(mime, bytes), portas)
       })
-    telegram_webhook.EventoVideoParaBaixar(_, base, file_id, mime) ->
+    telegram_porta.EventoVideoParaBaixar(_, base, file_id, mime) ->
       sistema.disparar(fn() {
         use bytes <- baixar_ou_avisar(
           api,
@@ -146,13 +130,7 @@ pub fn despachar_evento(
           }
         }
       })
-    telegram_webhook.EventoDocumentoParaBaixar(
-      _,
-      base,
-      file_id,
-      mime,
-      file_name,
-    ) ->
+    telegram_porta.EventoDocumentoParaBaixar(_, base, file_id, mime, file_name) ->
       sistema.disparar(fn() {
         use bytes <- baixar_ou_avisar(
           api,
@@ -169,7 +147,7 @@ pub fn despachar_evento(
           portas,
         )
       })
-    telegram_webhook.EventoStickerParaBaixar(_, base, file_id, mime) ->
+    telegram_porta.EventoStickerParaBaixar(_, base, file_id, mime) ->
       sistema.disparar(fn() {
         use bytes <- baixar_ou_avisar(
           api,
@@ -182,7 +160,7 @@ pub fn despachar_evento(
         )
         processar_com(base, mensagem.Sticker(mime: mime, dados: bytes), portas)
       })
-    telegram_webhook.EventoArquivoMuitoGrande(_, chat_id, tamanho_mb) ->
+    telegram_porta.EventoArquivoMuitoGrande(_, chat_id, tamanho_mb) ->
       sistema.disparar(fn() {
         avisar(
           chat_id,
@@ -192,7 +170,7 @@ pub fn despachar_evento(
           portas,
         )
       })
-    telegram_webhook.EventoIgnorado(_) -> Nil
+    telegram_porta.EventoIgnorado(_) -> Nil
   }
 }
 
@@ -252,13 +230,13 @@ fn reagir_se_possivel(msg: Mensagem, portas: Portas) -> Nil {
 }
 
 pub fn processar_updates(
-  updates: List(telegram_webhook.EventoUpdate),
+  updates: List(telegram_porta.EventoUpdate),
   offset_atual: Int,
   api: TelegramPorta,
   portas: Portas,
 ) -> Int {
   list.fold(updates, offset_atual, fn(maior_offset, evento) {
     despachar_evento(evento, api, portas)
-    int.max(maior_offset, telegram_webhook.obter_update_id(evento) + 1)
+    int.max(maior_offset, telegram_porta.obter_update_id(evento) + 1)
   })
 }

@@ -21,7 +21,7 @@ pub fn extrair_updates_json_test() {
   let assert [u1, u2] = updates
 
   case u1 {
-    telegram_webhook.EventoMensagemPronta(id, msg) -> {
+    telegram_porta.EventoMensagemPronta(id, msg) -> {
       id |> should.equal(5001)
       msg.chat_id |> should.equal("tg:887766")
     }
@@ -30,7 +30,7 @@ pub fn extrair_updates_json_test() {
 
   // Grupo deve ser ignorado (EventoIgnorado)
   case u2 {
-    telegram_webhook.EventoIgnorado(id) -> id |> should.equal(5002)
+    telegram_porta.EventoIgnorado(id) -> id |> should.equal(5002)
     _ -> should.fail()
   }
 }
@@ -108,7 +108,7 @@ pub fn despachar_arquivo_muito_grande_notifica_usuario_test() {
       ponte: portas_fake.ponte_inacessivel(),
     )
 
-  let evento = telegram_webhook.EventoArquivoMuitoGrande(9999, "tg:887766", 25)
+  let evento = telegram_porta.EventoArquivoMuitoGrande(9999, "tg:887766", 25)
   receptor_telegram.despachar_evento(
     evento,
     portas_fake.telegram_api(Ok(<<>>), process.new_subject()),
@@ -144,7 +144,7 @@ pub fn despachar_foto_sinaliza_envio_de_foto_test() {
   let ref_acoes = process.new_subject()
   let api = portas_fake.telegram_api(Ok(<<255, 216, 255>>), ref_acoes)
   let evento =
-    telegram_webhook.EventoFotoParaBaixar(7001, base_telegram(), "foto_1")
+    telegram_porta.EventoFotoParaBaixar(7001, base_telegram(), "foto_1")
 
   receptor_telegram.despachar_evento(evento, api, portas_capturando(ref_envio))
 
@@ -160,7 +160,7 @@ pub fn despachar_foto_com_falha_no_download_avisa_usuario_test() {
       process.new_subject(),
     )
   let evento =
-    telegram_webhook.EventoFotoParaBaixar(7002, base_telegram(), "foto_2")
+    telegram_porta.EventoFotoParaBaixar(7002, base_telegram(), "foto_2")
 
   receptor_telegram.despachar_evento(evento, api, portas_capturando(ref_envio))
 
