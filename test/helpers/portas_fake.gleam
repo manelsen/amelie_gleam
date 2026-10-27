@@ -13,14 +13,52 @@ import portas/grupo_porta.{type GrupoPorta, GrupoPorta}
 import portas/historico_porta.{type HistoricoPorta, HistoricoPorta}
 import portas/ia_porta.{type IAPorta, IAPorta}
 import portas/mensageiro_porta.{type MensageiroPorta, MensageiroPorta}
+import portas/ponte_porta.{type PontePorta, type StatusBridge, PontePorta}
 import portas/prompt_porta.{type PromptPorta, PromptPorta}
 import portas/spammer_porta.{type SpammerPorta, SpammerPorta}
+import portas/telegram_porta.{type AcaoChat, type TelegramPorta, TelegramPorta}
 import portas/transacao_porta.{type TransacaoPorta, TransacaoPorta}
 import portas/usuario_porta.{type UsuarioPorta, UsuarioPorta}
 import portas/video_contexto_porta.{type VideoContextoPorta, VideoContextoPorta}
 import shell/fila_midia
 import shell/handler_mensagem.{type Portas, Portas}
 import shell/metricas
+
+// ---------------------------------------------------------------------------
+// Ponte whatsmeow e Bot API do Telegram fakes (sem rede)
+// ---------------------------------------------------------------------------
+
+/// Ponte desligada: toda operação falha, como um bridge fora do ar.
+pub fn ponte_inacessivel() -> PontePorta {
+  let falha = "ponte fake inacessível"
+  PontePorta(
+    checar_status: fn() { Error(erro.ErroComunicacao(falha)) },
+    pedir_pairing_code: fn(_) { Error(falha) },
+    resetar_sessao: fn(_) { Error(falha) },
+    buscar_pagina: fn(_) { Error(erro.ErroComunicacao(falha)) },
+  )
+}
+
+pub fn ponte_com_status(status: StatusBridge) -> PontePorta {
+  PontePorta(..ponte_inacessivel(), checar_status: fn() { Ok(status) })
+}
+
+/// Bot API que baixa `arquivo` e registra cada sinalização em `ref`.
+pub fn telegram_api(
+  arquivo: Result(BitArray, Erro),
+  ref: process.Subject(AcaoChat),
+) -> TelegramPorta {
+  TelegramPorta(
+    obter_updates: fn(_) {
+      telegram_porta.FalhaPolling(aviso: None, esperar_ms: 0)
+    },
+    sinalizar: fn(_, acao) {
+      process.send(ref, acao)
+      Ok(Nil)
+    },
+    baixar_arquivo: fn(_) { arquivo },
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Mensageiro fake
@@ -429,5 +467,6 @@ pub fn portas_ok(cfg, resposta_ia: String) -> Portas {
     anti_spam: spam,
     spammers: spammer_noop(),
     video_contexto: video_contexto_noop(),
+    ponte: ponte_inacessivel(),
   )
 }

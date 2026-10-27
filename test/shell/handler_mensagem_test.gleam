@@ -56,6 +56,7 @@ pub fn handle_texto_envia_para_whatsapp_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
   let _ = handler_mensagem.handle(msg, portas)
   // Verifica que whatsapp recebeu a mensagem
@@ -90,6 +91,7 @@ pub fn handle_texto_frio_sem_midia_orienta_usuario_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
   let _ = handler_mensagem.handle(msg, portas)
   let received = process.receive(ref, 1000)
@@ -122,6 +124,7 @@ pub fn handle_texto_marca_transacao_entregue_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
   let result = handler_mensagem.handle(msg, portas)
   result |> should.be_ok
@@ -152,6 +155,7 @@ pub fn handle_texto_falha_atualiza_transacao_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
   let result = handler_mensagem.handle(msg, portas)
   result |> should.be_error
@@ -182,6 +186,7 @@ pub fn handle_erro_config_retorna_erro_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
   let result = handler_mensagem.handle(msg, portas)
   result |> should.be_error
@@ -209,6 +214,7 @@ pub fn handle_erro_ia_retorna_erro_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
   let result = handler_mensagem.handle(msg, portas)
   result |> should.be_error
@@ -266,6 +272,7 @@ pub fn handle_com_rate_limit_envia_aviso_ao_usuario_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
 
   let img1 =
@@ -314,6 +321,7 @@ pub fn handle_com_unban_admin_test() {
       anti_spam: spam_actor,
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
 
   // Mensagem de admin executando .unban
@@ -344,6 +352,7 @@ pub fn handle_com_rate_limit_registra_incidente_spammer_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_capturar(ref_spam),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
 
   let img1 =
@@ -397,6 +406,7 @@ pub fn handle_followup_video_ativo_responde_e_decrementa_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_capturar(Some(ctx), ref_video),
+      ponte: portas_fake.ponte_inacessivel(),
     )
 
   let msg = fixtures.mensagem_texto("Que cor é o carro?")
@@ -439,6 +449,7 @@ pub fn handle_followup_video_expirado_limpa_e_avisa_usuario_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_capturar(Some(ctx), ref_video),
+      ponte: portas_fake.ponte_inacessivel(),
     )
 
   let msg = fixtures.mensagem_texto("Que cor é o carro?")
@@ -479,6 +490,7 @@ pub fn handle_followup_video_esgotado_limpa_e_avisa_usuario_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_capturar(Some(ctx), ref_video),
+      ponte: portas_fake.ponte_inacessivel(),
     )
 
   let msg = fixtures.mensagem_texto("Que cor é o carro?")
@@ -521,6 +533,7 @@ pub fn handle_followup_video_zera_perguntas_remove_arquivo_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_capturar(Some(ctx), ref_video),
+      ponte: portas_fake.ponte_inacessivel(),
     )
 
   let msg = fixtures.mensagem_texto("Última dúvida?")

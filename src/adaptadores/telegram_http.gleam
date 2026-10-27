@@ -1,5 +1,5 @@
 // Adaptador HTTP para a Telegram Bot API.
-// Implementa MensageiroPorta chamando api.telegram.org diretamente.
+// Implementa MensageiroPorta e TelegramPorta chamando api.telegram.org.
 
 import dominio/erro.{type Erro}
 import gleam/dynamic/decode
@@ -8,10 +8,15 @@ import gleam/http/request
 import gleam/httpc
 import gleam/int
 import gleam/json
+import gleam/option.{None, Some}
 import gleam/result
 import gleam/string
 import logging
 import portas/mensageiro_porta.{type MensageiroPorta, MensageiroPorta}
+import portas/telegram_porta.{
+  type AcaoChat, type RespostaPolling, type TelegramPorta, FalhaPolling,
+  NovosUpdates, OutraInstancia, TelegramPorta, WebhookAtivo,
+}
 
 const base_url = "https://api.telegram.org"
 
@@ -25,6 +30,63 @@ pub fn criar(bot_token: String) -> MensageiroPorta {
       reagir(bot_token, chat_id, message_id, emoji)
     },
   )
+}
+
+pub fn criar_api(bot_token: String) -> TelegramPorta {
+  TelegramPorta(
+    obter_updates: fn(offset) { obter_updates(bot_token, offset) },
+    sinalizar: fn(chat_id, acao) {
+      enviar_chat_action(bot_token, chat_id, nome_acao(acao))
+    },
+    baixar_arquivo: fn(file_id) { baixar_arquivo(bot_token, file_id) },
+  )
+}
+
+fn nome_acao(acao: AcaoChat) -> String {
+  case acao {
+    telegram_porta.Digitando -> "typing"
+    telegram_porta.EnviandoFoto -> "upload_photo"
+    telegram_porta.EnviandoAudio -> "upload_voice"
+    telegram_porta.EnviandoVideo -> "upload_video"
+    telegram_porta.EnviandoDocumento -> "upload_document"
+    telegram_porta.EscolhendoFigurinha -> "choose_sticker"
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Long polling (getUpdates)
+// ---------------------------------------------------------------------------
+
+/// Espera até 25 s por updates a partir de `offset`.
+pub fn obter_updates(bot_token: String, offset: Int) -> RespostaPolling {
+  let url =
+    base_url
+    <> "/bot"
+    <> bot_token
+    <> "/getUpdates?timeout=25&offset="
+    <> int.to_string(offset)
+  case request.to(url) {
+    Error(_) -> FalhaPolling(aviso: None, esperar_ms: 2000)
+    Ok(req) ->
+      case httpc.send(request.set_method(req, http.Get)) {
+        Ok(resp) if resp.status == 200 -> NovosUpdates(resp.body)
+        Ok(resp) if resp.status == 409 ->
+          case string.contains(resp.body, "webhook is active") {
+            True -> WebhookAtivo
+            False -> OutraInstancia
+          }
+        Ok(resp) ->
+          FalhaPolling(
+            aviso: Some(
+              "Telegram poller: status inesperado "
+              <> int.to_string(resp.status),
+            ),
+            esperar_ms: 2000,
+          )
+        // Erro de rede ou timeout de conexão — normal em conexões long-polling
+        Error(_) -> FalhaPolling(aviso: None, esperar_ms: 1000)
+      }
+  }
 }
 
 // ---------------------------------------------------------------------------

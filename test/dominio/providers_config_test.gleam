@@ -4,16 +4,23 @@ import dominio/providers_config
 import gleam/dict
 import gleam/list
 import gleeunit/should
+import simplifile
+
+fn ler_yaml() -> providers_config.ProvidersConfig {
+  let assert Ok(texto) = simplifile.read("./config/providers.yaml")
+  let assert Ok(cfg) = providers_config.parsear(texto)
+  cfg
+}
 
 pub fn ler_arquivo_yaml_test() {
-  let assert Ok(cfg) = providers_config.ler_arquivo("./config/providers.yaml")
+  let cfg = ler_yaml()
   let providers = providers_config.listar_provedores(cfg)
   list.contains(providers, "gemini") |> should.be_true
   list.contains(providers, "openrouter") |> should.be_true
 }
 
 pub fn validar_modelo_yaml_test() {
-  let assert Ok(cfg) = providers_config.ler_arquivo("./config/providers.yaml")
+  let cfg = ler_yaml()
   providers_config.validar_modelo(cfg, "gemini", "gemini-3.5-flash-lite")
   |> should.be_ok
 }

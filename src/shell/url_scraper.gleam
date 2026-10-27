@@ -2,18 +2,16 @@
 // Remove scripts, estilos, navegação e ruídos para entregar um texto limpo
 // e acessível para a IA resumir.
 
-import adaptadores/whatsmeow_http
 import dominio/erro.{type Erro}
 import gleam/list
 import gleam/result
 import gleam/string
-import shell/sistema
+import portas/ponte_porta.{type PontePorta}
 
 pub const max_chars = 6000
 
-pub fn buscar(url: String) -> Result(String, Erro) {
-  let bridge_url = sistema.url_ponte()
-  use html <- result.try(whatsmeow_http.buscar_pagina(bridge_url, url))
+pub fn buscar(ponte: PontePorta, url: String) -> Result(String, Erro) {
+  use html <- result.try(ponte.buscar_pagina(url))
   html |> extrair_texto |> truncar(max_chars) |> Ok
 }
 

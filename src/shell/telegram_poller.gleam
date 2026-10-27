@@ -1,355 +1,244 @@
 // shell/telegram_poller.gleam
 // Poller assíncrono de updates do Telegram (long polling via OTP / BEAM).
 // Permite recepção de mensagens sem depender de webhook ou IP público.
+// Toda chamada à Bot API passa pela TelegramPorta.
 
-import adaptadores/telegram_http
 import adaptadores/telegram_webhook
 import dominio/erro
-import dominio/mensagem.{type Mensagem, Mensagem}
+import dominio/mensagem.{type Conteudo, type Mensagem, Mensagem}
 import gleam/erlang/process
-import gleam/http
-import gleam/http/request
-import gleam/httpc
 import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import logging
+import portas/telegram_porta.{
+  type AcaoChat, type TelegramPorta, FalhaPolling, NovosUpdates, OutraInstancia,
+  WebhookAtivo,
+}
 import shell/arquivos_temporarios
 import shell/handler_mensagem.{type Portas}
 import shell/sistema
 
-const base_url = "https://api.telegram.org"
-
-pub fn iniciar(bot_token: String, portas: Portas) -> Nil {
-  case string.trim(bot_token) {
-    "" -> Nil
-    token -> {
-      logging.log(logging.Info, "Iniciando Telegram poller (long polling)...")
-      spawn_poller(token, 0, portas)
-    }
-  }
+pub fn iniciar(api: TelegramPorta, portas: Portas) -> Nil {
+  logging.log(logging.Info, "Iniciando Telegram poller (long polling)...")
+  sistema.disparar(fn() { loop(api, 0, portas) })
 }
 
-fn spawn_poller(bot_token: String, offset: Int, portas: Portas) -> Nil {
-  sistema.disparar(fn() { loop(bot_token, offset, portas) })
-}
-
-fn loop(bot_token: String, offset: Int, portas: Portas) -> Nil {
-  let url =
-    base_url
-    <> "/bot"
-    <> bot_token
-    <> "/getUpdates?timeout=25&offset="
-    <> int.to_string(offset)
-
-  case request.to(url) {
-    Error(_) -> {
-      process.sleep(2000)
-      loop(bot_token, offset, portas)
-    }
-    Ok(req) -> {
-      let req =
-        req
-        |> request.set_method(http.Get)
-      case httpc.send(req) {
-        Ok(resp) if resp.status == 200 -> {
-          case telegram_webhook.extrair_updates(resp.body) {
-            Ok(updates) -> {
-              case updates {
-                [] -> Nil
-                _ ->
-                  logging.log(
-                    logging.Info,
-                    "Telegram poller recebeu "
-                      <> int.to_string(list.length(updates))
-                      <> " updates",
-                  )
-              }
-              let proximo_offset =
-                processar_updates(updates, offset, bot_token, portas)
-              loop(bot_token, proximo_offset, portas)
-            }
-            Error(e) -> {
-              logging.log(
-                logging.Warning,
-                "Telegram poller: falha ao extrair updates: "
-                  <> erro.descricao(e)
-                  <> " raw="
-                  <> resp.body,
-              )
-              process.sleep(1000)
-              loop(bot_token, offset, portas)
-            }
-          }
-        }
-        Ok(resp) if resp.status == 409 -> {
-          case string.contains(resp.body, "webhook is active") {
-            True -> {
+fn loop(api: TelegramPorta, offset: Int, portas: Portas) -> Nil {
+  case api.obter_updates(offset) {
+    NovosUpdates(corpo) ->
+      case telegram_webhook.extrair_updates(corpo) {
+        Ok(updates) -> {
+          case updates {
+            [] -> Nil
+            _ ->
               logging.log(
                 logging.Info,
-                "Telegram poller: webhook ativo, polling desativado.",
+                "Telegram poller recebeu "
+                  <> int.to_string(list.length(updates))
+                  <> " updates",
               )
-              Nil
-            }
-            False -> {
-              logging.log(
-                logging.Warning,
-                "Telegram poller: conflito 409 (outra instância ativa). Aguardando 5s...",
-              )
-              process.sleep(5000)
-              loop(bot_token, offset, portas)
-            }
           }
+          loop(api, processar_updates(updates, offset, api, portas), portas)
         }
-        Ok(resp) -> {
+        Error(e) -> {
           logging.log(
             logging.Warning,
-            "Telegram poller: status inesperado " <> int.to_string(resp.status),
+            "Telegram poller: falha ao extrair updates: "
+              <> erro.descricao(e)
+              <> " raw="
+              <> corpo,
           )
-          process.sleep(2000)
-          loop(bot_token, offset, portas)
-        }
-        Error(_) -> {
-          // Erro de rede ou timeout de conexão — normal em conexões long-polling
           process.sleep(1000)
-          loop(bot_token, offset, portas)
+          loop(api, offset, portas)
         }
       }
+    WebhookAtivo ->
+      logging.log(
+        logging.Info,
+        "Telegram poller: webhook ativo, polling desativado.",
+      )
+    OutraInstancia -> {
+      logging.log(
+        logging.Warning,
+        "Telegram poller: conflito 409 (outra instância ativa). Aguardando 5s...",
+      )
+      process.sleep(5000)
+      loop(api, offset, portas)
+    }
+    FalhaPolling(aviso, esperar_ms) -> {
+      case aviso {
+        Some(texto) -> logging.log(logging.Warning, texto)
+        None -> Nil
+      }
+      process.sleep(esperar_ms)
+      loop(api, offset, portas)
     }
   }
 }
 
 pub fn despachar_evento(
   evento: telegram_webhook.EventoUpdate,
-  bot_token: String,
+  api: TelegramPorta,
   portas: Portas,
 ) -> Nil {
   case evento {
-    telegram_webhook.EventoMensagemPronta(_, msg) -> {
+    telegram_webhook.EventoMensagemPronta(_, msg) ->
       sistema.disparar(fn() {
-        let _ =
-          telegram_http.enviar_chat_action(bot_token, msg.chat_id, "typing")
-        let _ = handler_mensagem.handle(msg, portas)
-        Nil
+        let _ = api.sinalizar(msg.chat_id, telegram_porta.Digitando)
+        processar(msg, portas)
       })
-    }
-    telegram_webhook.EventoFotoParaBaixar(_, base, file_id) -> {
+    telegram_webhook.EventoFotoParaBaixar(_, base, file_id) ->
       sistema.disparar(fn() {
-        reagir_se_possivel(base, portas)
-        let _ =
-          telegram_http.enviar_chat_action(
-            bot_token,
-            base.chat_id,
-            "upload_photo",
-          )
-        case telegram_http.baixar_arquivo(bot_token, file_id) {
-          Ok(bytes) -> {
-            let msg =
-              Mensagem(..base, corpo: mensagem.Imagem("image/jpeg", bytes))
-            let _ = handler_mensagem.handle(msg, portas)
-            Nil
-          }
+        use bytes <- baixar_ou_avisar(
+          api,
+          portas,
+          base,
+          file_id,
+          telegram_porta.EnviandoFoto,
+          "foto",
+          "Não consegui baixar a imagem do Telegram. Tente enviar novamente.",
+        )
+        processar_com(base, mensagem.Imagem("image/jpeg", bytes), portas)
+      })
+    telegram_webhook.EventoAudioParaBaixar(_, base, file_id, mime) ->
+      sistema.disparar(fn() {
+        use bytes <- baixar_ou_avisar(
+          api,
+          portas,
+          base,
+          file_id,
+          telegram_porta.EnviandoAudio,
+          "áudio",
+          "Não consegui baixar o áudio do Telegram. Tente enviar novamente.",
+        )
+        processar_com(base, mensagem.Audio(mime, bytes), portas)
+      })
+    telegram_webhook.EventoVideoParaBaixar(_, base, file_id, mime) ->
+      sistema.disparar(fn() {
+        use bytes <- baixar_ou_avisar(
+          api,
+          portas,
+          base,
+          file_id,
+          telegram_porta.EnviandoVideo,
+          "vídeo",
+          "Não consegui baixar o vídeo do Telegram. O limite suportado pelo bot é de 20MB.",
+        )
+        case arquivos_temporarios.gravar(bytes) {
+          Ok(caminho) ->
+            processar_com(
+              base,
+              mensagem.Video(caminho_temp: caminho, mime: mime),
+              portas,
+            )
           Error(e) -> {
             logging.log(
               logging.Warning,
-              "Telegram poller: falha ao baixar foto ("
-                <> file_id
-                <> "): "
-                <> string.inspect(e),
+              "Telegram poller: falha ao salvar vídeo temporário: " <> e,
             )
-            let _ =
-              portas.mensageiro.enviar(
-                base.chat_id,
-                "Não consegui baixar a imagem do Telegram. Tente enviar novamente.",
-              )
-            Nil
+            avisar(
+              base.chat_id,
+              "Não consegui salvar o vídeo temporariamente. Tente novamente.",
+              portas,
+            )
           }
         }
       })
-    }
-    telegram_webhook.EventoAudioParaBaixar(_, base, file_id, mime) -> {
-      sistema.disparar(fn() {
-        reagir_se_possivel(base, portas)
-        let _ =
-          telegram_http.enviar_chat_action(
-            bot_token,
-            base.chat_id,
-            "upload_voice",
-          )
-        case telegram_http.baixar_arquivo(bot_token, file_id) {
-          Ok(bytes) -> {
-            let msg = Mensagem(..base, corpo: mensagem.Audio(mime, bytes))
-            let _ = handler_mensagem.handle(msg, portas)
-            Nil
-          }
-          Error(e) -> {
-            logging.log(
-              logging.Warning,
-              "Telegram poller: falha ao baixar áudio ("
-                <> file_id
-                <> "): "
-                <> string.inspect(e),
-            )
-            let _ =
-              portas.mensageiro.enviar(
-                base.chat_id,
-                "Não consegui baixar o áudio do Telegram. Tente enviar novamente.",
-              )
-            Nil
-          }
-        }
-      })
-    }
-    telegram_webhook.EventoVideoParaBaixar(_, base, file_id, mime) -> {
-      sistema.disparar(fn() {
-        reagir_se_possivel(base, portas)
-        let _ =
-          telegram_http.enviar_chat_action(
-            bot_token,
-            base.chat_id,
-            "upload_video",
-          )
-        case telegram_http.baixar_arquivo(bot_token, file_id) {
-          Ok(bytes) -> {
-            case arquivos_temporarios.gravar(bytes) {
-              Ok(caminho) -> {
-                let msg =
-                  Mensagem(
-                    ..base,
-                    corpo: mensagem.Video(caminho_temp: caminho, mime: mime),
-                  )
-                let _ = handler_mensagem.handle(msg, portas)
-                Nil
-              }
-              Error(e) -> {
-                logging.log(
-                  logging.Warning,
-                  "Telegram poller: falha ao salvar vídeo temporário: " <> e,
-                )
-                let _ =
-                  portas.mensageiro.enviar(
-                    base.chat_id,
-                    "Não consegui salvar o vídeo temporariamente. Tente novamente.",
-                  )
-                Nil
-              }
-            }
-          }
-          Error(e) -> {
-            logging.log(
-              logging.Warning,
-              "Telegram poller: falha ao baixar vídeo ("
-                <> file_id
-                <> "): "
-                <> string.inspect(e),
-            )
-            let _ =
-              portas.mensageiro.enviar(
-                base.chat_id,
-                "Não consegui baixar o vídeo do Telegram. O limite suportado pelo bot é de 20MB.",
-              )
-            Nil
-          }
-        }
-      })
-    }
     telegram_webhook.EventoDocumentoParaBaixar(
       _,
       base,
       file_id,
       mime,
       file_name,
-    ) -> {
+    ) ->
       sistema.disparar(fn() {
-        reagir_se_possivel(base, portas)
-        let _ =
-          telegram_http.enviar_chat_action(
-            bot_token,
-            base.chat_id,
-            "upload_document",
-          )
-        case telegram_http.baixar_arquivo(bot_token, file_id) {
-          Ok(bytes) -> {
-            let msg =
-              Mensagem(
-                ..base,
-                corpo: mensagem.Documento(
-                  mime: mime,
-                  dados: bytes,
-                  nome: file_name,
-                ),
-              )
-            let _ = handler_mensagem.handle(msg, portas)
-            Nil
-          }
-          Error(e) -> {
-            logging.log(
-              logging.Warning,
-              "Telegram poller: falha ao baixar documento ("
-                <> file_id
-                <> "): "
-                <> string.inspect(e),
-            )
-            let _ =
-              portas.mensageiro.enviar(
-                base.chat_id,
-                "Não consegui baixar o documento do Telegram. O limite suportado pelo bot é de 20MB.",
-              )
-            Nil
-          }
-        }
+        use bytes <- baixar_ou_avisar(
+          api,
+          portas,
+          base,
+          file_id,
+          telegram_porta.EnviandoDocumento,
+          "documento",
+          "Não consegui baixar o documento do Telegram. O limite suportado pelo bot é de 20MB.",
+        )
+        processar_com(
+          base,
+          mensagem.Documento(mime: mime, dados: bytes, nome: file_name),
+          portas,
+        )
       })
-    }
-    telegram_webhook.EventoStickerParaBaixar(_, base, file_id, mime) -> {
+    telegram_webhook.EventoStickerParaBaixar(_, base, file_id, mime) ->
       sistema.disparar(fn() {
-        reagir_se_possivel(base, portas)
-        let _ =
-          telegram_http.enviar_chat_action(
-            bot_token,
-            base.chat_id,
-            "choose_sticker",
-          )
-        case telegram_http.baixar_arquivo(bot_token, file_id) {
-          Ok(bytes) -> {
-            let msg =
-              Mensagem(
-                ..base,
-                corpo: mensagem.Sticker(mime: mime, dados: bytes),
-              )
-            let _ = handler_mensagem.handle(msg, portas)
-            Nil
-          }
-          Error(e) -> {
-            logging.log(
-              logging.Warning,
-              "Telegram poller: falha ao baixar figurinha ("
-                <> file_id
-                <> "): "
-                <> string.inspect(e),
-            )
-            let _ =
-              portas.mensageiro.enviar(
-                base.chat_id,
-                "Não consegui baixar a figurinha do Telegram. Tente enviar novamente.",
-              )
-            Nil
-          }
-        }
+        use bytes <- baixar_ou_avisar(
+          api,
+          portas,
+          base,
+          file_id,
+          telegram_porta.EscolhendoFigurinha,
+          "figurinha",
+          "Não consegui baixar a figurinha do Telegram. Tente enviar novamente.",
+        )
+        processar_com(base, mensagem.Sticker(mime: mime, dados: bytes), portas)
       })
-    }
-    telegram_webhook.EventoArquivoMuitoGrande(_, chat_id, tamanho_mb) -> {
+    telegram_webhook.EventoArquivoMuitoGrande(_, chat_id, tamanho_mb) ->
       sistema.disparar(fn() {
-        let msg_aviso =
+        avisar(
+          chat_id,
           "Não consegui baixar o arquivo do Telegram. O limite suportado pelo bot é de 20 MB (este arquivo possui cerca de "
-          <> int.to_string(tamanho_mb)
-          <> " MB). Se possível, envie uma versão menor ou mais curta."
-        let _ = portas.mensageiro.enviar(chat_id, msg_aviso)
-        Nil
+            <> int.to_string(tamanho_mb)
+            <> " MB). Se possível, envie uma versão menor ou mais curta.",
+          portas,
+        )
       })
-    }
     telegram_webhook.EventoIgnorado(_) -> Nil
   }
+}
+
+/// Reage com 🤔, sinaliza a atividade no chat e baixa o arquivo. Se o
+/// download falhar, registra no log e avisa o usuário em vez de continuar.
+fn baixar_ou_avisar(
+  api: TelegramPorta,
+  portas: Portas,
+  base: Mensagem,
+  file_id: String,
+  acao: AcaoChat,
+  nome_midia: String,
+  aviso_falha: String,
+  continuar: fn(BitArray) -> Nil,
+) -> Nil {
+  reagir_se_possivel(base, portas)
+  let _ = api.sinalizar(base.chat_id, acao)
+  case api.baixar_arquivo(file_id) {
+    Ok(bytes) -> continuar(bytes)
+    Error(e) -> {
+      logging.log(
+        logging.Warning,
+        "Telegram poller: falha ao baixar "
+          <> nome_midia
+          <> " ("
+          <> file_id
+          <> "): "
+          <> string.inspect(e),
+      )
+      avisar(base.chat_id, aviso_falha, portas)
+    }
+  }
+}
+
+fn processar_com(base: Mensagem, corpo: Conteudo, portas: Portas) -> Nil {
+  processar(Mensagem(..base, corpo: corpo), portas)
+}
+
+fn processar(msg: Mensagem, portas: Portas) -> Nil {
+  let _ = handler_mensagem.handle(msg, portas)
+  Nil
+}
+
+fn avisar(chat_id: String, texto: String, portas: Portas) -> Nil {
+  portas.mensageiro.enviar(chat_id, texto)
+  |> sistema.registrar_falha("Falha ao avisar usuário do Telegram")
 }
 
 fn reagir_se_possivel(msg: Mensagem, portas: Portas) -> Nil {
@@ -365,11 +254,11 @@ fn reagir_se_possivel(msg: Mensagem, portas: Portas) -> Nil {
 pub fn processar_updates(
   updates: List(telegram_webhook.EventoUpdate),
   offset_atual: Int,
-  bot_token: String,
+  api: TelegramPorta,
   portas: Portas,
 ) -> Int {
   list.fold(updates, offset_atual, fn(maior_offset, evento) {
-    despachar_evento(evento, bot_token, portas)
+    despachar_evento(evento, api, portas)
     int.max(maior_offset, telegram_webhook.obter_update_id(evento) + 1)
   })
 }

@@ -10,6 +10,7 @@ import gleeunit/should
 import helpers/env
 import helpers/fixtures
 import helpers/portas_fake
+import portas/ponte_porta.{type PontePorta, PontePorta, StatusBridge}
 import portas/spammer_porta.{SpammerPorta}
 import shell/fila_midia
 import shell/handler_mensagem.{Portas}
@@ -47,6 +48,7 @@ pub fn audio_off_persiste_config_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
   let msg = fixtures.mensagem_comando("audio", "off")
   let _ = handler_mensagem.handle(msg, portas)
@@ -73,6 +75,7 @@ pub fn audio_on_persiste_config_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
   let msg = fixtures.mensagem_comando("audio", "on")
   let _ = handler_mensagem.handle(msg, portas)
@@ -99,6 +102,7 @@ pub fn audio_toggle_sem_argumento_persiste_config_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
   // config_padrao tem audio_ativo: True; sem argumento, alterna para False
   let msg = fixtures.mensagem_comando("audio", "")
@@ -126,6 +130,7 @@ pub fn reset_limpa_historico_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
   let msg = fixtures.mensagem_comando("reset", "")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -152,6 +157,7 @@ pub fn cego_persiste_config_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
   let msg = fixtures.mensagem_comando("cego", "")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -181,6 +187,7 @@ pub fn longo_persiste_config_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
   let msg = fixtures.mensagem_comando("longo", "")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -207,6 +214,7 @@ pub fn curto_persiste_config_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
   let msg = fixtures.mensagem_comando("curto", "")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -233,6 +241,7 @@ pub fn legenda_on_persiste_config_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
   let msg = fixtures.mensagem_comando("legenda", "on")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -262,6 +271,7 @@ pub fn parear_bloqueado_para_nao_admin_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
   let msg =
     mensagem.Mensagem(
@@ -297,6 +307,7 @@ pub fn status_bloqueado_para_nao_admin_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
   let msg =
     mensagem.Mensagem(
@@ -313,7 +324,6 @@ pub fn status_bloqueado_para_nao_admin_test() {
 
 pub fn status_permitido_para_admin_test() {
   use <- env.com_variavel("TELEGRAM_ADMIN_CHAT_ID", "424242")
-  use <- env.com_variavel("WHATSMEOW_URL", "http://127.0.0.1:0")
   let ref_envio = process.new_subject()
   let portas =
     Portas(
@@ -333,6 +343,7 @@ pub fn status_permitido_para_admin_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
   let msg =
     mensagem.Mensagem(
@@ -369,6 +380,7 @@ pub fn reset_whatsapp_bloqueado_para_nao_admin_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
   let msg =
     mensagem.Mensagem(
@@ -385,7 +397,6 @@ pub fn reset_whatsapp_bloqueado_para_nao_admin_test() {
 
 pub fn reset_whatsapp_permitido_para_admin_test() {
   use <- env.com_variavel("TELEGRAM_ADMIN_CHAT_ID", "424242")
-  use <- env.com_variavel("WHATSMEOW_URL", "http://127.0.0.1:0")
   let ref_envio = process.new_subject()
   let portas =
     Portas(
@@ -405,6 +416,7 @@ pub fn reset_whatsapp_permitido_para_admin_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
   let msg =
     mensagem.Mensagem(
@@ -443,6 +455,7 @@ pub fn resumo_historico_curto_avisa_usuario_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
   let msg = fixtures.mensagem_comando("resumo", "")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -459,7 +472,6 @@ pub fn admin_exige_remetente_chat_privado_e_configuracao_test() {
 
 pub fn admin_em_grupo_nao_recebe_resposta_test() {
   use <- env.com_variavel("TELEGRAM_ADMIN_CHAT_ID", "424242")
-  use <- env.com_variavel("WHATSMEOW_URL", "http://127.0.0.1:0")
   let envios = process.new_subject()
   let cfg = config.Config(..fixtures.config_padrao(), chat_id: "tg:424242")
   let portas =
@@ -480,7 +492,6 @@ pub fn admin_em_grupo_nao_recebe_resposta_test() {
 
 fn verificar_reset_bloqueado(admin: String, chat: String, remetente: String) {
   use <- env.com_variavel("TELEGRAM_ADMIN_CHAT_ID", admin)
-  use <- env.com_variavel("WHATSMEOW_URL", "http://127.0.0.1:0")
   let envios = process.new_subject()
   let cfg = config.Config(..fixtures.config_padrao(), chat_id: chat)
   let portas =
@@ -519,6 +530,7 @@ pub fn resumo_historico_com_turnos_gera_resumo_test() {
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
   let msg = fixtures.mensagem_comando("resumo", "")
   handler_mensagem.handle(msg, portas) |> should.be_ok
@@ -600,6 +612,7 @@ pub fn spammers_admin_lista_vazia_test() {
       mensageiro: portas_fake.mensageiro_capturar(envios),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
     )
   let msg =
     mensagem.Mensagem(
@@ -611,4 +624,63 @@ pub fn spammers_admin_lista_vazia_test() {
   handler_mensagem.handle(msg, portas) |> should.be_ok
   let assert Ok(#(_, texto)) = process.receive(envios, 1000)
   string.contains(texto, "Nenhum incidente registrado") |> should.be_true
+}
+
+fn executar_como_admin(comando: String, args: String, ponte: PontePorta) {
+  use <- env.com_variavel("TELEGRAM_ADMIN_CHAT_ID", "424242")
+  let envios = process.new_subject()
+  let cfg = config.Config(..fixtures.config_padrao(), chat_id: "tg:424242")
+  let portas =
+    Portas(
+      ..portas_fake.portas_ok(cfg, "unused"),
+      mensageiro: portas_fake.mensageiro_capturar(envios),
+      ponte: ponte,
+    )
+  let msg =
+    mensagem.Mensagem(
+      ..fixtures.mensagem_comando(comando, args),
+      chat_id: "tg:424242",
+      remetente: "tg:424242",
+    )
+  handler_mensagem.handle(msg, portas) |> should.be_ok
+  let assert Ok(#(_, texto)) = process.receive(envios, 1000)
+  texto
+}
+
+pub fn status_mostra_whatsapp_conectado_test() {
+  executar_como_admin(
+    "status",
+    "",
+    portas_fake.ponte_com_status(StatusBridge(conectado: True, logado: True)),
+  )
+  |> string.contains("🟢 Conectado")
+  |> should.be_true
+}
+
+pub fn parear_com_whatsapp_conectado_nao_pede_codigo_test() {
+  let ponte =
+    PontePorta(
+      ..portas_fake.ponte_com_status(StatusBridge(conectado: True, logado: True)),
+      pedir_pairing_code: fn(_) { panic as "não deveria pedir código" },
+    )
+  executar_como_admin("parear", "5531999990000", ponte)
+  |> string.contains("já está conectado")
+  |> should.be_true
+}
+
+pub fn parear_com_numero_entrega_codigo_test() {
+  let ponte =
+    PontePorta(
+      ..portas_fake.ponte_com_status(StatusBridge(
+        conectado: True,
+        logado: False,
+      )),
+      pedir_pairing_code: fn(telefone) {
+        telefone |> should.equal("5531999990000")
+        Ok("ABCD-1234")
+      },
+    )
+  executar_como_admin("parear", "5531999990000", ponte)
+  |> string.contains("ABCD-1234")
+  |> should.be_true
 }

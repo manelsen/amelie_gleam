@@ -116,6 +116,9 @@ A Amélie só atende conversas privadas, nos dois canais. No WhatsApp, a ponte d
 
 ### Ports (Abstract interfaces as record-of-functions)
 
+`shell/` and `core/` reach external services only through these ports; `amelie_gleam.gleam` is the only place that builds adapters. `dominio/providers_config` only parses YAML text — the entry point reads `config/providers.yaml`.
+
+
 - `portas/mensageiro_porta.MensageiroPorta` — send messages and reactions (WhatsApp bridge, Telegram).
 - `portas/ia_porta.IAPorta` — Gemini / OpenRouter AI operations (text, image, audio, video, document, file upload/poll/delete).
 - `portas/config_porta.ConfigPorta` — per-chat config persistence.
@@ -124,11 +127,13 @@ A Amélie só atende conversas privadas, nos dois canais. No WhatsApp, a ponte d
 - `portas/usuario_porta.UsuarioPorta` — user registration and listing.
 - `portas/grupo_porta.GrupoPorta` — group registration and listing.
 - `portas/prompt_porta.PromptPorta` — custom system prompts persistence.
+- `portas/ponte_porta.PontePorta` — whatsmeow bridge operations other than messaging: status, pairing code, session reset, page fetch (`/fetch`).
+- `portas/telegram_porta.TelegramPorta` — Bot API operations other than messaging: `getUpdates` long polling, chat actions (typed `AcaoChat`), file download.
 
 ### Adapters
 
-- `adaptadores/whatsmeow_http` → implements `MensageiroPorta` for WhatsApp (calls Go bridge, parses structured `APIError` and network errors).
-- `adaptadores/telegram_http` → implements `MensageiroPorta` for Telegram (sends text, chat actions, reactions, downloads media).
+- `adaptadores/whatsmeow_http` → implements `MensageiroPorta` (`criar`) and `PontePorta` (`criar_ponte`) for WhatsApp (calls Go bridge, parses structured `APIError` and network errors).
+- `adaptadores/telegram_http` → implements `MensageiroPorta` (`criar`) and `TelegramPorta` (`criar_api`) for Telegram (sends text, chat actions, reactions, downloads media).
 - `adaptadores/roteador_mensageiro` → routes calls to `whatsmeow_http` or `telegram_http` based on `chat_id` prefix (`tg:` vs WhatsApp JID).
 - `adaptadores/gemini_http` → implements `IAPorta` (Google Gemini REST & File API).
 - `adaptadores/openrouter_http` → implements `IAPorta` (OpenRouter API).
