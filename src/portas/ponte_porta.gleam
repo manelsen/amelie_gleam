@@ -3,6 +3,10 @@
 
 import dominio/erro.{type Erro}
 
+/// Cabeçalho com o segredo compartilhado (BRIDGE_TOKEN), nos dois sentidos:
+/// Gleam → ponte e ponte → webhooks do Gleam.
+pub const cabecalho_token = "x-amelie-bridge-token"
+
 pub type StatusPonte {
   StatusPonte(conectado: Bool, logado: Bool)
 }

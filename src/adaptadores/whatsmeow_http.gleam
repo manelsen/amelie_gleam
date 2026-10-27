@@ -4,7 +4,7 @@
 import dominio/erro.{type Erro}
 import gleam/dynamic/decode
 import gleam/http
-import gleam/http/request
+import gleam/http/request.{type Request}
 import gleam/httpc
 import gleam/int
 import gleam/json
@@ -14,33 +14,41 @@ import portas/mensageiro_porta.{type MensageiroPorta, MensageiroPorta}
 import portas/ponte_porta.{
   type PontePorta, type StatusPonte, PontePorta, StatusPonte,
 }
-import shell/seguranca_http
 
-pub fn criar(base_url: String) -> MensageiroPorta {
+/// Onde fica a ponte e o segredo que autentica cada requisição a ela.
+pub type Conexao {
+  Conexao(url: String, token: String)
+}
+
+fn autenticar(req: Request(a), conexao: Conexao) -> Request(a) {
+  request.set_header(req, ponte_porta.cabecalho_token, conexao.token)
+}
+
+pub fn criar(conexao: Conexao) -> MensageiroPorta {
   MensageiroPorta(
-    enviar: fn(chat_id, texto) { enviar_mensagem(base_url, chat_id, texto) },
+    enviar: fn(chat_id, texto) { enviar_mensagem(conexao, chat_id, texto) },
     enviar_citando: fn(chat_id, quoted_id, quoted_sender, texto) {
-      enviar_citando(base_url, chat_id, quoted_id, quoted_sender, texto)
+      enviar_citando(conexao, chat_id, quoted_id, quoted_sender, texto)
     },
     reagir: fn(chat_id, message_id, sender, emoji) {
-      reagir(base_url, chat_id, message_id, sender, emoji)
+      reagir(conexao, chat_id, message_id, sender, emoji)
     },
   )
 }
 
-pub fn criar_ponte(base_url: String) -> PontePorta {
+pub fn criar_ponte(conexao: Conexao) -> PontePorta {
   PontePorta(
-    checar_status: fn() { checar_status(base_url) },
+    checar_status: fn() { checar_status(conexao) },
     pedir_codigo_pareamento: fn(telefone) {
-      pedir_codigo_pareamento(base_url, telefone)
+      pedir_codigo_pareamento(conexao, telefone)
     },
-    resetar_sessao: fn(telefone) { resetar_sessao(base_url, telefone) },
-    buscar_pagina: fn(url) { buscar_pagina(base_url, url) },
+    resetar_sessao: fn(telefone) { resetar_sessao(conexao, telefone) },
+    buscar_pagina: fn(url) { buscar_pagina(conexao, url) },
   )
 }
 
 fn enviar_citando(
-  base_url: String,
+  conexao: Conexao,
   chat_id: String,
   quoted_id: String,
   quoted_sender: String,
@@ -54,11 +62,11 @@ fn enviar_citando(
       #("quoted_sender", json.string(quoted_sender)),
     ])
     |> json.to_string
-  post(base_url, body)
+  post(conexao, body)
 }
 
 fn enviar_mensagem(
-  base_url: String,
+  conexao: Conexao,
   chat_id: String,
   texto: String,
 ) -> Result(Nil, Erro) {
@@ -68,11 +76,11 @@ fn enviar_mensagem(
       #("text", json.string(texto)),
     ])
     |> json.to_string
-  post(base_url, body)
+  post(conexao, body)
 }
 
 fn reagir(
-  base_url: String,
+  conexao: Conexao,
   chat_id: String,
   message_id: String,
   sender: String,
@@ -87,7 +95,7 @@ fn reagir(
     ])
     |> json.to_string
   use req <- result.try(
-    request.to(base_url <> "/react")
+    request.to(conexao.url <> "/react")
     |> result.map_error(fn(_) { erro.ErroComunicacao("url inválida") }),
   )
   let req =
@@ -96,7 +104,7 @@ fn reagir(
     |> request.set_header("content-type", "application/json")
     |> request.set_body(body)
   use resp <- result.try(
-    httpc.send(seguranca_http.autenticar_ponte(req))
+    httpc.send(autenticar(req, conexao))
     |> result.map_error(fn(error) {
       erro.ErroComunicacao(descrever_erro_transporte(error))
     }),
@@ -104,9 +112,9 @@ fn reagir(
   interpretar_resposta(resp.status, resp.body)
 }
 
-fn post(base_url: String, body: String) -> Result(Nil, Erro) {
+fn post(conexao: Conexao, body: String) -> Result(Nil, Erro) {
   use req <- result.try(
-    request.to(base_url <> "/send")
+    request.to(conexao.url <> "/send")
     |> result.map_error(fn(_) { erro.ErroComunicacao("url inválida") }),
   )
 
@@ -117,7 +125,7 @@ fn post(base_url: String, body: String) -> Result(Nil, Erro) {
     |> request.set_body(body)
 
   use resp <- result.try(
-    httpc.send(seguranca_http.autenticar_ponte(req))
+    httpc.send(autenticar(req, conexao))
     |> result.map_error(fn(error) {
       erro.ErroComunicacao(descrever_erro_transporte(error))
     }),
@@ -173,14 +181,14 @@ fn descrever_erro_conexao(error: httpc.ConnectError) -> String {
   }
 }
 
-pub fn checar_status(base_url: String) -> Result(StatusPonte, Erro) {
+pub fn checar_status(conexao: Conexao) -> Result(StatusPonte, Erro) {
   use req <- result.try(
-    request.to(base_url <> "/health")
+    request.to(conexao.url <> "/health")
     |> result.map_error(fn(_) { erro.ErroComunicacao("url inválida") }),
   )
   let req = req |> request.set_method(http.Get)
   use resp <- result.try(
-    httpc.send(seguranca_http.autenticar_ponte(req))
+    httpc.send(autenticar(req, conexao))
     |> result.map_error(fn(err) {
       erro.ErroComunicacao(descrever_erro_transporte(err))
     }),
@@ -196,19 +204,19 @@ pub fn checar_status(base_url: String) -> Result(StatusPonte, Erro) {
 }
 
 pub fn pedir_codigo_pareamento(
-  base_url: String,
+  conexao: Conexao,
   phone: String,
 ) -> Result(String, String) {
   let body =
     json.object([#("phone", json.string(phone))])
     |> json.to_string
   let req =
-    request.to(base_url <> "/pair-phone")
+    request.to(conexao.url <> "/pair-phone")
     |> result.unwrap(request.new())
     |> request.set_method(http.Post)
     |> request.set_header("content-type", "application/json")
     |> request.set_body(body)
-  case httpc.send(seguranca_http.autenticar_ponte(req)) {
+  case httpc.send(autenticar(req, conexao)) {
     Error(err) -> Error(descrever_erro_transporte(err))
     Ok(resp) -> {
       let decoder_sucesso = {
@@ -231,7 +239,7 @@ pub fn pedir_codigo_pareamento(
   }
 }
 
-pub fn resetar_sessao(base_url: String, phone: String) -> Result(Nil, String) {
+pub fn resetar_sessao(conexao: Conexao, phone: String) -> Result(Nil, String) {
   let body = case phone {
     "" -> "{}"
     p ->
@@ -239,12 +247,12 @@ pub fn resetar_sessao(base_url: String, phone: String) -> Result(Nil, String) {
       |> json.to_string
   }
   let req =
-    request.to(base_url <> "/reset-session")
+    request.to(conexao.url <> "/reset-session")
     |> result.unwrap(request.new())
     |> request.set_method(http.Post)
     |> request.set_header("content-type", "application/json")
     |> request.set_body(body)
-  case httpc.send(seguranca_http.autenticar_ponte(req)) {
+  case httpc.send(autenticar(req, conexao)) {
     Error(err) -> Error(descrever_erro_transporte(err))
     Ok(resp) -> {
       case resp.status {
@@ -256,9 +264,9 @@ pub fn resetar_sessao(base_url: String, phone: String) -> Result(Nil, String) {
 }
 
 /// O bridge resolve e fixa o IP público de cada conexão e redirecionamento.
-pub fn buscar_pagina(base_url: String, url: String) -> Result(String, Erro) {
+pub fn buscar_pagina(conexao: Conexao, url: String) -> Result(String, Erro) {
   use req <- result.try(
-    request.to(base_url <> "/fetch")
+    request.to(conexao.url <> "/fetch")
     |> result.map_error(fn(_) { erro.ErroComunicacao("URL do bridge inválida") }),
   )
   let req =
@@ -268,7 +276,7 @@ pub fn buscar_pagina(base_url: String, url: String) -> Result(String, Erro) {
     |> request.set_body(
       json.object([#("url", json.string(url))]) |> json.to_string,
     )
-    |> seguranca_http.autenticar_ponte
+    |> autenticar(conexao)
   use resp <- result.try(
     httpc.send(req)
     |> result.map_error(fn(err) {

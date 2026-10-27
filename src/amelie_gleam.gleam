@@ -118,7 +118,9 @@ pub fn main() {
   let transacoes_p = transacao_sqlite.criar(conn)
   let spammers_p = spammer_sqlite.criar(conn)
   let video_contexto_p = video_contexto_sqlite.criar(conn)
-  let whatsapp = whatsmeow_http.criar(url_ponte)
+  let conexao_ponte =
+    whatsmeow_http.Conexao(url: url_ponte, token: bridge_token)
+  let whatsapp = whatsmeow_http.criar(conexao_ponte)
   let telegram = telegram_http.criar(telegram_bot_token)
   let mensageiro = roteador_mensageiro.criar(whatsapp, telegram)
 
@@ -164,7 +166,7 @@ pub fn main() {
       anti_spam: procs.anti_spam,
       spammers: spammers_p,
       video_contexto: video_contexto_p,
-      ponte: whatsmeow_http.criar_ponte(url_ponte),
+      ponte: whatsmeow_http.criar_ponte(conexao_ponte),
     )
 
   case string.trim(telegram_bot_token) {
@@ -178,7 +180,6 @@ pub fn main() {
         req,
         portas,
         conn,
-        url_ponte,
         telegram_secret_token,
         telegram_bot_token,
         telegram_admin_chat_id,
@@ -200,7 +201,6 @@ fn tratar_requisicao(
   req: Request(Connection),
   portas: Portas,
   conn: sqlight.Connection,
-  url_ponte: String,
   telegram_secret: String,
   telegram_bot_token: String,
   telegram_admin_chat_id: String,
@@ -208,33 +208,25 @@ fn tratar_requisicao(
 ) -> response.Response(ResponseData) {
   case req.path {
     "/webhook" ->
-      proteger_webhook(
-        req,
-        seguranca_http.cabecalho_bridge,
-        bridge_token,
-        fn(req) { tratar_webhook(req, portas) },
-      )
+      proteger_webhook(req, ponte_porta.cabecalho_token, bridge_token, fn(req) {
+        tratar_webhook(req, portas)
+      })
     "/webhook/telegram" ->
       tratar_webhook_telegram(req, portas, telegram_secret, telegram_bot_token)
     "/webhook/bridge-event" ->
-      proteger_webhook(
-        req,
-        seguranca_http.cabecalho_bridge,
-        bridge_token,
-        fn(req) {
-          tratar_evento_ponte(req, telegram_bot_token, telegram_admin_chat_id)
-        },
-      )
+      proteger_webhook(req, ponte_porta.cabecalho_token, bridge_token, fn(req) {
+        tratar_evento_ponte(req, telegram_bot_token, telegram_admin_chat_id)
+      })
     "/health" ->
       case
         seguranca_http.autorizado(
           req,
-          seguranca_http.cabecalho_bridge,
+          ponte_porta.cabecalho_token,
           bridge_token,
         )
       {
-        True -> tratar_saude(conn, url_ponte, telegram_bot_token)
-        False -> tratar_saude_publica(conn, url_ponte)
+        True -> tratar_saude(conn, portas.ponte, telegram_bot_token)
+        False -> tratar_saude_publica(conn, portas.ponte)
       }
     _ -> resposta_json(404, "{\"error\":\"not found\"}")
   }
@@ -254,7 +246,7 @@ fn proteger_webhook(
 
 pub fn tratar_saude(
   conn: sqlight.Connection,
-  url_ponte: String,
+  ponte: ponte_porta.PontePorta,
   telegram_bot_token: String,
 ) -> response.Response(ResponseData) {
   let #(sqlite_status, sqlite_ok) = case sqlight.exec("SELECT 1;", conn) {
@@ -262,9 +254,7 @@ pub fn tratar_saude(
     Error(err) -> #(err.message, False)
   }
 
-  let #(wa_status, wa_connected, wa_logged_in) = case
-    whatsmeow_http.checar_status(url_ponte)
-  {
+  let #(wa_status, wa_connected, wa_logged_in) = case ponte.checar_status() {
     Ok(ponte_porta.StatusPonte(conectado, logado)) -> {
       let st = case logado {
         True -> "ok"
@@ -338,13 +328,13 @@ pub fn tratar_saude(
 /// token da ponte, em `x-amelie-bridge-token`.
 pub fn tratar_saude_publica(
   conn: sqlight.Connection,
-  url_ponte: String,
+  ponte: ponte_porta.PontePorta,
 ) -> response.Response(ResponseData) {
   let sqlite_ok = case sqlight.exec("SELECT 1;", conn) {
     Ok(_) -> True
     Error(_) -> False
   }
-  let wa_logado = case whatsmeow_http.checar_status(url_ponte) {
+  let wa_logado = case ponte.checar_status() {
     Ok(ponte_porta.StatusPonte(_, logado)) -> logado
     Error(_) -> False
   }
