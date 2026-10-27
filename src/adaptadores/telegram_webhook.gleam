@@ -18,6 +18,12 @@ pub type TelegramUpdate {
   TelegramUpdate(update_id: Int, message: Option(TelegramMessage))
 }
 
+/// Arquivo de mídia anexado a uma mensagem: id para baixar via getFile, MIME
+/// (do Telegram ou um padrão por tipo) e tamanho, quando informado.
+pub type ArquivoTelegram {
+  ArquivoTelegram(file_id: String, mime: String, tamanho: Option(Int))
+}
+
 pub type TelegramMessage {
   TelegramMessage(
     message_id: Int,
@@ -28,12 +34,12 @@ pub type TelegramMessage {
     text: Option(String),
     caption: Option(String),
     photo_file_id: Option(String),
-    voice: Option(#(String, String, Option(Int))),
-    audio: Option(#(String, String, Option(Int))),
-    video: Option(#(String, String, Option(Int))),
-    video_note: Option(#(String, String, Option(Int))),
-    animation: Option(#(String, String, Option(Int))),
-    document: Option(#(String, String, String, Option(Int))),
+    voice: Option(ArquivoTelegram),
+    audio: Option(ArquivoTelegram),
+    video: Option(ArquivoTelegram),
+    video_note: Option(ArquivoTelegram),
+    animation: Option(ArquivoTelegram),
+    document: Option(#(ArquivoTelegram, String)),
     sticker: Option(#(String, String, Option(String))),
   )
 }
@@ -127,221 +133,97 @@ fn tamanho_em_mb(bytes: Int) -> Int {
   int.max(1, bytes / 1_048_576)
 }
 
-fn checar_tamanho_ou_despachar(
-  update_id: Int,
-  chat_id: String,
-  file_size: Option(Int),
-  ok_fn: fn() -> EventoUpdate,
-) -> EventoUpdate {
-  case file_size {
-    Some(size) if size > limite_download_bytes ->
-      EventoArquivoMuitoGrande(update_id, chat_id, tamanho_em_mb(size))
-    _ -> ok_fn()
-  }
-}
+/// Extensões tratadas como vídeo quando o arquivo chega como documento.
+const extensoes_video = [".mp4", ".mov", ".mkv", ".webm"]
 
 pub fn converter_update_em_evento(update: TelegramUpdate) -> EventoUpdate {
   case update.message {
-    None -> EventoIgnorado(update.update_id)
-    Some(msg) -> {
-      // Regra de segurança/privacidade: Amélie NUNCA atua em grupos no Telegram
-      case msg.chat_type == "private" {
-        False -> EventoIgnorado(update.update_id)
-        True -> {
-          let sender_id = option.unwrap(msg.from_id, msg.chat_id)
-          let base =
-            Mensagem(
-              chat_id: "tg:" <> int.to_string(msg.chat_id),
-              remetente: "tg:" <> int.to_string(sender_id),
-              message_id: Some(int.to_string(msg.message_id)),
-              corpo: mensagem.Texto(""),
-              timestamp: msg.date,
-              em_grupo: False,
-              nome_grupo: None,
-              menciona_bot: True,
-              legenda: msg.caption,
-            )
-
-          case msg.photo_file_id {
-            Some(file_id) ->
-              EventoFotoParaBaixar(update.update_id, base, file_id)
-            None -> {
-              case msg.voice {
-                Some(#(file_id, mime, file_size)) ->
-                  checar_tamanho_ou_despachar(
-                    update.update_id,
-                    base.chat_id,
-                    file_size,
-                    fn() {
-                      EventoAudioParaBaixar(
-                        update.update_id,
-                        base,
-                        file_id,
-                        mime,
-                      )
-                    },
-                  )
-                None -> {
-                  case msg.audio {
-                    Some(#(file_id, mime, file_size)) ->
-                      checar_tamanho_ou_despachar(
-                        update.update_id,
-                        base.chat_id,
-                        file_size,
-                        fn() {
-                          EventoAudioParaBaixar(
-                            update.update_id,
-                            base,
-                            file_id,
-                            mime,
-                          )
-                        },
-                      )
-                    None -> {
-                      case msg.video {
-                        Some(#(file_id, mime, file_size)) ->
-                          checar_tamanho_ou_despachar(
-                            update.update_id,
-                            base.chat_id,
-                            file_size,
-                            fn() {
-                              EventoVideoParaBaixar(
-                                update.update_id,
-                                base,
-                                file_id,
-                                mime,
-                              )
-                            },
-                          )
-                        None -> {
-                          case msg.video_note {
-                            Some(#(file_id, mime, file_size)) ->
-                              checar_tamanho_ou_despachar(
-                                update.update_id,
-                                base.chat_id,
-                                file_size,
-                                fn() {
-                                  EventoVideoParaBaixar(
-                                    update.update_id,
-                                    base,
-                                    file_id,
-                                    mime,
-                                  )
-                                },
-                              )
-                            None -> {
-                              case msg.animation {
-                                Some(#(file_id, mime, file_size)) ->
-                                  checar_tamanho_ou_despachar(
-                                    update.update_id,
-                                    base.chat_id,
-                                    file_size,
-                                    fn() {
-                                      EventoVideoParaBaixar(
-                                        update.update_id,
-                                        base,
-                                        file_id,
-                                        mime,
-                                      )
-                                    },
-                                  )
-                                None -> {
-                                  case msg.document {
-                                    Some(#(file_id, mime, file_name, file_size)) ->
-                                      checar_tamanho_ou_despachar(
-                                        update.update_id,
-                                        base.chat_id,
-                                        file_size,
-                                        fn() {
-                                          let fn_lower =
-                                            string.lowercase(file_name)
-                                          let e_video =
-                                            string.starts_with(mime, "video/")
-                                            || string.ends_with(
-                                              fn_lower,
-                                              ".mp4",
-                                            )
-                                            || string.ends_with(
-                                              fn_lower,
-                                              ".mov",
-                                            )
-                                            || string.ends_with(
-                                              fn_lower,
-                                              ".mkv",
-                                            )
-                                            || string.ends_with(
-                                              fn_lower,
-                                              ".webm",
-                                            )
-                                          case e_video {
-                                            True ->
-                                              EventoVideoParaBaixar(
-                                                update.update_id,
-                                                base,
-                                                file_id,
-                                                mime,
-                                              )
-                                            False ->
-                                              EventoDocumentoParaBaixar(
-                                                update.update_id,
-                                                base,
-                                                file_id,
-                                                mime,
-                                                file_name,
-                                              )
-                                          }
-                                        },
-                                      )
-                                    None -> {
-                                      case msg.sticker {
-                                        Some(#(file_id, mime, emoji)) -> {
-                                          let base_com_legenda = case emoji {
-                                            Some(e) ->
-                                              Mensagem(..base, legenda: Some(e))
-                                            None -> base
-                                          }
-                                          EventoStickerParaBaixar(
-                                            update.update_id,
-                                            base_com_legenda,
-                                            file_id,
-                                            mime,
-                                          )
-                                        }
-                                        None -> {
-                                          case msg.text {
-                                            Some(raw_text) -> {
-                                              let corpo =
-                                                parsear_texto_ou_comando(
-                                                  raw_text,
-                                                )
-                                              EventoMensagemPronta(
-                                                update.update_id,
-                                                Mensagem(..base, corpo: corpo),
-                                              )
-                                            }
-                                            None ->
-                                              EventoIgnorado(update.update_id)
-                                          }
-                                        }
-                                      }
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
+    // Regra de segurança/privacidade: Amélie NUNCA atua em grupos no Telegram
+    Some(msg) if msg.chat_type == "private" ->
+      converter_mensagem(update.update_id, msg)
+    _ -> EventoIgnorado(update.update_id)
   }
+}
+
+/// Uma mensagem pode trazer mais de um campo de mídia (um GIF vem como
+/// `animation` e `document`); vale o primeiro presente, nesta ordem.
+fn converter_mensagem(id: Int, msg: TelegramMessage) -> EventoUpdate {
+  let base = mensagem_base(msg)
+  let audio = fn(arq: ArquivoTelegram) {
+    EventoAudioParaBaixar(id, base, arq.file_id, arq.mime)
+  }
+  let video = fn(arq: ArquivoTelegram) {
+    EventoVideoParaBaixar(id, base, arq.file_id, arq.mime)
+  }
+  let baixar = fn(campo: Option(ArquivoTelegram), evento) {
+    option.map(campo, limitar_tamanho(id, base.chat_id, _, evento))
+  }
+  [
+    option.map(msg.photo_file_id, EventoFotoParaBaixar(id, base, _)),
+    baixar(msg.voice, audio),
+    baixar(msg.audio, audio),
+    baixar(msg.video, video),
+    baixar(msg.video_note, video),
+    baixar(msg.animation, video),
+    option.map(msg.document, fn(doc) {
+      let #(arq, nome) = doc
+      use arq <- limitar_tamanho(id, base.chat_id, arq)
+      case parece_video(arq.mime, nome) {
+        True -> video(arq)
+        False ->
+          EventoDocumentoParaBaixar(id, base, arq.file_id, arq.mime, nome)
+      }
+    }),
+    option.map(msg.sticker, fn(sticker) {
+      let #(file_id, mime, emoji) = sticker
+      let base = Mensagem(..base, legenda: option.or(emoji, base.legenda))
+      EventoStickerParaBaixar(id, base, file_id, mime)
+    }),
+    option.map(msg.text, fn(texto) {
+      EventoMensagemPronta(
+        id,
+        Mensagem(..base, corpo: parsear_texto_ou_comando(texto)),
+      )
+    }),
+  ]
+  |> option.values
+  |> list.first
+  |> result.unwrap(EventoIgnorado(id))
+}
+
+fn mensagem_base(msg: TelegramMessage) -> Mensagem {
+  let sender_id = option.unwrap(msg.from_id, msg.chat_id)
+  Mensagem(
+    chat_id: "tg:" <> int.to_string(msg.chat_id),
+    remetente: "tg:" <> int.to_string(sender_id),
+    message_id: Some(int.to_string(msg.message_id)),
+    corpo: mensagem.Texto(""),
+    timestamp: msg.date,
+    em_grupo: False,
+    nome_grupo: None,
+    menciona_bot: True,
+    legenda: msg.caption,
+  )
+}
+
+/// Arquivos acima do limite da Bot API viram aviso em vez de download.
+fn limitar_tamanho(
+  update_id: Int,
+  chat_id: String,
+  arquivo: ArquivoTelegram,
+  evento: fn(ArquivoTelegram) -> EventoUpdate,
+) -> EventoUpdate {
+  case arquivo.tamanho {
+    Some(bytes) if bytes > limite_download_bytes ->
+      EventoArquivoMuitoGrande(update_id, chat_id, tamanho_em_mb(bytes))
+    _ -> evento(arquivo)
+  }
+}
+
+fn parece_video(mime: String, nome: String) -> Bool {
+  let nome = string.lowercase(nome)
+  string.starts_with(mime, "video/")
+  || list.any(extensoes_video, string.ends_with(nome, _))
 }
 
 pub fn parsear_texto_ou_comando(raw_text: String) -> mensagem.Conteudo {
@@ -387,85 +269,31 @@ fn safe_mime_decoder(padrao: String) -> decode.Decoder(String) {
   |> decode.map(fn(opt) { option.unwrap(opt, padrao) })
 }
 
-fn voice_decoder() -> decode.Decoder(#(String, String, Option(Int))) {
-  use file_id <- decode.then(decode.at(["file_id"], decode.string))
+/// Arquivo com `mime_type` opcional; sem ele, vale `mime_padrao`.
+fn arquivo_decoder(mime_padrao: String) -> decode.Decoder(ArquivoTelegram) {
   use mime <- decode.optional_field(
     "mime_type",
-    "audio/ogg",
-    safe_mime_decoder("audio/ogg"),
+    mime_padrao,
+    safe_mime_decoder(mime_padrao),
   )
-  use file_size <- decode.optional_field(
+  arquivo_com_mime_decoder(mime)
+}
+
+/// Arquivo cujo MIME o Telegram não informa ou não importa.
+fn arquivo_com_mime_decoder(mime: String) -> decode.Decoder(ArquivoTelegram) {
+  use file_id <- decode.then(decode.at(["file_id"], decode.string))
+  use tamanho <- decode.optional_field(
     "file_size",
     None,
     decode.int |> decode.map(Some),
   )
-  decode.success(#(file_id, mime, file_size))
+  decode.success(ArquivoTelegram(file_id:, mime:, tamanho:))
 }
 
-fn audio_decoder() -> decode.Decoder(#(String, String, Option(Int))) {
-  use file_id <- decode.then(decode.at(["file_id"], decode.string))
-  use mime <- decode.optional_field(
-    "mime_type",
-    "audio/mpeg",
-    safe_mime_decoder("audio/mpeg"),
-  )
-  use file_size <- decode.optional_field(
-    "file_size",
-    None,
-    decode.int |> decode.map(Some),
-  )
-  decode.success(#(file_id, mime, file_size))
-}
-
-fn video_decoder() -> decode.Decoder(#(String, String, Option(Int))) {
-  use file_id <- decode.then(decode.at(["file_id"], decode.string))
-  use mime <- decode.optional_field(
-    "mime_type",
-    "video/mp4",
-    safe_mime_decoder("video/mp4"),
-  )
-  use file_size <- decode.optional_field(
-    "file_size",
-    None,
-    decode.int |> decode.map(Some),
-  )
-  decode.success(#(file_id, mime, file_size))
-}
-
-fn video_note_decoder() -> decode.Decoder(#(String, String, Option(Int))) {
-  use file_id <- decode.then(decode.at(["file_id"], decode.string))
-  use file_size <- decode.optional_field(
-    "file_size",
-    None,
-    decode.int |> decode.map(Some),
-  )
-  decode.success(#(file_id, "video/mp4", file_size))
-}
-
-fn animation_decoder() -> decode.Decoder(#(String, String, Option(Int))) {
-  use file_id <- decode.then(decode.at(["file_id"], decode.string))
-  use file_size <- decode.optional_field(
-    "file_size",
-    None,
-    decode.int |> decode.map(Some),
-  )
-  decode.success(#(file_id, "video/mp4", file_size))
-}
-
-fn document_decoder() -> decode.Decoder(#(String, String, String, Option(Int))) {
-  use file_id <- decode.then(decode.at(["file_id"], decode.string))
+fn document_decoder() -> decode.Decoder(#(ArquivoTelegram, String)) {
+  use arquivo <- decode.then(arquivo_decoder("application/octet-stream"))
   use file_name <- decode.optional_field("file_name", "", decode.string)
-  use mime <- decode.optional_field(
-    "mime_type",
-    "application/octet-stream",
-    safe_mime_decoder("application/octet-stream"),
-  )
-  use file_size <- decode.optional_field(
-    "file_size",
-    None,
-    decode.int |> decode.map(Some),
-  )
-  decode.success(#(file_id, mime, file_name, file_size))
+  decode.success(#(arquivo, file_name))
 }
 
 fn sticker_decoder() -> decode.Decoder(#(String, String, Option(String))) {
@@ -511,27 +339,27 @@ fn telegram_message_decoder() -> decode.Decoder(TelegramMessage) {
   use voice <- decode.optional_field(
     "voice",
     None,
-    voice_decoder() |> decode.map(Some),
+    arquivo_decoder("audio/ogg") |> decode.map(Some),
   )
   use audio <- decode.optional_field(
     "audio",
     None,
-    audio_decoder() |> decode.map(Some),
+    arquivo_decoder("audio/mpeg") |> decode.map(Some),
   )
   use video <- decode.optional_field(
     "video",
     None,
-    video_decoder() |> decode.map(Some),
+    arquivo_decoder("video/mp4") |> decode.map(Some),
   )
   use video_note <- decode.optional_field(
     "video_note",
     None,
-    video_note_decoder() |> decode.map(Some),
+    arquivo_com_mime_decoder("video/mp4") |> decode.map(Some),
   )
   use animation <- decode.optional_field(
     "animation",
     None,
-    animation_decoder() |> decode.map(Some),
+    arquivo_com_mime_decoder("video/mp4") |> decode.map(Some),
   )
   use document <- decode.optional_field(
     "document",

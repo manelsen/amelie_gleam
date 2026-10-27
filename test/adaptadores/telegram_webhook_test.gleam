@@ -510,3 +510,50 @@ pub fn parsear_evento_sticker_em_grupo_rejeitado_test() {
     _ -> should.fail()
   }
 }
+
+pub fn parsear_evento_gif_com_animation_e_document_vira_video_test() {
+  // O Telegram envia GIFs com os dois campos; animation tem prioridade, senão
+  // o arquivo viraria documento genérico.
+  let json =
+    "{\"update_id\":4010,\"message\":{\"message_id\":89,\"date\":1700000000,\"chat\":{\"id\":998877,\"type\":\"private\"},\"animation\":{\"file_id\":\"anim_789\"},\"document\":{\"file_id\":\"doc_789\",\"file_name\":\"anim.gif\",\"mime_type\":\"image/gif\"}}}"
+    |> bit_array.from_string
+
+  let assert Ok(evento) = telegram_webhook.parsear_evento(json)
+  case evento {
+    telegram_webhook.EventoVideoParaBaixar(_, _, file_id, mime) -> {
+      file_id |> should.equal("anim_789")
+      mime |> should.equal("video/mp4")
+    }
+    _ -> should.fail()
+  }
+}
+
+pub fn parsear_evento_voice_muito_grande_rejeitado_test() {
+  let json =
+    "{\"update_id\":4011,\"message\":{\"message_id\":90,\"date\":1700000000,\"chat\":{\"id\":998877,\"type\":\"private\"},\"voice\":{\"file_id\":\"voz_huge\",\"file_size\":22020096}}}"
+    |> bit_array.from_string
+
+  let assert Ok(evento) = telegram_webhook.parsear_evento(json)
+  case evento {
+    telegram_webhook.EventoArquivoMuitoGrande(update_id, _, tamanho_mb) -> {
+      update_id |> should.equal(4011)
+      tamanho_mb |> should.equal(21)
+    }
+    _ -> should.fail()
+  }
+}
+
+pub fn parsear_evento_documento_extensao_maiuscula_vira_video_test() {
+  let json =
+    "{\"update_id\":4012,\"message\":{\"message_id\":91,\"date\":1700000000,\"chat\":{\"id\":998877,\"type\":\"private\"},\"document\":{\"file_id\":\"doc_mov\",\"file_name\":\"FERIAS.MOV\"}}}"
+    |> bit_array.from_string
+
+  let assert Ok(evento) = telegram_webhook.parsear_evento(json)
+  case evento {
+    telegram_webhook.EventoVideoParaBaixar(_, _, file_id, mime) -> {
+      file_id |> should.equal("doc_mov")
+      mime |> should.equal("application/octet-stream")
+    }
+    _ -> should.fail()
+  }
+}
