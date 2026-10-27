@@ -2,6 +2,7 @@
 
 import dominio/config.{type Config, Config}
 import dominio/erro.{type Erro}
+import dominio/provedor
 import gleam/dynamic/decode
 import gleam/option.{None, Some}
 import gleam/result
@@ -72,7 +73,13 @@ fn obter(conn: sqlight.Connection, chat_id: String) -> Result(Config, Erro) {
 
 fn config_decoder() -> decode.Decoder(Config) {
   use chat_id <- decode.then(decode.at([0], decode.string))
-  use provedor <- decode.then(decode.at([1], decode.string))
+  // Um nome desconhecido no banco segue para o Gemini, como antes do tipo.
+  use provedor <- decode.then(
+    decode.at([1], decode.string)
+    |> decode.map(fn(nome) {
+      provedor.de_string(nome) |> result.unwrap(provedor.Gemini)
+    }),
+  )
   use modelo <- decode.then(decode.at([2], decode.string))
   use hist_max <- decode.then(decode.at([3], decode.int))
   use prompt_str <- decode.then(decode.at([4], decode.string))
@@ -141,7 +148,7 @@ fn salvar(conn: sqlight.Connection, cfg: Config) -> Result(Nil, Erro) {
     on: conn,
     with: [
       sqlight.text(cfg.chat_id),
-      sqlight.text(cfg.provedor),
+      sqlight.text(provedor.para_string(cfg.provedor)),
       sqlight.text(cfg.modelo),
       sqlight.int(cfg.historico_max),
       prompt_val,

@@ -13,6 +13,7 @@ import dominio/erro.{type Erro}
 import dominio/mensagem.{
   type Mensagem, Audio, Documento, Imagem, TurnoAssistente, TurnoUsuario, Video,
 }
+import dominio/transacao
 import dominio/video_contexto.{VideoContexto}
 import gleam/bool
 import gleam/erlang/process.{type Subject}
@@ -280,17 +281,6 @@ fn rotulo_log(tipo: TipoMidia) -> String {
   }
 }
 
-/// Nome do tipo na auditoria de entregas.
-fn tipo_entrega(tipo: TipoMidia) -> String {
-  case tipo {
-    MidiaImagem -> "imagem"
-    MidiaAudio -> "audio"
-    MidiaVideo -> "video"
-    MidiaDocumento -> "documento"
-    MidiaSticker -> "sticker"
-  }
-}
-
 /// Como a mídia do usuário aparece no histórico da conversa.
 fn rotulo_usuario(tipo: TipoMidia, legenda: Option(String)) -> String {
   let base = case tipo {
@@ -338,8 +328,7 @@ fn entregar(
     option.Some(mid) ->
       entrega_auditada.enviar_citando(
         chat_id,
-        "amelie",
-        tipo_entrega(tipo),
+        transacao.DescricaoMidia(tipo),
         resposta_sanitizada,
         mid,
         msg.remetente,
@@ -349,8 +338,7 @@ fn entregar(
     option.None ->
       entrega_auditada.enviar(
         chat_id,
-        "amelie",
-        tipo_entrega(tipo),
+        transacao.DescricaoMidia(tipo),
         resposta_sanitizada,
         ctx.mensageiro,
         ctx.transacoes,

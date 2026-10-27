@@ -9,13 +9,12 @@ import shell/fila_offline
 
 pub fn enviar(
   chat_id: String,
-  remetente: String,
-  tipo: String,
+  tipo: transacao.TipoEntrega,
   conteudo: String,
   mensageiro: MensageiroPorta,
   transacoes: TransacaoPorta,
 ) -> Result(Nil, Erro) {
-  let tx = transacao.novo(chat_id, remetente, tipo, conteudo)
+  let tx = transacao.novo(chat_id, tipo, conteudo)
   use registrada <- result.try(transacoes.registrar(tx))
 
   case mensageiro.enviar(chat_id, conteudo) {
@@ -32,15 +31,14 @@ pub fn enviar(
 
 pub fn enviar_citando(
   chat_id: String,
-  remetente: String,
-  tipo: String,
+  tipo: transacao.TipoEntrega,
   conteudo: String,
   quoted_id: String,
   quoted_sender: String,
   mensageiro: MensageiroPorta,
   transacoes: TransacaoPorta,
 ) -> Result(Nil, Erro) {
-  let tx = transacao.novo(chat_id, remetente, tipo, conteudo)
+  let tx = transacao.novo(chat_id, tipo, conteudo)
   use registrada <- result.try(transacoes.registrar(tx))
 
   case mensageiro.enviar_citando(chat_id, quoted_id, quoted_sender, conteudo) {

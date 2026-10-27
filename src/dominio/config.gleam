@@ -1,3 +1,4 @@
+import dominio/provedor.{type Provedor}
 import gleam/option.{type Option, None}
 
 pub type ModoDescricao {
@@ -9,7 +10,7 @@ pub type ModoDescricao {
 pub type Config {
   Config(
     chat_id: String,
-    provedor: String,
+    provedor: Provedor,
     modelo: String,
     historico_max: Int,
     prompt_sistema: Option(String),
@@ -26,7 +27,7 @@ pub type Config {
 pub fn padrao(chat_id: String) -> Config {
   Config(
     chat_id: chat_id,
-    provedor: "gemini",
+    provedor: provedor.Gemini,
     modelo: "gemini-3.5-flash-lite",
     historico_max: 50,
     prompt_sistema: None,

@@ -3,6 +3,7 @@
 
 import dominio/erro.{type Erro}
 import dominio/mensagem.{type Turno}
+import dominio/provedor.{type Provedor, Gemini, OpenRouter}
 import portas/ia_porta.{type IAPorta, IAPorta}
 
 pub type IADispatcher {
@@ -10,7 +11,11 @@ pub type IADispatcher {
 }
 
 pub type IADispatcherPorta {
-  IADispatcherPorta(dispatcher: IADispatcher, provedor: String, modelo: String)
+  IADispatcherPorta(
+    dispatcher: IADispatcher,
+    provedor: Provedor,
+    modelo: String,
+  )
 }
 
 pub fn como_porta(disp_porta: IADispatcherPorta) -> IAPorta {
@@ -84,7 +89,7 @@ pub fn gerar_texto(
   disp: IADispatcher,
   prompt: String,
   historico: List(Turno),
-  provedor: String,
+  provedor: Provedor,
   modelo: String,
 ) -> Result(String, Erro) {
   let porta = escolher_porta(disp, provedor)
@@ -96,7 +101,7 @@ pub fn processar_imagem(
   dados: BitArray,
   mime: String,
   prompt: String,
-  provedor: String,
+  provedor: Provedor,
   modelo: String,
 ) -> Result(String, Erro) {
   let porta = escolher_porta(disp, provedor)
@@ -108,7 +113,7 @@ pub fn processar_audio(
   dados: BitArray,
   mime: String,
   prompt: String,
-  provedor: String,
+  provedor: Provedor,
   modelo: String,
 ) -> Result(String, Erro) {
   let porta = escolher_porta(disp, provedor)
@@ -119,7 +124,7 @@ pub fn processar_video(
   disp: IADispatcher,
   uri: String,
   prompt: String,
-  provedor: String,
+  provedor: Provedor,
   modelo: String,
 ) -> Result(String, Erro) {
   let porta = escolher_porta(disp, provedor)
@@ -131,7 +136,7 @@ pub fn processar_documento(
   dados: BitArray,
   mime: String,
   prompt: String,
-  provedor: String,
+  provedor: Provedor,
   modelo: String,
 ) -> Result(String, Erro) {
   let porta = escolher_porta(disp, provedor)
@@ -142,7 +147,7 @@ pub fn fazer_upload_video(
   disp: IADispatcher,
   caminho: String,
   mime: String,
-  provedor: String,
+  provedor: Provedor,
 ) -> Result(String, Erro) {
   let porta = escolher_porta(disp, provedor)
   porta.fazer_upload_video(caminho, mime)
@@ -151,7 +156,7 @@ pub fn fazer_upload_video(
 pub fn aguardar_video_ativo(
   disp: IADispatcher,
   uri: String,
-  provedor: String,
+  provedor: Provedor,
 ) -> Result(Nil, Erro) {
   let porta = escolher_porta(disp, provedor)
   porta.aguardar_video_ativo(uri)
@@ -160,15 +165,15 @@ pub fn aguardar_video_ativo(
 pub fn deletar_arquivo(
   disp: IADispatcher,
   uri: String,
-  provedor: String,
+  provedor: Provedor,
 ) -> Result(Nil, Erro) {
   let porta = escolher_porta(disp, provedor)
   porta.deletar_arquivo(uri)
 }
 
-fn escolher_porta(disp: IADispatcher, provedor: String) -> IAPorta {
+fn escolher_porta(disp: IADispatcher, provedor: Provedor) -> IAPorta {
   case provedor {
-    "openrouter" -> disp.openrouter
-    _ -> disp.gemini
+    Gemini -> disp.gemini
+    OpenRouter -> disp.openrouter
   }
 }

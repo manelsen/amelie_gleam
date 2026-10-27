@@ -1,6 +1,7 @@
 // Configuração de provedores e modelos disponíveis.
 
 import dominio/erro.{type Erro}
+import dominio/provedor
 import gleam/bit_array
 import gleam/dict
 import gleam/list
@@ -82,11 +83,15 @@ pub fn validar_modelo(
   config: ProvidersConfig,
   provider: String,
   model: String,
-) -> Result(Nil, Erro) {
+) -> Result(provedor.Provedor, Erro) {
   case dict.get(config.providers, provider) {
     Ok(prov) -> {
       case list.contains(prov.models, model) {
-        True -> Ok(Nil)
+        True ->
+          provedor.de_string(provider)
+          |> result.replace_error(erro.ErroComunicacao(
+            "provedor '" <> provider <> "' não tem adaptador implementado",
+          ))
         False ->
           Error(erro.ErroComunicacao(
             "modelo '"

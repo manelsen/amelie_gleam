@@ -12,10 +12,9 @@ import core/prompt/builder
 import dominio/acao.{
   AlterarModelo, AtivarPrompt, BuscarUrlEResponder, ConsultarMetricas,
   ConsultarSpammers, ConsultarStatus, DesbloquearChat, EnfileirarMidia,
-  EnviarReacao, EnviarResposta, ExcluirPrompt, GerarEEnviar, LimparHistorico,
-  ListarGrupos, ListarPrompts, ListarUsuarios, MidiaVideo, NaoResponder,
-  ResetarWhatsApp, SalvarConfig, SalvarPrompt, SnapshotHistorico,
-  SolicitarPareamento,
+  EnviarResposta, ExcluirPrompt, GerarEEnviar, LimparHistorico, ListarGrupos,
+  ListarPrompts, ListarUsuarios, MidiaVideo, NaoResponder, ResetarWhatsApp,
+  SalvarConfig, SalvarPrompt, SnapshotHistorico, SolicitarPareamento,
 }
 import dominio/config.{type Config}
 import dominio/erro.{type Erro}
@@ -24,6 +23,7 @@ import dominio/mensagem.{
   TurnoUsuario, Video,
 }
 import dominio/providers_config.{type ProvidersConfig}
+import dominio/transacao.{type TipoEntrega, RespostaIA, RespostaTexto}
 import dominio/video_contexto.{type VideoContexto}
 import gleam/bool
 import gleam/int
@@ -325,16 +325,7 @@ fn executar_acao(
     BuscarUrlEResponder(para, texto, url) ->
       buscar_url_e_responder(para, texto, url, msg, cfg, hist, portas)
     EnviarResposta(para, corpo) ->
-      entregar(para, "amelie", "texto", corpo, msg, portas)
-    EnviarReacao(para, emoji) ->
-      entrega_auditada.enviar(
-        para,
-        "amelie",
-        "reacao",
-        emoji,
-        portas.mensageiro,
-        portas.transacoes,
-      )
+      entregar(para, RespostaTexto, corpo, msg, portas)
     SalvarConfig(nova_cfg) -> portas.config.salvar(nova_cfg)
     LimparHistorico(chat_id) -> limpar_historico(chat_id, cfg, portas)
     EnfileirarMidia(chat_id, tipo) ->
@@ -457,11 +448,11 @@ fn responder_sobre_video(
   let expirado = sistema.agora_s() - ctx.criado_em >= validade_contexto_video_s
   use <- bool.lazy_guard(expirado, fn() {
     encerrar_contexto_video(para, ctx.uri, cfg, portas)
-    entregar(para, "amelie", "texto", aviso_video_expirado, msg, portas)
+    entregar(para, RespostaTexto, aviso_video_expirado, msg, portas)
   })
   use <- bool.lazy_guard(ctx.perguntas_restantes <= 0, fn() {
     encerrar_contexto_video(para, ctx.uri, cfg, portas)
-    entregar(para, "amelie", "texto", aviso_video_encerrado, msg, portas)
+    entregar(para, RespostaTexto, aviso_video_encerrado, msg, portas)
   })
 
   let texto_usuario = extrair_texto_usuario(msg)
@@ -510,14 +501,7 @@ fn entregar_resposta_ia(
   portas: Portas,
 ) -> Result(String, Erro) {
   let resposta_limpa = acessibilidade.sanitizar_saida_voz(resposta)
-  use _ <- result.try(entregar(
-    para,
-    "amelie",
-    "ia_texto",
-    resposta_limpa,
-    msg,
-    portas,
-  ))
+  use _ <- result.try(entregar(para, RespostaIA, resposta_limpa, msg, portas))
   use _ <- result.try(portas.historico.adicionar(
     msg.chat_id,
     TurnoUsuario(texto_usuario),
@@ -696,27 +680,19 @@ fn alterar_modelo(
   case
     providers_config.validar_modelo(portas.providers_config, provedor, modelo)
   {
-    Ok(_) -> {
-      let nova = config.Config(..cfg, provedor: provedor, modelo: modelo)
+    Ok(provedor_valido) -> {
+      let nova = config.Config(..cfg, provedor: provedor_valido, modelo: modelo)
       use _ <- result.try(portas.config.salvar(nova))
       entregar(
         chat_id,
-        "amelie",
-        "texto",
+        RespostaTexto,
         "Modelo alterado: `" <> provedor <> "/" <> modelo <> "`",
         msg,
         portas,
       )
     }
     Error(e) ->
-      entregar(
-        chat_id,
-        "amelie",
-        "texto",
-        "❌ " <> erro.descricao(e),
-        msg,
-        portas,
-      )
+      entregar(chat_id, RespostaTexto, "❌ " <> erro.descricao(e), msg, portas)
   }
 }
 
@@ -917,8 +893,7 @@ fn consultar_spammers(chat_id: String, portas: Portas) -> Result(Nil, Erro) {
 // Envia citando a mensagem original quando possível; cai em envio simples caso contrário.
 fn entregar(
   para: String,
-  remetente: String,
-  tipo: String,
+  tipo: TipoEntrega,
   conteudo: String,
   msg: Mensagem,
   portas: Portas,
@@ -928,7 +903,6 @@ fn entregar(
     option.Some(mid) ->
       entrega_auditada.enviar_citando(
         para,
-        remetente,
         tipo,
         conteudo_sanitizado,
         mid,
@@ -939,7 +913,6 @@ fn entregar(
     option.None ->
       entrega_auditada.enviar(
         para,
-        remetente,
         tipo,
         conteudo_sanitizado,
         portas.mensageiro,
@@ -952,8 +925,7 @@ fn entregar(
 fn responder(para: String, texto: String, portas: Portas) -> Result(Nil, Erro) {
   entrega_auditada.enviar(
     para,
-    "amelie",
-    "texto",
+    RespostaTexto,
     texto,
     portas.mensageiro,
     portas.transacoes,

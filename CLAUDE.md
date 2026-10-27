@@ -108,8 +108,10 @@ A Amélie só atende conversas privadas, nos dois canais. No WhatsApp, a ponte d
 
 - `dominio/mensagem.Mensagem` — chat_id, remetente, corpo (`Conteudo`), timestamp, em_grupo, menciona_bot, legenda.
 - `dominio/mensagem.Conteudo` — `Texto | Imagem | Audio | Video | Documento | Sticker | MidiaIndisponivel | Comando`.
-- `dominio/acao.Acao` — `GerarEEnviar | BuscarUrlEResponder | EnviarResposta | EnviarReacao | EnfileirarMidia | SalvarConfig | LimparHistorico | AlterarModelo | SnapshotHistorico | NaoResponder`.
+- `dominio/acao.Acao` — `GerarEEnviar | BuscarUrlEResponder | EnviarResposta | EnfileirarMidia | SalvarConfig | LimparHistorico | AlterarModelo | SnapshotHistorico | NaoResponder`.
 - `dominio/config.Config` — per-chat configuration (provedor, modelo default `gemini-3.5-flash-lite`, historico_max, media toggles, modo_descricao).
+- `dominio/provedor.Provedor` — `Gemini | OpenRouter`. Text names exist only at the edges (`providers.yaml`, SQLite, `.modelo`); `providers_config.validar_modelo` returns the typed provider, and an unknown name read from SQLite falls back to `Gemini`.
+- `dominio/transacao.TipoEntrega` — `RespostaTexto | RespostaIA | DescricaoMidia(TipoMidia)`, stored as text in `transacoes.tipo`; keep `tipo_entrega_para_string` values stable.
 - `shell/handler_mensagem.Portas` — record bundling all active port implementations.
 
 ### Ports (Abstract interfaces as record-of-functions)
