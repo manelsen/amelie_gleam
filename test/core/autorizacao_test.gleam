@@ -37,7 +37,7 @@ pub fn admin_em_grupo_nao_e_admin_test() {
 }
 
 pub fn remetente_divergente_nao_e_admin_test() {
-  // A cópia antiga em handle_interno aceitava chat OU remetente.
+  // A cópia antiga em tratar_interno aceitava chat OU remetente.
   autorizacao.eh_admin("12345", msg("tg:12345", "tg:666", False))
   |> should.be_false
 }

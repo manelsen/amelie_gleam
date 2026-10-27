@@ -1,8 +1,8 @@
-import core/ia_dispatcher
+import core/despachante_ia
 import dominio/config
 import dominio/erro.{type Erro}
 import dominio/mensagem.{type Turno}
-import dominio/providers_config
+import dominio/provedores_config
 import dominio/transacao
 import dominio/video_contexto.{type VideoContexto}
 import gleam/erlang/process
@@ -13,7 +13,7 @@ import portas/grupo_porta.{type GrupoPorta, GrupoPorta}
 import portas/historico_porta.{type HistoricoPorta, HistoricoPorta}
 import portas/ia_porta.{type IAPorta, IAPorta}
 import portas/mensageiro_porta.{type MensageiroPorta, MensageiroPorta}
-import portas/ponte_porta.{type PontePorta, type StatusBridge, PontePorta}
+import portas/ponte_porta.{type PontePorta, type StatusPonte, PontePorta}
 import portas/prompt_porta.{type PromptPorta, PromptPorta}
 import portas/spammer_porta.{type SpammerPorta, SpammerPorta}
 import portas/telegram_porta.{type AcaoChat, type TelegramPorta, TelegramPorta}
@@ -21,8 +21,8 @@ import portas/transacao_porta.{type TransacaoPorta, TransacaoPorta}
 import portas/usuario_porta.{type UsuarioPorta, UsuarioPorta}
 import portas/video_contexto_porta.{type VideoContextoPorta, VideoContextoPorta}
 import shell/fila_midia
-import shell/handler_mensagem.{type Portas, Portas}
 import shell/metricas
+import shell/tratador_mensagem.{type Portas, Portas}
 
 // ---------------------------------------------------------------------------
 // Ponte whatsmeow e Bot API do Telegram fakes (sem rede)
@@ -33,13 +33,13 @@ pub fn ponte_inacessivel() -> PontePorta {
   let falha = "ponte fake inacessível"
   PontePorta(
     checar_status: fn() { Error(erro.ErroComunicacao(falha)) },
-    pedir_pairing_code: fn(_) { Error(falha) },
+    pedir_codigo_pareamento: fn(_) { Error(falha) },
     resetar_sessao: fn(_) { Error(falha) },
     buscar_pagina: fn(_) { Error(erro.ErroComunicacao(falha)) },
   )
 }
 
-pub fn ponte_com_status(status: StatusBridge) -> PontePorta {
+pub fn ponte_com_status(status: StatusPonte) -> PontePorta {
   PontePorta(..ponte_inacessivel(), checar_status: fn() { Ok(status) })
 }
 
@@ -151,15 +151,15 @@ pub fn ia_capturar_prompt(ref: process.Subject(String)) -> IAPorta {
   )
 }
 
-pub fn ia_dispatcher_ok(resposta: String) -> ia_dispatcher.IADispatcher {
-  ia_dispatcher.IADispatcher(
+pub fn despachante_ia_ok(resposta: String) -> despachante_ia.DespachanteIA {
+  despachante_ia.DespachanteIA(
     gemini: ia_ok(resposta),
     openrouter: ia_ok(resposta),
   )
 }
 
-pub fn ia_dispatcher_erro(e: Erro) -> ia_dispatcher.IADispatcher {
-  ia_dispatcher.IADispatcher(gemini: ia_erro(e), openrouter: ia_erro(e))
+pub fn despachante_ia_erro(e: Erro) -> despachante_ia.DespachanteIA {
+  despachante_ia.DespachanteIA(gemini: ia_erro(e), openrouter: ia_erro(e))
 }
 
 // ---------------------------------------------------------------------------
@@ -241,8 +241,8 @@ pub fn historico_capturar_limpezas(
   )
 }
 
-pub fn providers_config_ok() -> providers_config.ProvidersConfig {
-  providers_config.padrao()
+pub fn provedores_config_ok() -> provedores_config.ProvedoresConfig {
+  provedores_config.padrao()
 }
 
 pub fn usuario_noop() -> UsuarioPorta {
@@ -454,7 +454,7 @@ pub fn portas_ok(cfg, resposta_ia: String) -> Portas {
   let spam = anti_spam_ok()
   Portas(
     mensageiro: mensageiro_ok(),
-    ia_dispatcher: ia_dispatcher_ok(resposta_ia),
+    despachante_ia: despachante_ia_ok(resposta_ia),
     config: config_ok(cfg),
     historico: historico_vazio(),
     fila: fila,
@@ -463,7 +463,7 @@ pub fn portas_ok(cfg, resposta_ia: String) -> Portas {
     usuarios: usuario_noop(),
     grupos: grupo_noop(),
     transacoes: transacao_noop(),
-    providers_config: providers_config.padrao(),
+    provedores_config: provedores_config.padrao(),
     anti_spam: spam,
     spammers: spammer_noop(),
     video_contexto: video_contexto_noop(),

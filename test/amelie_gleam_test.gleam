@@ -9,16 +9,16 @@ pub fn main() {
   gleeunit.main()
 }
 
-pub fn handle_health_retorna_json_com_status_test() {
+pub fn tratar_health_retorna_json_com_status_test() {
   use conn <- sqlight.with_connection(":memory:")
   let resp =
-    amelie_gleam.handle_health(conn, "http://localhost:59999", "fake-token")
+    amelie_gleam.tratar_saude(conn, "http://localhost:59999", "fake-token")
   resp.status |> should.equal(200)
 }
 
 pub fn health_publico_nao_expoe_detalhes_test() {
   use conn <- sqlight.with_connection(":memory:")
-  let resp = amelie_gleam.handle_health_publico(conn, "http://localhost:59999")
+  let resp = amelie_gleam.tratar_saude_publica(conn, "http://localhost:59999")
   resp.status |> should.equal(200)
   let assert mist.Bytes(corpo) = resp.body
   bytes_tree.to_bit_array(corpo)

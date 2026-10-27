@@ -9,8 +9,8 @@ import gleeunit/should
 import helpers/fixtures
 import helpers/portas_fake
 import shell/fila_midia
-import shell/handler_mensagem.{Portas}
 import shell/metricas
+import shell/tratador_mensagem.{Portas}
 
 pub fn parsear_mensagem_privada_texto_test() {
   let json =
@@ -92,7 +92,7 @@ pub fn fluxo_telegram_com_handler_mensagem_test() {
   let portas =
     Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
-      ia_dispatcher: portas_fake.ia_dispatcher_ok(
+      despachante_ia: portas_fake.despachante_ia_ok(
         "Olá humano! Sou a Amélie no Telegram.",
       ),
       config: portas_fake.config_ok(
@@ -105,7 +105,7 @@ pub fn fluxo_telegram_com_handler_mensagem_test() {
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
-      providers_config: portas_fake.providers_config_ok(),
+      provedores_config: portas_fake.provedores_config_ok(),
       anti_spam: portas_fake.anti_spam_ok(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
@@ -117,7 +117,7 @@ pub fn fluxo_telegram_com_handler_mensagem_test() {
     |> bit_array.from_string
 
   let assert Ok(Some(msg)) = telegram_webhook.parsear_update(json)
-  let _ = handler_mensagem.handle(msg, portas)
+  let _ = tratador_mensagem.tratar(msg, portas)
 
   // Deve responder com a mensagem de ajuda para o chat tg:555444
   let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 1000)
@@ -134,7 +134,7 @@ pub fn fluxo_telegram_conversa_ia_test() {
   let portas =
     Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
-      ia_dispatcher: portas_fake.ia_dispatcher_ok(
+      despachante_ia: portas_fake.despachante_ia_ok(
         "Olá! Sou a Amélie no Telegram. Como posso te ajudar hoje?",
       ),
       config: portas_fake.config_ok(
@@ -147,7 +147,7 @@ pub fn fluxo_telegram_conversa_ia_test() {
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
-      providers_config: portas_fake.providers_config_ok(),
+      provedores_config: portas_fake.provedores_config_ok(),
       anti_spam: portas_fake.anti_spam_ok(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
@@ -159,7 +159,7 @@ pub fn fluxo_telegram_conversa_ia_test() {
     |> bit_array.from_string
 
   let assert Ok(Some(msg)) = telegram_webhook.parsear_update(json)
-  let _ = handler_mensagem.handle(msg, portas)
+  let _ = tratador_mensagem.tratar(msg, portas)
 
   // Deve responder com o texto gerado pela IA para o chat tg:555444
   let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 1000)
@@ -176,7 +176,7 @@ pub fn fluxo_telegram_conversa_ia_sem_midia_orienta_test() {
   let portas =
     Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
-      ia_dispatcher: portas_fake.ia_dispatcher_ok(
+      despachante_ia: portas_fake.despachante_ia_ok(
         "Olá! Sou a Amélie no Telegram. Como posso te ajudar hoje?",
       ),
       config: portas_fake.config_ok(
@@ -189,7 +189,7 @@ pub fn fluxo_telegram_conversa_ia_sem_midia_orienta_test() {
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
-      providers_config: portas_fake.providers_config_ok(),
+      provedores_config: portas_fake.provedores_config_ok(),
       anti_spam: portas_fake.anti_spam_ok(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
@@ -201,7 +201,7 @@ pub fn fluxo_telegram_conversa_ia_sem_midia_orienta_test() {
     |> bit_array.from_string
 
   let assert Ok(Some(msg)) = telegram_webhook.parsear_update(json)
-  let _ = handler_mensagem.handle(msg, portas)
+  let _ = tratador_mensagem.tratar(msg, portas)
 
   let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 1000)
   chat_id |> should.equal("tg:555444")

@@ -36,7 +36,7 @@ pub fn criar_api(bot_token: String) -> TelegramPorta {
   TelegramPorta(
     obter_updates: fn(offset) { obter_updates(bot_token, offset) },
     sinalizar: fn(chat_id, acao) {
-      enviar_chat_action(bot_token, chat_id, nome_acao(acao))
+      enviar_acao_chat(bot_token, chat_id, nome_acao(acao))
     },
     baixar_arquivo: fn(file_id) { baixar_arquivo(bot_token, file_id) },
   )
@@ -98,7 +98,7 @@ pub fn baixar_arquivo(
   file_id: String,
 ) -> Result(BitArray, Erro) {
   // 1. Chama getFile para obter file_path
-  use file_path <- result.try(obter_file_path(bot_token, file_id))
+  use file_path <- result.try(obter_caminho_arquivo(bot_token, file_id))
   // 2. Baixa o arquivo
   let url = base_url <> "/file/bot" <> bot_token <> "/" <> file_path
   use req <- result.try(
@@ -134,7 +134,7 @@ pub fn normalizar_id(id: String) -> String {
   }
 }
 
-pub fn enviar_chat_action(
+pub fn enviar_acao_chat(
   bot_token: String,
   chat_id: String,
   action: String,
@@ -248,7 +248,10 @@ fn reagir(
   }
 }
 
-fn obter_file_path(bot_token: String, file_id: String) -> Result(String, Erro) {
+fn obter_caminho_arquivo(
+  bot_token: String,
+  file_id: String,
+) -> Result(String, Erro) {
   let body =
     json.object([#("file_id", json.string(file_id))])
     |> json.to_string

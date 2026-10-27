@@ -8,7 +8,7 @@ import gleam/option
 import gleam/string
 import portas/ia_porta.{type IAPorta, IAPorta}
 import shell/cache_ia.{type CacheIA}
-import shell/circuit_breaker.{type Mensagem as CbMsg}
+import shell/disjuntor.{type Mensagem as CbMsg}
 
 const max_tentativas = 3
 
@@ -23,7 +23,7 @@ pub fn envolver(porta: IAPorta, cb: Subject(CbMsg), cache: CacheIA) -> IAPorta {
         option.Some(cached) -> Ok(cached)
         option.None ->
           case
-            com_retry(
+            com_novas_tentativas(
               fn() { porta.gerar_texto(prompt, historico, modelo) },
               cb,
               1,
@@ -38,59 +38,67 @@ pub fn envolver(porta: IAPorta, cb: Subject(CbMsg), cache: CacheIA) -> IAPorta {
       }
     },
     processar_imagem: fn(dados, mime, prompt, modelo) {
-      com_retry(
+      com_novas_tentativas(
         fn() { porta.processar_imagem(dados, mime, prompt, modelo) },
         cb,
         1,
       )
     },
     processar_audio: fn(dados, mime, prompt, modelo) {
-      com_retry(
+      com_novas_tentativas(
         fn() { porta.processar_audio(dados, mime, prompt, modelo) },
         cb,
         1,
       )
     },
     processar_video: fn(uri, prompt, modelo) {
-      com_retry(fn() { porta.processar_video(uri, prompt, modelo) }, cb, 1)
+      com_novas_tentativas(
+        fn() { porta.processar_video(uri, prompt, modelo) },
+        cb,
+        1,
+      )
     },
     processar_documento: fn(dados, mime, prompt, modelo) {
-      com_retry(
+      com_novas_tentativas(
         fn() { porta.processar_documento(dados, mime, prompt, modelo) },
         cb,
         1,
       )
     },
     fazer_upload_video: fn(caminho, mime) {
-      com_retry(fn() { porta.fazer_upload_video(caminho, mime) }, cb, 1)
+      com_novas_tentativas(
+        fn() { porta.fazer_upload_video(caminho, mime) },
+        cb,
+        1,
+      )
     },
     aguardar_video_ativo: fn(uri) {
-      com_retry(fn() { porta.aguardar_video_ativo(uri) }, cb, 1)
+      com_novas_tentativas(fn() { porta.aguardar_video_ativo(uri) }, cb, 1)
     },
     // Deleção é best-effort: sem retry nem CB.
     deletar_arquivo: fn(uri) { porta.deletar_arquivo(uri) },
   )
 }
 
-fn com_retry(
+fn com_novas_tentativas(
   f: fn() -> Result(a, Erro),
   cb: Subject(CbMsg),
   tentativa: Int,
 ) -> Result(a, Erro) {
-  case circuit_breaker.pode_executar(cb) {
+  case disjuntor.pode_executar(cb) {
     False -> Error(erro.ErroIA("serviço de IA temporariamente indisponível"))
     True ->
       case f() {
         Ok(r) -> {
-          circuit_breaker.registrar_sucesso(cb)
+          disjuntor.registrar_sucesso(cb)
           Ok(r)
         }
         Error(e) -> {
-          circuit_breaker.registrar_falha(cb)
+          disjuntor.registrar_falha(cb)
           case e_transiente(e) && tentativa < max_tentativas {
             True -> {
               process.sleep(espera_base_ms * pot2(tentativa))
-              com_retry(f, cb, tentativa + 1)
+              com_novas_tentativas(f, cb, tentativa + 1)
             }
             False -> Error(e)
           }

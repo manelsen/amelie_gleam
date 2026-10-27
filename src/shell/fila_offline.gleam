@@ -20,8 +20,8 @@ pub type Mensagem {
   Parar
 }
 
-pub type State {
-  State(
+pub type Estado {
+  Estado(
     transacoes: TransacaoPorta,
     mensageiro: MensageiroPorta,
     tentativas_max: Int,
@@ -67,7 +67,7 @@ pub fn iniciar_actor(
   name: Option(process.Name(Mensagem)),
 ) -> Result(actor.Started(FilaOffline), actor.StartError) {
   let state =
-    State(
+    Estado(
       transacoes: transacoes,
       mensageiro: mensageiro,
       tentativas_max: tentativas_max,
@@ -75,7 +75,7 @@ pub fn iniciar_actor(
 
   let builder =
     actor.new(state)
-    |> actor.on_message(handle_message)
+    |> actor.on_message(tratar)
 
   let builder = case name {
     Some(n) -> actor.named(builder, n)
@@ -96,7 +96,7 @@ pub fn supervisionado(
   })
 }
 
-fn handle_message(state: State, msg: Mensagem) -> actor.Next(State, Mensagem) {
+fn tratar(state: Estado, msg: Mensagem) -> actor.Next(Estado, Mensagem) {
   case msg {
     ProcessarPendentes -> {
       logging.log(logging.Debug, "FilaOffline: processando pendentes")
@@ -110,7 +110,7 @@ fn handle_message(state: State, msg: Mensagem) -> actor.Next(State, Mensagem) {
   }
 }
 
-fn processar_pendentes(state: State) -> actor.Next(State, Mensagem) {
+fn processar_pendentes(state: Estado) -> actor.Next(Estado, Mensagem) {
   case state.transacoes.obter_pendentes() {
     Ok([]) -> {
       logging.log(logging.Debug, "FilaOffline: nenhuma transação pendente")
@@ -124,7 +124,7 @@ fn processar_pendentes(state: State) -> actor.Next(State, Mensagem) {
           <> int.to_string(list.length(pendentes))
           <> " transações pendentes",
       )
-      let _ = list.each(pendentes, fn(tx) { retry_transacao(state, tx) })
+      let _ = list.each(pendentes, fn(tx) { reenviar_transacao(state, tx) })
       actor.continue(state)
     }
 
@@ -138,7 +138,7 @@ fn processar_pendentes(state: State) -> actor.Next(State, Mensagem) {
   }
 }
 
-fn retry_transacao(state: State, tx: t.Transacao) -> Nil {
+fn reenviar_transacao(state: Estado, tx: t.Transacao) -> Nil {
   case tx.id {
     None -> Nil
     Some(id) -> {

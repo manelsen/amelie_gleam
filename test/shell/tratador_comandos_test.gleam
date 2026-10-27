@@ -10,11 +10,11 @@ import gleeunit/should
 import helpers/env
 import helpers/fixtures
 import helpers/portas_fake
-import portas/ponte_porta.{type PontePorta, PontePorta, StatusBridge}
+import portas/ponte_porta.{type PontePorta, PontePorta, StatusPonte}
 import portas/spammer_porta.{SpammerPorta}
 import shell/fila_midia
-import shell/handler_mensagem.{Portas}
 import shell/metricas
+import shell/tratador_mensagem.{Portas}
 
 fn fila() {
   let assert Ok(f) = fila_midia.iniciar_todas()
@@ -35,7 +35,7 @@ pub fn audio_off_persiste_config_test() {
   let portas =
     Portas(
       mensageiro: portas_fake.mensageiro_ok(),
-      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_capturar(ref),
       historico: portas_fake.historico_vazio(),
       fila: fila(),
@@ -44,14 +44,14 @@ pub fn audio_off_persiste_config_test() {
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
-      providers_config: portas_fake.providers_config_ok(),
+      provedores_config: portas_fake.provedores_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
       ponte: portas_fake.ponte_inacessivel(),
     )
   let msg = fixtures.mensagem_comando("audio", "off")
-  let _ = handler_mensagem.handle(msg, portas)
+  let _ = tratador_mensagem.tratar(msg, portas)
 
   let assert Ok(nova_cfg): Result(config.Config, _) = process.receive(ref, 1000)
   nova_cfg.audio_ativo |> should.be_false
@@ -62,7 +62,7 @@ pub fn audio_on_persiste_config_test() {
   let portas =
     Portas(
       mensageiro: portas_fake.mensageiro_ok(),
-      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_capturar(ref),
       historico: portas_fake.historico_vazio(),
       fila: fila(),
@@ -71,14 +71,14 @@ pub fn audio_on_persiste_config_test() {
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
-      providers_config: portas_fake.providers_config_ok(),
+      provedores_config: portas_fake.provedores_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
       ponte: portas_fake.ponte_inacessivel(),
     )
   let msg = fixtures.mensagem_comando("audio", "on")
-  let _ = handler_mensagem.handle(msg, portas)
+  let _ = tratador_mensagem.tratar(msg, portas)
 
   let assert Ok(nova_cfg): Result(config.Config, _) = process.receive(ref, 1000)
   nova_cfg.audio_ativo |> should.be_true
@@ -89,7 +89,7 @@ pub fn audio_toggle_sem_argumento_persiste_config_test() {
   let portas =
     Portas(
       mensageiro: portas_fake.mensageiro_ok(),
-      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_capturar(ref),
       historico: portas_fake.historico_vazio(),
       fila: fila(),
@@ -98,7 +98,7 @@ pub fn audio_toggle_sem_argumento_persiste_config_test() {
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
-      providers_config: portas_fake.providers_config_ok(),
+      provedores_config: portas_fake.provedores_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
@@ -106,7 +106,7 @@ pub fn audio_toggle_sem_argumento_persiste_config_test() {
     )
   // config_padrao tem audio_ativo: True; sem argumento, alterna para False
   let msg = fixtures.mensagem_comando("audio", "")
-  let _ = handler_mensagem.handle(msg, portas)
+  let _ = tratador_mensagem.tratar(msg, portas)
 
   let assert Ok(nova_cfg): Result(config.Config, _) = process.receive(ref, 1000)
   nova_cfg.audio_ativo |> should.be_false
@@ -117,7 +117,7 @@ pub fn reset_limpa_historico_test() {
   let portas =
     Portas(
       mensageiro: portas_fake.mensageiro_ok(),
-      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_ok(fixtures.config_padrao()),
       historico: portas_fake.historico_capturar_limpezas(ref),
       fila: fila(),
@@ -126,14 +126,14 @@ pub fn reset_limpa_historico_test() {
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
-      providers_config: portas_fake.providers_config_ok(),
+      provedores_config: portas_fake.provedores_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
       ponte: portas_fake.ponte_inacessivel(),
     )
   let msg = fixtures.mensagem_comando("reset", "")
-  handler_mensagem.handle(msg, portas) |> should.be_ok
+  tratador_mensagem.tratar(msg, portas) |> should.be_ok
 
   let assert Ok(chat_id) = process.receive(ref, 1000)
   chat_id |> should.equal(fixtures.chat_id())
@@ -144,7 +144,7 @@ pub fn cego_persiste_config_test() {
   let portas =
     Portas(
       mensageiro: portas_fake.mensageiro_ok(),
-      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_capturar(ref),
       historico: portas_fake.historico_vazio(),
       fila: fila(),
@@ -153,14 +153,14 @@ pub fn cego_persiste_config_test() {
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
-      providers_config: portas_fake.providers_config_ok(),
+      provedores_config: portas_fake.provedores_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
       ponte: portas_fake.ponte_inacessivel(),
     )
   let msg = fixtures.mensagem_comando("cego", "")
-  handler_mensagem.handle(msg, portas) |> should.be_ok
+  tratador_mensagem.tratar(msg, portas) |> should.be_ok
 
   let assert Ok(nova_cfg): Result(config.Config, _) = process.receive(ref, 1000)
   nova_cfg.imagem_ativo |> should.be_true
@@ -174,7 +174,7 @@ pub fn longo_persiste_config_test() {
   let portas =
     Portas(
       mensageiro: portas_fake.mensageiro_ok(),
-      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_capturar(ref),
       historico: portas_fake.historico_vazio(),
       fila: fila(),
@@ -183,14 +183,14 @@ pub fn longo_persiste_config_test() {
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
-      providers_config: portas_fake.providers_config_ok(),
+      provedores_config: portas_fake.provedores_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
       ponte: portas_fake.ponte_inacessivel(),
     )
   let msg = fixtures.mensagem_comando("longo", "")
-  handler_mensagem.handle(msg, portas) |> should.be_ok
+  tratador_mensagem.tratar(msg, portas) |> should.be_ok
 
   let assert Ok(nova_cfg): Result(config.Config, _) = process.receive(ref, 1000)
   nova_cfg.modo_descricao |> should.equal(config.Longo)
@@ -201,7 +201,7 @@ pub fn curto_persiste_config_test() {
   let portas =
     Portas(
       mensageiro: portas_fake.mensageiro_ok(),
-      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_capturar(ref),
       historico: portas_fake.historico_vazio(),
       fila: fila(),
@@ -210,14 +210,14 @@ pub fn curto_persiste_config_test() {
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
-      providers_config: portas_fake.providers_config_ok(),
+      provedores_config: portas_fake.provedores_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
       ponte: portas_fake.ponte_inacessivel(),
     )
   let msg = fixtures.mensagem_comando("curto", "")
-  handler_mensagem.handle(msg, portas) |> should.be_ok
+  tratador_mensagem.tratar(msg, portas) |> should.be_ok
 
   let assert Ok(nova_cfg): Result(config.Config, _) = process.receive(ref, 1000)
   nova_cfg.modo_descricao |> should.equal(config.Curto)
@@ -228,7 +228,7 @@ pub fn legenda_on_persiste_config_test() {
   let portas =
     Portas(
       mensageiro: portas_fake.mensageiro_ok(),
-      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_capturar(ref),
       historico: portas_fake.historico_vazio(),
       fila: fila(),
@@ -237,14 +237,14 @@ pub fn legenda_on_persiste_config_test() {
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
-      providers_config: portas_fake.providers_config_ok(),
+      provedores_config: portas_fake.provedores_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
       ponte: portas_fake.ponte_inacessivel(),
     )
   let msg = fixtures.mensagem_comando("legenda", "on")
-  handler_mensagem.handle(msg, portas) |> should.be_ok
+  tratador_mensagem.tratar(msg, portas) |> should.be_ok
 
   let assert Ok(nova_cfg): Result(config.Config, _) = process.receive(ref, 1000)
   nova_cfg.legenda_ativo |> should.be_true
@@ -256,7 +256,7 @@ pub fn parear_bloqueado_para_nao_admin_test() {
   let portas =
     Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
-      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_ok(
         config.Config(..fixtures.config_padrao(), chat_id: "tg:111222"),
       ),
@@ -267,7 +267,7 @@ pub fn parear_bloqueado_para_nao_admin_test() {
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
-      providers_config: portas_fake.providers_config_ok(),
+      provedores_config: portas_fake.provedores_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
@@ -279,7 +279,7 @@ pub fn parear_bloqueado_para_nao_admin_test() {
       chat_id: "tg:111222",
       remetente: "tg:111222",
     )
-  handler_mensagem.handle(msg, portas) |> should.be_ok
+  tratador_mensagem.tratar(msg, portas) |> should.be_ok
 
   let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 1000)
   chat_id |> should.equal("tg:111222")
@@ -292,7 +292,7 @@ pub fn status_bloqueado_para_nao_admin_test() {
   let portas =
     Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
-      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_ok(
         config.Config(..fixtures.config_padrao(), chat_id: "tg:111222"),
       ),
@@ -303,7 +303,7 @@ pub fn status_bloqueado_para_nao_admin_test() {
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
-      providers_config: portas_fake.providers_config_ok(),
+      provedores_config: portas_fake.provedores_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
@@ -315,7 +315,7 @@ pub fn status_bloqueado_para_nao_admin_test() {
       chat_id: "tg:111222",
       remetente: "tg:111222",
     )
-  handler_mensagem.handle(msg, portas) |> should.be_ok
+  tratador_mensagem.tratar(msg, portas) |> should.be_ok
 
   let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 1000)
   chat_id |> should.equal("tg:111222")
@@ -328,7 +328,7 @@ pub fn status_permitido_para_admin_test() {
   let portas =
     Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
-      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_ok(
         config.Config(..fixtures.config_padrao(), chat_id: "tg:424242"),
       ),
@@ -339,7 +339,7 @@ pub fn status_permitido_para_admin_test() {
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
-      providers_config: portas_fake.providers_config_ok(),
+      provedores_config: portas_fake.provedores_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
@@ -351,7 +351,7 @@ pub fn status_permitido_para_admin_test() {
       chat_id: "tg:424242",
       remetente: "tg:424242",
     )
-  handler_mensagem.handle(msg, portas) |> should.be_ok
+  tratador_mensagem.tratar(msg, portas) |> should.be_ok
 
   let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 1000)
   chat_id |> should.equal("tg:424242")
@@ -365,7 +365,7 @@ pub fn reset_whatsapp_bloqueado_para_nao_admin_test() {
   let portas =
     Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
-      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_ok(
         config.Config(..fixtures.config_padrao(), chat_id: "tg:111222"),
       ),
@@ -376,7 +376,7 @@ pub fn reset_whatsapp_bloqueado_para_nao_admin_test() {
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
-      providers_config: portas_fake.providers_config_ok(),
+      provedores_config: portas_fake.provedores_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
@@ -388,7 +388,7 @@ pub fn reset_whatsapp_bloqueado_para_nao_admin_test() {
       chat_id: "tg:111222",
       remetente: "tg:111222",
     )
-  handler_mensagem.handle(msg, portas) |> should.be_ok
+  tratador_mensagem.tratar(msg, portas) |> should.be_ok
 
   let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 1000)
   chat_id |> should.equal("tg:111222")
@@ -401,7 +401,7 @@ pub fn reset_whatsapp_permitido_para_admin_test() {
   let portas =
     Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
-      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_ok(
         config.Config(..fixtures.config_padrao(), chat_id: "tg:424242"),
       ),
@@ -412,7 +412,7 @@ pub fn reset_whatsapp_permitido_para_admin_test() {
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
-      providers_config: portas_fake.providers_config_ok(),
+      provedores_config: portas_fake.provedores_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
@@ -424,7 +424,7 @@ pub fn reset_whatsapp_permitido_para_admin_test() {
       chat_id: "tg:424242",
       remetente: "tg:424242",
     )
-  handler_mensagem.handle(msg, portas) |> should.be_ok
+  tratador_mensagem.tratar(msg, portas) |> should.be_ok
 
   let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 1000)
   chat_id |> should.equal("tg:424242")
@@ -442,7 +442,7 @@ pub fn resumo_historico_curto_avisa_usuario_test() {
   let portas =
     Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
-      ia_dispatcher: portas_fake.ia_dispatcher_ok("ok"),
+      despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_ok(fixtures.config_padrao()),
       historico: portas_fake.historico_vazio(),
       fila: fila(),
@@ -451,14 +451,14 @@ pub fn resumo_historico_curto_avisa_usuario_test() {
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
-      providers_config: portas_fake.providers_config_ok(),
+      provedores_config: portas_fake.provedores_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
       ponte: portas_fake.ponte_inacessivel(),
     )
   let msg = fixtures.mensagem_comando("resumo", "")
-  handler_mensagem.handle(msg, portas) |> should.be_ok
+  tratador_mensagem.tratar(msg, portas) |> should.be_ok
 
   let assert Ok(#(_chat_id, texto)) = process.receive(ref_envio, 1000)
   string.contains(texto, "Ainda não há mensagens suficientes") |> should.be_true
@@ -486,7 +486,7 @@ pub fn admin_em_grupo_nao_recebe_resposta_test() {
       remetente: "tg:424242",
       em_grupo: True,
     )
-  handler_mensagem.handle(msg, portas) |> should.be_ok
+  tratador_mensagem.tratar(msg, portas) |> should.be_ok
   process.receive(envios, 200) |> should.equal(Error(Nil))
 }
 
@@ -505,7 +505,7 @@ fn verificar_reset_bloqueado(admin: String, chat: String, remetente: String) {
       chat_id: chat,
       remetente: remetente,
     )
-  handler_mensagem.handle(msg, portas) |> should.be_ok
+  tratador_mensagem.tratar(msg, portas) |> should.be_ok
   let assert Ok(#(_, texto)) = process.receive(envios, 1000)
   string.contains(texto, "restrito ao administrador") |> should.be_true
 }
@@ -515,7 +515,7 @@ pub fn resumo_historico_com_turnos_gera_resumo_test() {
   let portas =
     Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
-      ia_dispatcher: portas_fake.ia_dispatcher_ok(
+      despachante_ia: portas_fake.despachante_ia_ok(
         "Discussão sobre tarefas e decisões.",
       ),
       config: portas_fake.config_ok(fixtures.config_padrao()),
@@ -526,14 +526,14 @@ pub fn resumo_historico_com_turnos_gera_resumo_test() {
       usuarios: portas_fake.usuario_noop(),
       grupos: portas_fake.grupo_noop(),
       transacoes: portas_fake.transacao_noop(),
-      providers_config: portas_fake.providers_config_ok(),
+      provedores_config: portas_fake.provedores_config_ok(),
       anti_spam: spam(),
       spammers: portas_fake.spammer_noop(),
       video_contexto: portas_fake.video_contexto_noop(),
       ponte: portas_fake.ponte_inacessivel(),
     )
   let msg = fixtures.mensagem_comando("resumo", "")
-  handler_mensagem.handle(msg, portas) |> should.be_ok
+  tratador_mensagem.tratar(msg, portas) |> should.be_ok
 
   let assert Ok(#(_chat_id, texto)) = process.receive(ref_envio, 1000)
   string.contains(texto, "Resumo da conversa:") |> should.be_true
@@ -557,7 +557,7 @@ pub fn spammers_rejeita_nao_admin_test() {
       remetente: "tg:111",
       em_grupo: False,
     )
-  handler_mensagem.handle(msg, portas) |> should.be_ok
+  tratador_mensagem.tratar(msg, portas) |> should.be_ok
   let assert Ok(#(_, texto)) = process.receive(envios, 1000)
   string.contains(texto, "restrito ao administrador") |> should.be_true
 }
@@ -595,7 +595,7 @@ pub fn spammers_admin_lista_registros_test() {
       remetente: "tg:123456",
       em_grupo: False,
     )
-  handler_mensagem.handle(msg, portas) |> should.be_ok
+  tratador_mensagem.tratar(msg, portas) |> should.be_ok
   let assert Ok(#(_, texto)) = process.receive(envios, 1000)
   string.contains(texto, "Spammers Registrados (Top 10)") |> should.be_true
   string.contains(texto, "+55 (11) 99999-8888") |> should.be_true
@@ -621,7 +621,7 @@ pub fn spammers_admin_lista_vazia_test() {
       remetente: "tg:123456",
       em_grupo: False,
     )
-  handler_mensagem.handle(msg, portas) |> should.be_ok
+  tratador_mensagem.tratar(msg, portas) |> should.be_ok
   let assert Ok(#(_, texto)) = process.receive(envios, 1000)
   string.contains(texto, "Nenhum incidente registrado") |> should.be_true
 }
@@ -642,7 +642,7 @@ fn executar_como_admin(comando: String, args: String, ponte: PontePorta) {
       chat_id: "tg:424242",
       remetente: "tg:424242",
     )
-  handler_mensagem.handle(msg, portas) |> should.be_ok
+  tratador_mensagem.tratar(msg, portas) |> should.be_ok
   let assert Ok(#(_, texto)) = process.receive(envios, 1000)
   texto
 }
@@ -651,7 +651,7 @@ pub fn status_mostra_whatsapp_conectado_test() {
   executar_como_admin(
     "status",
     "",
-    portas_fake.ponte_com_status(StatusBridge(conectado: True, logado: True)),
+    portas_fake.ponte_com_status(StatusPonte(conectado: True, logado: True)),
   )
   |> string.contains("🟢 Conectado")
   |> should.be_true
@@ -660,8 +660,8 @@ pub fn status_mostra_whatsapp_conectado_test() {
 pub fn parear_com_whatsapp_conectado_nao_pede_codigo_test() {
   let ponte =
     PontePorta(
-      ..portas_fake.ponte_com_status(StatusBridge(conectado: True, logado: True)),
-      pedir_pairing_code: fn(_) { panic as "não deveria pedir código" },
+      ..portas_fake.ponte_com_status(StatusPonte(conectado: True, logado: True)),
+      pedir_codigo_pareamento: fn(_) { panic as "não deveria pedir código" },
     )
   executar_como_admin("parear", "5531999990000", ponte)
   |> string.contains("já está conectado")
@@ -671,11 +671,8 @@ pub fn parear_com_whatsapp_conectado_nao_pede_codigo_test() {
 pub fn parear_com_numero_entrega_codigo_test() {
   let ponte =
     PontePorta(
-      ..portas_fake.ponte_com_status(StatusBridge(
-        conectado: True,
-        logado: False,
-      )),
-      pedir_pairing_code: fn(telefone) {
+      ..portas_fake.ponte_com_status(StatusPonte(conectado: True, logado: False)),
+      pedir_codigo_pareamento: fn(telefone) {
         telefone |> should.equal("5531999990000")
         Ok("ABCD-1234")
       },

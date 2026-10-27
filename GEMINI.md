@@ -36,7 +36,7 @@ src/
 │   ├── prompt/
 │   │   └── builder.gleam
 │   ├── acessibilidade.gleam
-│   ├── ia_dispatcher.gleam
+│   ├── despachante_ia.gleam
 │   ├── processador.gleam
 │   └── validacao.gleam
 ├── dominio/          # Pure domain types
@@ -44,7 +44,7 @@ src/
 │   ├── config.gleam
 │   ├── erro.gleam
 │   ├── mensagem.gleam
-│   ├── providers_config.gleam
+│   ├── provedores_config.gleam
 │   └── transacao.gleam
 ├── portas/           # Port interfaces (Abstract types as records of functions)
 │   ├── config_porta.gleam
@@ -57,15 +57,15 @@ src/
 │   └── usuario_porta.gleam
 ├── shell/            # Effectful orchestration layer (Executes Acao values, OTP Actors)
 │   ├── cache_ia.gleam
-│   ├── circuit_breaker.gleam
+│   ├── disjuntor.gleam
 │   ├── entrega_auditada.gleam
 │   ├── fila_midia.gleam
 │   ├── fila_offline.gleam
-│   ├── handler_mensagem.gleam
+│   ├── tratador_mensagem.gleam
 │   ├── ia_resiliente.gleam
 │   ├── manutencao.gleam
 │   ├── metricas.gleam
-│   └── url_scraper.gleam
+│   └── extrator_url.gleam
 ├── amelie_gleam_ffi.erl # Erlang FFI (OS env, file IO, BEAM metrics)
 └── amelie_gleam.gleam   # Entry point: Wires everything and starts Mist HTTP server
 whatsmeow-bridge/     # Go bridge for connecting to WhatsApp via whatsmeow
@@ -125,7 +125,7 @@ test/                 # Test suite (mirrors src/ structure)
 - **Message Age Filter:** Messages older than 48 hours are ignored to prevent responding to old history on startup.
 - **Strict Telegram Privacy Filter:** Group chats in Telegram are categorically rejected (`chat.type != "private"`).
 - **Async Media Queues:** Media processing is handled by dedicated OTP actors in `shell/fila_midia.gleam` (`imagem`, `audio`, `video`, `documento`, `sticker`).
-- **Resilient AI Layer:** `shell/ia_resiliente.gleam` wraps provider calls with exponential backoff retry (up to 3 attempts), provider-specific circuit breaking (`shell/circuit_breaker.gleam`), and in-memory caching (`shell/cache_ia.gleam`).
+- **Resilient AI Layer:** `shell/ia_resiliente.gleam` wraps provider calls with exponential backoff retry (up to 3 attempts), provider-specific circuit breaking (`shell/disjuntor.gleam`), and in-memory caching (`shell/cache_ia.gleam`).
 - **Bridge Reliability & Self-Healing:**
   - HTTP server on `:8080` starts immediately before attempting WhatsApp connection, making `/health`, `/pair-phone` and `/reset-session` available even during disconnections.
   - Resetting sessions (`POST /reset-session`) recreates devices via `container.NewDevice()` and instantiates a clean `whatsmeow.Client`, avoiding `ErrDeviceDeleted`.
@@ -142,6 +142,6 @@ test/                 # Test suite (mirrors src/ structure)
 
 ## Key Logic Paths
 
-1. **Incoming Message:** `POST /webhook` or `POST /webhook/telegram` -> Decodes to `Webhook` -> Reads/downloads media -> Calls `handler_mensagem.handle`.
-2. **Pure Decision:** `handler_mensagem` fetches `Config` and `Historico` -> Calls `core/processador.processar` (Pure) -> Receives `List(Acao)`.
-3. **Execution:** `handler_mensagem` iterates over `Acao` list and executes each via relevant ports (`ia_dispatcher`, `roteador_mensageiro`, `historico`, `transacoes`).
+1. **Incoming Message:** `POST /webhook` or `POST /webhook/telegram` -> Decodes to `Webhook` -> Reads/downloads media -> Calls `tratador_mensagem.tratar`.
+2. **Pure Decision:** `tratador_mensagem` fetches `Config` and `Historico` -> Calls `core/processador.processar` (Pure) -> Receives `List(Acao)`.
+3. **Execution:** `tratador_mensagem` iterates over `Acao` list and executes each via relevant ports (`despachante_ia`, `roteador_mensageiro`, `historico`, `transacoes`).

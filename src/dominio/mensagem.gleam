@@ -15,7 +15,7 @@ pub type Mensagem {
 }
 
 pub type Conteudo {
-  Texto(body: String)
+  Texto(texto: String)
   Imagem(mime: String, dados: BitArray)
   Audio(mime: String, dados: BitArray)
   Video(caminho_temp: String, mime: String)

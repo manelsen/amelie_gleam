@@ -4,7 +4,7 @@ import gleeunit/should
 import helpers/portas_fake
 import shell/arvore_supervisao
 import shell/cache_ia
-import shell/circuit_breaker
+import shell/disjuntor
 import shell/manutencao
 import shell/metricas
 
@@ -16,8 +16,8 @@ pub fn arvore_supervisao_inicializacao_test() {
     arvore_supervisao.iniciar(transacoes, mensageiro)
 
   // 1. Circuit breaker responde normalmente
-  circuit_breaker.pode_executar(procs.cb_gemini) |> should.be_true
-  circuit_breaker.pode_executar(procs.cb_openrouter) |> should.be_true
+  disjuntor.pode_executar(procs.cb_gemini) |> should.be_true
+  disjuntor.pode_executar(procs.cb_openrouter) |> should.be_true
 
   // 2. Cache IA armazena e recupera
   cache_ia.guardar(procs.cache_gemini, "chave_teste", "valor_teste")
@@ -83,5 +83,5 @@ pub fn arvore_supervisao_isolamento_de_falhas_test() {
   |> should.equal(Some("dado_protegido"))
 
   // E o circuit breaker foi reiniciado
-  circuit_breaker.pode_executar(procs.cb_gemini) |> should.be_true
+  disjuntor.pode_executar(procs.cb_gemini) |> should.be_true
 }

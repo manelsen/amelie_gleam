@@ -12,7 +12,7 @@ import gleam/result
 import gleam/string
 import portas/mensageiro_porta.{type MensageiroPorta, MensageiroPorta}
 import portas/ponte_porta.{
-  type PontePorta, type StatusBridge, PontePorta, StatusBridge,
+  type PontePorta, type StatusPonte, PontePorta, StatusPonte,
 }
 import shell/seguranca_http
 
@@ -31,7 +31,9 @@ pub fn criar(base_url: String) -> MensageiroPorta {
 pub fn criar_ponte(base_url: String) -> PontePorta {
   PontePorta(
     checar_status: fn() { checar_status(base_url) },
-    pedir_pairing_code: fn(telefone) { pedir_pairing_code(base_url, telefone) },
+    pedir_codigo_pareamento: fn(telefone) {
+      pedir_codigo_pareamento(base_url, telefone)
+    },
     resetar_sessao: fn(telefone) { resetar_sessao(base_url, telefone) },
     buscar_pagina: fn(url) { buscar_pagina(base_url, url) },
   )
@@ -94,7 +96,7 @@ fn reagir(
     |> request.set_header("content-type", "application/json")
     |> request.set_body(body)
   use resp <- result.try(
-    httpc.send(seguranca_http.autenticar_bridge(req))
+    httpc.send(seguranca_http.autenticar_ponte(req))
     |> result.map_error(fn(error) {
       erro.ErroComunicacao(descrever_erro_transporte(error))
     }),
@@ -115,7 +117,7 @@ fn post(base_url: String, body: String) -> Result(Nil, Erro) {
     |> request.set_body(body)
 
   use resp <- result.try(
-    httpc.send(seguranca_http.autenticar_bridge(req))
+    httpc.send(seguranca_http.autenticar_ponte(req))
     |> result.map_error(fn(error) {
       erro.ErroComunicacao(descrever_erro_transporte(error))
     }),
@@ -171,21 +173,21 @@ fn descrever_erro_conexao(error: httpc.ConnectError) -> String {
   }
 }
 
-pub fn checar_status(base_url: String) -> Result(StatusBridge, Erro) {
+pub fn checar_status(base_url: String) -> Result(StatusPonte, Erro) {
   use req <- result.try(
     request.to(base_url <> "/health")
     |> result.map_error(fn(_) { erro.ErroComunicacao("url inválida") }),
   )
   let req = req |> request.set_method(http.Get)
   use resp <- result.try(
-    httpc.send(seguranca_http.autenticar_bridge(req))
+    httpc.send(seguranca_http.autenticar_ponte(req))
     |> result.map_error(fn(err) {
       erro.ErroComunicacao(descrever_erro_transporte(err))
     }),
   )
   let decoder = {
     use logged_in <- decode.optional_field("logged_in", False, decode.bool)
-    decode.success(StatusBridge(conectado: True, logado: logged_in))
+    decode.success(StatusPonte(conectado: True, logado: logged_in))
   }
   json.parse(resp.body, decoder)
   |> result.map_error(fn(_) {
@@ -193,7 +195,7 @@ pub fn checar_status(base_url: String) -> Result(StatusBridge, Erro) {
   })
 }
 
-pub fn pedir_pairing_code(
+pub fn pedir_codigo_pareamento(
   base_url: String,
   phone: String,
 ) -> Result(String, String) {
@@ -206,7 +208,7 @@ pub fn pedir_pairing_code(
     |> request.set_method(http.Post)
     |> request.set_header("content-type", "application/json")
     |> request.set_body(body)
-  case httpc.send(seguranca_http.autenticar_bridge(req)) {
+  case httpc.send(seguranca_http.autenticar_ponte(req)) {
     Error(err) -> Error(descrever_erro_transporte(err))
     Ok(resp) -> {
       let decoder_sucesso = {
@@ -242,7 +244,7 @@ pub fn resetar_sessao(base_url: String, phone: String) -> Result(Nil, String) {
     |> request.set_method(http.Post)
     |> request.set_header("content-type", "application/json")
     |> request.set_body(body)
-  case httpc.send(seguranca_http.autenticar_bridge(req)) {
+  case httpc.send(seguranca_http.autenticar_ponte(req)) {
     Error(err) -> Error(descrever_erro_transporte(err))
     Ok(resp) -> {
       case resp.status {
@@ -266,7 +268,7 @@ pub fn buscar_pagina(base_url: String, url: String) -> Result(String, Erro) {
     |> request.set_body(
       json.object([#("url", json.string(url))]) |> json.to_string,
     )
-    |> seguranca_http.autenticar_bridge
+    |> seguranca_http.autenticar_ponte
   use resp <- result.try(
     httpc.send(req)
     |> result.map_error(fn(err) {

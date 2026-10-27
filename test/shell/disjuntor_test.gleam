@@ -2,13 +2,13 @@
 
 import gleam/erlang/process
 import gleeunit/should
-import shell/circuit_breaker.{
+import shell/disjuntor.{
   Aberto, Config, Fechado, SemiAberto, iniciar_com_config, obter_estado,
   pode_executar, registrar_falha, registrar_sucesso,
 }
 
 pub fn circuito_inicia_fechado_e_permite_execucao_test() {
-  let cfg = Config(limite_falhas: 3, reset_ms: 100, timeout_probe_ms: 50)
+  let cfg = Config(limite_falhas: 3, reset_ms: 100, timeout_sondagem_ms: 50)
   let assert Ok(cb) = iniciar_com_config(cfg)
 
   pode_executar(cb) |> should.be_true
@@ -19,7 +19,7 @@ pub fn circuito_inicia_fechado_e_permite_execucao_test() {
 }
 
 pub fn circuito_abre_apos_atingir_limite_de_falhas_test() {
-  let cfg = Config(limite_falhas: 3, reset_ms: 100, timeout_probe_ms: 50)
+  let cfg = Config(limite_falhas: 3, reset_ms: 100, timeout_sondagem_ms: 50)
   let assert Ok(cb) = iniciar_com_config(cfg)
 
   // 1ª falha
@@ -48,7 +48,7 @@ pub fn circuito_abre_apos_atingir_limite_de_falhas_test() {
 }
 
 pub fn circuito_bloqueia_durante_resfriamento_test() {
-  let cfg = Config(limite_falhas: 2, reset_ms: 100, timeout_probe_ms: 50)
+  let cfg = Config(limite_falhas: 2, reset_ms: 100, timeout_sondagem_ms: 50)
   let assert Ok(cb) = iniciar_com_config(cfg)
 
   registrar_falha(cb)
@@ -61,7 +61,7 @@ pub fn circuito_bloqueia_durante_resfriamento_test() {
 
 pub fn semi_aberto_permite_apenas_um_probe_concorrente_test() {
   // Reset rápido de 40ms para teste determinístico
-  let cfg = Config(limite_falhas: 2, reset_ms: 40, timeout_probe_ms: 200)
+  let cfg = Config(limite_falhas: 2, reset_ms: 40, timeout_sondagem_ms: 200)
   let assert Ok(cb) = iniciar_com_config(cfg)
 
   registrar_falha(cb)
@@ -96,7 +96,7 @@ pub fn semi_aberto_permite_apenas_um_probe_concorrente_test() {
 }
 
 pub fn semi_aberto_reabre_em_caso_de_falha_do_probe_test() {
-  let cfg = Config(limite_falhas: 2, reset_ms: 40, timeout_probe_ms: 200)
+  let cfg = Config(limite_falhas: 2, reset_ms: 40, timeout_sondagem_ms: 200)
   let assert Ok(cb) = iniciar_com_config(cfg)
 
   registrar_falha(cb)
@@ -118,8 +118,8 @@ pub fn semi_aberto_reabre_em_caso_de_falha_do_probe_test() {
 }
 
 pub fn semi_aberto_permite_novo_probe_apos_timeout_do_anterior_test() {
-  // timeout_probe_ms de 30ms
-  let cfg = Config(limite_falhas: 2, reset_ms: 40, timeout_probe_ms: 30)
+  // timeout_sondagem_ms de 30ms
+  let cfg = Config(limite_falhas: 2, reset_ms: 40, timeout_sondagem_ms: 30)
   let assert Ok(cb) = iniciar_com_config(cfg)
 
   registrar_falha(cb)
@@ -133,7 +133,7 @@ pub fn semi_aberto_permite_novo_probe_apos_timeout_do_anterior_test() {
   // Bloqueado enquanto em voo
   pode_executar(cb) |> should.be_false
 
-  // Se o probe original sumir ou travar, após timeout_probe_ms um novo probe pode tentar
+  // Se o probe original sumir ou travar, após timeout_sondagem_ms um novo probe pode tentar
   process.sleep(40)
   pode_executar(cb) |> should.be_true
 }

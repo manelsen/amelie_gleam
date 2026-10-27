@@ -4,10 +4,10 @@
 import core/acessibilidade
 import core/anti_spam as core_anti_spam
 import core/autorizacao
-import core/ia_dispatcher
+import core/despachante_ia
 import core/privacidade
 import core/processador
-import core/prompt/builder
+import core/prompt/montador
 import dominio/acao.{
   AlterarModelo, AtivarPrompt, BuscarUrlEResponder, ConsultarMetricas,
   ConsultarSpammers, ConsultarStatus, DesbloquearChat, EnfileirarMidia,
@@ -21,7 +21,7 @@ import dominio/mensagem.{
   type Mensagem, type Turno, Audio, Documento, Imagem, Texto, TurnoAssistente,
   TurnoUsuario, Video,
 }
-import dominio/providers_config.{type ProvidersConfig}
+import dominio/provedores_config.{type ProvedoresConfig}
 import dominio/transacao.{type TipoEntrega, RespostaIA, RespostaTexto}
 import dominio/video_contexto.{type VideoContexto}
 import gleam/bool
@@ -35,7 +35,7 @@ import portas/config_porta.{type ConfigPorta}
 import portas/grupo_porta.{type GrupoPorta}
 import portas/historico_porta.{type HistoricoPorta}
 import portas/mensageiro_porta.{type MensageiroPorta}
-import portas/ponte_porta.{type PontePorta, StatusBridge}
+import portas/ponte_porta.{type PontePorta, StatusPonte}
 import portas/prompt_porta.{type PromptPorta}
 import portas/spammer_porta.{type SpammerPorta}
 import portas/transacao_porta.{type TransacaoPorta}
@@ -44,10 +44,10 @@ import portas/video_contexto_porta.{type VideoContextoPorta}
 import shell/anti_spam.{type AntiSpam}
 import shell/arquivos_temporarios
 import shell/entrega_auditada
+import shell/extrator_url
 import shell/fila_midia.{type FilasMidia}
 import shell/metricas.{type Metricas}
 import shell/sistema
-import shell/url_scraper
 
 /// O history sync do WhatsApp reenvia o histórico completo ao reconectar;
 /// mensagens mais antigas que isso já foram respondidas antes.
@@ -69,7 +69,7 @@ const prompt_resumo = "Resuma esta conversa de forma concisa e acessível, desta
 pub type Portas {
   Portas(
     mensageiro: MensageiroPorta,
-    ia_dispatcher: ia_dispatcher.IADispatcher,
+    despachante_ia: despachante_ia.DespachanteIA,
     config: ConfigPorta,
     historico: HistoricoPorta,
     fila: FilasMidia,
@@ -78,7 +78,7 @@ pub type Portas {
     usuarios: UsuarioPorta,
     grupos: GrupoPorta,
     transacoes: TransacaoPorta,
-    providers_config: ProvidersConfig,
+    provedores_config: ProvedoresConfig,
     anti_spam: AntiSpam,
     spammers: SpammerPorta,
     video_contexto: VideoContextoPorta,
@@ -94,7 +94,7 @@ pub fn extrair_trace_id(msg: Mensagem) -> String {
   string.slice(id, 0, 5)
 }
 
-pub fn handle(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
+pub fn tratar(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
   let trace_id = extrair_trace_id(msg)
   logging.log(
     logging.Info,
@@ -264,7 +264,7 @@ fn processar_mensagem(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
   }
 
   metricas.registrar(portas.metricas, metricas.MensagensProcessadas)
-  use e <- result.try_recover(handle_interno(msg, portas))
+  use e <- result.try_recover(tratar_interno(msg, portas))
   limpar_midia_se_descartada(msg)
   metricas.registrar(portas.metricas, metricas.Erros)
   logging.log(
@@ -280,7 +280,7 @@ fn processar_mensagem(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
   Error(e)
 }
 
-fn handle_interno(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
+fn tratar_interno(msg: Mensagem, portas: Portas) -> Result(Nil, Erro) {
   use cfg <- result.try(portas.config.obter(msg.chat_id))
   use hist <- result.try(portas.historico.obter(msg.chat_id))
   let admin_id = sistema.admin_chat_id()
@@ -404,9 +404,9 @@ fn buscar_url_e_responder(
   hist: List(Turno),
   portas: Portas,
 ) -> Result(Nil, Erro) {
-  let prompt = case url_scraper.buscar(portas.ponte, url) {
-    Ok(conteudo) -> builder.montar_com_url(texto, url, conteudo, cfg, hist)
-    Error(_) -> builder.montar(texto, cfg, hist)
+  let prompt = case extrator_url.buscar(portas.ponte, url) {
+    Ok(conteudo) -> montador.montar_com_url(texto, url, conteudo, cfg, hist)
+    Error(_) -> montador.montar(texto, cfg, hist)
   }
   responder_com_ia(para, prompt, msg, cfg, hist, portas)
 }
@@ -419,8 +419,8 @@ fn responder_com_ia(
   hist: List(Turno),
   portas: Portas,
 ) -> Result(Nil, Erro) {
-  use resposta <- result.try(ia_dispatcher.gerar_texto(
-    portas.ia_dispatcher,
+  use resposta <- result.try(despachante_ia.gerar_texto(
+    portas.despachante_ia,
     prompt,
     hist,
     cfg.provedor,
@@ -467,10 +467,10 @@ fn responder_sobre_video(
       <> int.to_string(ctx.perguntas_restantes)
       <> " pergunta(s) restante(s))",
   )
-  use resposta <- result.try(ia_dispatcher.processar_video(
-    portas.ia_dispatcher,
+  use resposta <- result.try(despachante_ia.processar_video(
+    portas.despachante_ia,
     ctx.uri,
-    builder.montar_followup_video(cfg, hist, texto_usuario),
+    montador.montar_followup_video(cfg, hist, texto_usuario),
     cfg.provedor,
     cfg.modelo,
   ))
@@ -523,7 +523,7 @@ fn encerrar_contexto_video(
 }
 
 fn apagar_video_no_provedor(uri: String, cfg: Config, portas: Portas) -> Nil {
-  ia_dispatcher.deletar_arquivo(portas.ia_dispatcher, uri, cfg.provedor)
+  despachante_ia.deletar_arquivo(portas.despachante_ia, uri, cfg.provedor)
   |> sistema.registrar_falha("Falha ao apagar vídeo no provedor de IA")
 }
 
@@ -558,8 +558,8 @@ fn enfileirar_midia(
   portas.historico.adicionar(chat_id, TurnoUsuario(extrair_texto_usuario(msg)))
   |> sistema.registrar_falha("Falha ao gravar mídia no histórico")
   let ia_porta =
-    ia_dispatcher.como_porta(ia_dispatcher.IADispatcherPorta(
-      dispatcher: portas.ia_dispatcher,
+    despachante_ia.como_porta(despachante_ia.DespachanteIAPorta(
+      despachante: portas.despachante_ia,
       provedor: cfg.provedor,
       modelo: cfg.modelo,
     ))
@@ -635,8 +635,8 @@ fn resumir_historico(
     )
   })
 
-  use resumo <- result.try(ia_dispatcher.gerar_texto(
-    portas.ia_dispatcher,
+  use resumo <- result.try(despachante_ia.gerar_texto(
+    portas.despachante_ia,
     prompt_resumo <> formatar_conversa(hist),
     [],
     cfg.provedor,
@@ -679,7 +679,7 @@ fn alterar_modelo(
   portas: Portas,
 ) -> Result(Nil, Erro) {
   case
-    providers_config.validar_modelo(portas.providers_config, provedor, modelo)
+    provedores_config.validar_modelo(portas.provedores_config, provedor, modelo)
   {
     Ok(provedor_valido) -> {
       let nova = config.Config(..cfg, provedor: provedor_valido, modelo: modelo)
@@ -721,7 +721,7 @@ fn solicitar_pareamento(
         portas,
       )
     numero ->
-      case portas.ponte.pedir_pairing_code(numero) {
+      case portas.ponte.pedir_codigo_pareamento(numero) {
         Ok(codigo) ->
           avisar(
             chat_id,
@@ -742,7 +742,7 @@ fn solicitar_pareamento(
 
 fn whatsapp_conectado(ponte: PontePorta) -> Bool {
   case ponte.checar_status() {
-    Ok(StatusBridge(_, True)) -> True
+    Ok(StatusPonte(_, True)) -> True
     _ -> False
   }
 }
@@ -757,8 +757,8 @@ fn telefone_informado(args: String) -> String {
 
 fn consultar_status(chat_id: String, portas: Portas) -> Result(Nil, Erro) {
   let status_wa = case portas.ponte.checar_status() {
-    Ok(StatusBridge(_, True)) -> "🟢 Conectado"
-    Ok(StatusBridge(_, False)) -> "🟡 Desconectado (aguardando login)"
+    Ok(StatusPonte(_, True)) -> "🟢 Conectado"
+    Ok(StatusPonte(_, False)) -> "🟡 Desconectado (aguardando login)"
     Error(_) -> "🔴 Inacessível"
   }
   let estado = metricas.consultar(portas.metricas)

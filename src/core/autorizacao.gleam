@@ -1,7 +1,7 @@
 // Autorização de ações administrativas. Puro — não faz IO.
 //
 // Uma regra só, usada pelo shell antes de executar qualquer Acao. Antes, a
-// mesma checagem estava copiada em vários pontos de handler_mensagem, e uma
+// mesma checagem estava copiada em vários pontos de tratador_mensagem, e uma
 // das cópias divergia (OU em vez de E).
 
 import dominio/acao.{

@@ -91,10 +91,10 @@ amelie_gleam.gleam — Entry point: wires adapters → ports → Mist HTTP serve
 
 1. `POST /webhook` (WhatsApp) or `POST /webhook/telegram` (Telegram) → `amelie_gleam.gleam` decodes payload into `Webhook(msg, arquivo)`.
 2. Large incoming media from WhatsApp is offloaded to `MEDIA_TEMP_DIR/amelie_midia_*` by the bridge. `amelie_gleam.gleam` reads the file via Erlang FFI into `BitArray`, then deletes the temporary file. Telegram media is fetched asynchronously via `getFile`.
-3. `shell/handler_mensagem.handle` fetches `Config` + `Historico` from ports, calls `core/processador.processar`.
+3. `shell/tratador_mensagem.tratar` fetches `Config` + `Historico` from ports, calls `core/processador.processar`.
 4. `core/processador` (pure) returns `List(Acao)` — never performs IO.
 5. Shell executes each `Acao`:
-   - `GerarEEnviar`: invokes AI provider via `ia_dispatcher` and sends reply via `entrega_auditada` (routed by `roteador_mensageiro` according to `chat_id`).
+   - `GerarEEnviar`: invokes AI provider via `despachante_ia` and sends reply via `entrega_auditada` (routed by `roteador_mensageiro` according to `chat_id`).
    - `EnviarResposta`: directly sends text (commands, help, errors) without invoking AI.
    - `EnfileirarMidia`: dispatches to `shell/fila_midia` — dedicated OTP actors for `imagem`, `audio`, `video`, `documento`, and `sticker`.
    - `BuscarUrlEResponder`: fetches public web content through the bridge’s authenticated `/fetch` endpoint, with DNS pinning, redirect checks, time and size limits.
@@ -110,13 +110,13 @@ A Amélie só atende conversas privadas, nos dois canais. No WhatsApp, a ponte d
 - `dominio/mensagem.Conteudo` — `Texto | Imagem | Audio | Video | Documento | Sticker | MidiaIndisponivel | Comando`.
 - `dominio/acao.Acao` — `GerarEEnviar | BuscarUrlEResponder | EnviarResposta | EnfileirarMidia | SalvarConfig | LimparHistorico | AlterarModelo | SnapshotHistorico | NaoResponder`.
 - `dominio/config.Config` — per-chat configuration (provedor, modelo default `gemini-3.5-flash-lite`, historico_max, media toggles, modo_descricao).
-- `dominio/provedor.Provedor` — `Gemini | OpenRouter`. Text names exist only at the edges (`providers.yaml`, SQLite, `.modelo`); `providers_config.validar_modelo` returns the typed provider, and an unknown name read from SQLite falls back to `Gemini`.
+- `dominio/provedor.Provedor` — `Gemini | OpenRouter`. Text names exist only at the edges (`providers.yaml`, SQLite, `.modelo`); `provedores_config.validar_modelo` returns the typed provider, and an unknown name read from SQLite falls back to `Gemini`.
 - `dominio/transacao.TipoEntrega` — `RespostaTexto | RespostaIA | DescricaoMidia(TipoMidia)`, stored as text in `transacoes.tipo`; keep `tipo_entrega_para_string` values stable.
-- `shell/handler_mensagem.Portas` — record bundling all active port implementations.
+- `shell/tratador_mensagem.Portas` — record bundling all active port implementations.
 
 ### Ports (Abstract interfaces as record-of-functions)
 
-`shell/` and `core/` reach external services only through these ports; `amelie_gleam.gleam` is the only place that builds adapters. `dominio/providers_config` only parses YAML text — the entry point reads `config/providers.yaml`.
+`shell/` and `core/` reach external services only through these ports; `amelie_gleam.gleam` is the only place that builds adapters. `dominio/provedores_config` only parses YAML text — the entry point reads `config/providers.yaml`.
 
 
 - `portas/mensageiro_porta.MensageiroPorta` — send messages and reactions (WhatsApp bridge, Telegram).
@@ -171,3 +171,4 @@ Messages starting with `.` or `/` (or without prefix where supported) are parsed
 - `mist.read_body` em `amelie_gleam.gleam` deve ser no mínimo `20 * 1024 * 1024` para suportar payloads de mídia de entrada.
 - Sempre rodar `gleam test` e `cd whatsmeow-bridge && go test -count=1 ./...` antes de concluir modificações.
 - Seguir o padrão de commits convencionais em português (`feat`, `fix`, `chore`, `refactor`, `docs`).
+- Nomes de módulos, funções, tipos e campos em português. Ficam como estão os termos técnicos consagrados (webhook, cache, token, status, upload, download, log, prompt, trace, sticker, follow-up), nomes de produto (Gemini, Telegram, WhatsApp, SQLite) e campos que espelham o JSON de APIs externas (`update_id`, `file_id`, `file_name`). "Bridge" é sempre "ponte".

@@ -74,14 +74,14 @@ fn historico_para_contents(
   let turnos_json =
     list.map(historico, fn(turno) {
       case turno {
-        TurnoUsuario(c) -> content_json("user", c)
-        TurnoAssistente(c) -> content_json("model", c)
+        TurnoUsuario(c) -> conteudo_json("user", c)
+        TurnoAssistente(c) -> conteudo_json("model", c)
       }
     })
-  list.append(turnos_json, [content_json("user", prompt_atual)])
+  list.append(turnos_json, [conteudo_json("user", prompt_atual)])
 }
 
-fn content_json(role: String, text: String) -> json.Json {
+fn conteudo_json(role: String, text: String) -> json.Json {
   json.object([
     #("role", json.string(role)),
     #(
@@ -258,7 +258,7 @@ fn fazer_upload_arquivo(
   caminho: String,
   mime: String,
 ) -> Result(String, Erro) {
-  upload_file_ffi(api_key, caminho, mime)
+  enviar_arquivo_ffi(api_key, caminho, mime)
   |> result.map_error(fn(msg) { erro.ErroUpload(msg) })
   |> result.try(fn(body) {
     extrair_uri_arquivo(body)
@@ -443,7 +443,7 @@ fn extrair_uri_arquivo(json_str: String) -> Result(String, Nil) {
 // ---------------------------------------------------------------------------
 
 @external(erlang, "amelie_gleam_ffi", "upload_file")
-fn upload_file_ffi(
+fn enviar_arquivo_ffi(
   api_key: String,
   caminho: String,
   mime: String,

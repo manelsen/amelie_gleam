@@ -13,7 +13,7 @@ pub const limite_falhas_padrao = 5
 
 pub const reset_ms_padrao = 60_000
 
-pub const timeout_probe_ms_padrao = 15_000
+pub const timeout_sondagem_ms_padrao = 15_000
 
 pub type Estado {
   Fechado(falhas: Int)
@@ -22,7 +22,7 @@ pub type Estado {
 }
 
 pub type Config {
-  Config(limite_falhas: Int, reset_ms: Int, timeout_probe_ms: Int)
+  Config(limite_falhas: Int, reset_ms: Int, timeout_sondagem_ms: Int)
 }
 
 pub type EstadoActor {
@@ -40,7 +40,7 @@ pub fn iniciar() -> Result(Subject(Mensagem), actor.StartError) {
   iniciar_com_config(Config(
     limite_falhas: limite_falhas_padrao,
     reset_ms: reset_ms_padrao,
-    timeout_probe_ms: timeout_probe_ms_padrao,
+    timeout_sondagem_ms: timeout_sondagem_ms_padrao,
   ))
 }
 
@@ -75,7 +75,7 @@ pub fn supervisionado(
       Config(
         limite_falhas: limite_falhas_padrao,
         reset_ms: reset_ms_padrao,
-        timeout_probe_ms: timeout_probe_ms_padrao,
+        timeout_sondagem_ms: timeout_sondagem_ms_padrao,
       ),
       Some(name),
     )
@@ -116,7 +116,7 @@ pub fn checar(estado: Estado, config: Config) -> #(Bool, Estado) {
     SemiAberto(probe_em_voo, desde_ms) ->
       case probe_em_voo {
         True ->
-          case agora - desde_ms > config.timeout_probe_ms {
+          case agora - desde_ms > config.timeout_sondagem_ms {
             True -> #(True, SemiAberto(probe_em_voo: True, desde_ms: agora))
             False -> #(False, estado)
           }

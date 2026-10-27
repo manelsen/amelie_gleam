@@ -22,7 +22,7 @@ pub fn extrair_texto(html: String) -> String {
   |> remover_blocos_inuteis
   |> selecionar_conteudo_principal
   |> converter_quebras
-  |> strip_tags
+  |> remover_tags
   |> decodificar_entidades
   |> colapsar_espacos
   |> string.trim
@@ -59,13 +59,13 @@ fn extrair_fallback(html: String) -> String {
     Ok(conteudo) ->
       case string.length(conteudo) > 50 {
         True -> conteudo
-        False -> extrair_body_ou_html(html)
+        False -> extrair_corpo_ou_html(html)
       }
-    _ -> extrair_body_ou_html(html)
+    _ -> extrair_corpo_ou_html(html)
   }
 }
 
-fn extrair_body_ou_html(html: String) -> String {
+fn extrair_corpo_ou_html(html: String) -> String {
   case extrair_miolo_bloco(html, "<body", "</body>") {
     Ok(conteudo) -> conteudo
     _ -> html
@@ -140,7 +140,7 @@ fn converter_quebras(html: String) -> String {
   |> string.replace("</tr>", "\n")
 }
 
-fn strip_tags(html: String) -> String {
+fn remover_tags(html: String) -> String {
   html
   |> string.split("<")
   |> list.index_map(fn(parte, i) {

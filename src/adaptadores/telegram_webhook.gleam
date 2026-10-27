@@ -14,8 +14,8 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 
-pub type TelegramUpdate {
-  TelegramUpdate(update_id: Int, message: Option(TelegramMessage))
+pub type UpdateTelegram {
+  UpdateTelegram(update_id: Int, message: Option(MensagemTelegram))
 }
 
 /// Arquivo de mídia anexado a uma mensagem: id para baixar via getFile, MIME
@@ -24,8 +24,8 @@ pub type ArquivoTelegram {
   ArquivoTelegram(file_id: String, mime: String, tamanho: Option(Int))
 }
 
-pub type TelegramMessage {
-  TelegramMessage(
+pub type MensagemTelegram {
+  MensagemTelegram(
     message_id: Int,
     date: Int,
     chat_id: Int,
@@ -104,7 +104,7 @@ pub fn parsear_evento(body: BitArray) -> Result(EventoUpdate, Erro) {
     }),
   )
   use update <- result.try(
-    json.parse(s, telegram_update_decoder())
+    json.parse(s, update_telegram_decoder())
     |> result.map_error(fn(_) {
       erro.ErroValidacao("telegram", "json de update inválido")
     }),
@@ -119,7 +119,7 @@ pub fn parsear_update(body: BitArray) -> Result(Option(Mensagem), Erro) {
 
 pub fn extrair_updates(json_str: String) -> Result(List(EventoUpdate), Erro) {
   use updates <- result.try(
-    json.parse(json_str, get_updates_response_decoder())
+    json.parse(json_str, resposta_get_updates_decoder())
     |> result.map_error(fn(_) {
       erro.ErroValidacao("telegram", "json de getUpdates inválido")
     }),
@@ -136,7 +136,7 @@ fn tamanho_em_mb(bytes: Int) -> Int {
 /// Extensões tratadas como vídeo quando o arquivo chega como documento.
 const extensoes_video = [".mp4", ".mov", ".mkv", ".webm"]
 
-pub fn converter_update_em_evento(update: TelegramUpdate) -> EventoUpdate {
+pub fn converter_update_em_evento(update: UpdateTelegram) -> EventoUpdate {
   case update.message {
     // Regra de segurança/privacidade: Amélie NUNCA atua em grupos no Telegram
     Some(msg) if msg.chat_type == "private" ->
@@ -147,7 +147,7 @@ pub fn converter_update_em_evento(update: TelegramUpdate) -> EventoUpdate {
 
 /// Uma mensagem pode trazer mais de um campo de mídia (um GIF vem como
 /// `animation` e `document`); vale o primeiro presente, nesta ordem.
-fn converter_mensagem(id: Int, msg: TelegramMessage) -> EventoUpdate {
+fn converter_mensagem(id: Int, msg: MensagemTelegram) -> EventoUpdate {
   let base = mensagem_base(msg)
   let audio = fn(arq: ArquivoTelegram) {
     EventoAudioParaBaixar(id, base, arq.file_id, arq.mime)
@@ -191,7 +191,7 @@ fn converter_mensagem(id: Int, msg: TelegramMessage) -> EventoUpdate {
   |> result.unwrap(EventoIgnorado(id))
 }
 
-fn mensagem_base(msg: TelegramMessage) -> Mensagem {
+fn mensagem_base(msg: MensagemTelegram) -> Mensagem {
   let sender_id = option.unwrap(msg.from_id, msg.chat_id)
   Mensagem(
     chat_id: "tg:" <> int.to_string(msg.chat_id),
@@ -246,17 +246,17 @@ pub fn parsear_texto_ou_comando(raw_text: String) -> mensagem.Conteudo {
   }
 }
 
-fn telegram_update_decoder() -> decode.Decoder(TelegramUpdate) {
+fn update_telegram_decoder() -> decode.Decoder(UpdateTelegram) {
   use update_id <- decode.field("update_id", decode.int)
   use message <- decode.optional_field(
     "message",
     None,
-    telegram_message_decoder() |> decode.map(Some),
+    mensagem_telegram_decoder() |> decode.map(Some),
   )
-  decode.success(TelegramUpdate(update_id: update_id, message: message))
+  decode.success(UpdateTelegram(update_id: update_id, message: message))
 }
 
-fn photo_file_id_decoder() -> decode.Decoder(String) {
+fn foto_decoder() -> decode.Decoder(String) {
   use photos <- decode.then(decode.list(decode.at(["file_id"], decode.string)))
   case list.last(photos) {
     Ok(file_id) -> decode.success(file_id)
@@ -264,7 +264,7 @@ fn photo_file_id_decoder() -> decode.Decoder(String) {
   }
 }
 
-fn safe_mime_decoder(padrao: String) -> decode.Decoder(String) {
+fn mime_seguro_decoder(padrao: String) -> decode.Decoder(String) {
   decode.optional(decode.string)
   |> decode.map(fn(opt) { option.unwrap(opt, padrao) })
 }
@@ -274,7 +274,7 @@ fn arquivo_decoder(mime_padrao: String) -> decode.Decoder(ArquivoTelegram) {
   use mime <- decode.optional_field(
     "mime_type",
     mime_padrao,
-    safe_mime_decoder(mime_padrao),
+    mime_seguro_decoder(mime_padrao),
   )
   arquivo_com_mime_decoder(mime)
 }
@@ -290,7 +290,7 @@ fn arquivo_com_mime_decoder(mime: String) -> decode.Decoder(ArquivoTelegram) {
   decode.success(ArquivoTelegram(file_id:, mime:, tamanho:))
 }
 
-fn document_decoder() -> decode.Decoder(#(ArquivoTelegram, String)) {
+fn documento_decoder() -> decode.Decoder(#(ArquivoTelegram, String)) {
   use arquivo <- decode.then(arquivo_decoder("application/octet-stream"))
   use file_name <- decode.optional_field("file_name", "", decode.string)
   decode.success(#(arquivo, file_name))
@@ -311,7 +311,7 @@ fn sticker_decoder() -> decode.Decoder(#(String, String, Option(String))) {
   decode.success(#(file_id, mime, emoji))
 }
 
-fn telegram_message_decoder() -> decode.Decoder(TelegramMessage) {
+fn mensagem_telegram_decoder() -> decode.Decoder(MensagemTelegram) {
   use message_id <- decode.field("message_id", decode.int)
   use date <- decode.field("date", decode.int)
   use chat_id <- decode.then(decode.at(["chat", "id"], decode.int))
@@ -334,7 +334,7 @@ fn telegram_message_decoder() -> decode.Decoder(TelegramMessage) {
   use photo_file_id <- decode.optional_field(
     "photo",
     None,
-    photo_file_id_decoder() |> decode.map(Some),
+    foto_decoder() |> decode.map(Some),
   )
   use voice <- decode.optional_field(
     "voice",
@@ -364,14 +364,14 @@ fn telegram_message_decoder() -> decode.Decoder(TelegramMessage) {
   use document <- decode.optional_field(
     "document",
     None,
-    document_decoder() |> decode.map(Some),
+    documento_decoder() |> decode.map(Some),
   )
   use sticker <- decode.optional_field(
     "sticker",
     None,
     sticker_decoder() |> decode.map(Some),
   )
-  decode.success(TelegramMessage(
+  decode.success(MensagemTelegram(
     message_id: message_id,
     date: date,
     chat_id: chat_id,
@@ -390,6 +390,6 @@ fn telegram_message_decoder() -> decode.Decoder(TelegramMessage) {
   ))
 }
 
-fn get_updates_response_decoder() -> decode.Decoder(List(TelegramUpdate)) {
-  decode.at(["result"], decode.list(telegram_update_decoder()))
+fn resposta_get_updates_decoder() -> decode.Decoder(List(UpdateTelegram)) {
+  decode.at(["result"], decode.list(update_telegram_decoder()))
 }

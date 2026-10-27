@@ -25,10 +25,10 @@ pub type MensagemAntiSpam {
     remetente: String,
     peso: Float,
     agora_ms: Int,
-    reply: Subject(anti_spam.DecisaoAntiSpam),
+    resposta: Subject(anti_spam.DecisaoAntiSpam),
   )
-  Desbloquear(chat_id: String, reply: Subject(Bool))
-  ContarSilenciados(agora_ms: Int, reply: Subject(Int))
+  Desbloquear(chat_id: String, resposta: Subject(Bool))
+  ContarSilenciados(agora_ms: Int, resposta: Subject(Int))
   LimpezaPeriodica(agora_ms: Int)
 }
 
@@ -80,7 +80,7 @@ fn tratar(
   msg: MensagemAntiSpam,
 ) -> actor.Next(Estado, MensagemAntiSpam) {
   case msg {
-    Verificar(chat_id, remetente, peso, agora_ms, reply) -> {
+    Verificar(chat_id, remetente, peso, agora_ms, resposta) -> {
       // Poda proativa se o dicionário exceder limite de capacidade
       let dados_atuais = case dict.size(estado.dados) >= max_chats_em_memoria {
         True ->
@@ -97,19 +97,19 @@ fn tratar(
           peso,
           agora_ms,
         )
-      process.send(reply, decisao)
+      process.send(resposta, decisao)
       actor.continue(Estado(..estado, dados: novos_dados))
     }
 
-    Desbloquear(chat_id, reply) -> {
+    Desbloquear(chat_id, resposta) -> {
       let #(novos_dados, ok) = anti_spam.desbloquear(estado.dados, chat_id)
-      process.send(reply, ok)
+      process.send(resposta, ok)
       actor.continue(Estado(..estado, dados: novos_dados))
     }
 
-    ContarSilenciados(agora_ms, reply) -> {
+    ContarSilenciados(agora_ms, resposta) -> {
       let count = anti_spam.contar_silenciados(estado.dados, agora_ms)
-      process.send(reply, count)
+      process.send(resposta, count)
       actor.continue(estado)
     }
 
@@ -133,16 +133,16 @@ pub fn verificar(
 ) -> anti_spam.DecisaoAntiSpam {
   let peso = anti_spam.peso_mensagem(corpo)
   let agora = sistema.agora_ms()
-  process.call(actor, 1000, fn(reply) {
-    Verificar(chat_id, remetente, peso, agora, reply)
+  process.call(actor, 1000, fn(resposta) {
+    Verificar(chat_id, remetente, peso, agora, resposta)
   })
 }
 
 pub fn desbloquear(actor: AntiSpam, chat_id: String) -> Bool {
-  process.call(actor, 1000, fn(reply) { Desbloquear(chat_id, reply) })
+  process.call(actor, 1000, fn(resposta) { Desbloquear(chat_id, resposta) })
 }
 
 pub fn contar_silenciados(actor: AntiSpam) -> Int {
   let agora = sistema.agora_ms()
-  process.call(actor, 1000, fn(reply) { ContarSilenciados(agora, reply) })
+  process.call(actor, 1000, fn(resposta) { ContarSilenciados(agora, resposta) })
 }
