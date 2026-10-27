@@ -7,18 +7,15 @@ import dominio/erro.{type Erro}
 import gleam/list
 import gleam/result
 import gleam/string
+import shell/sistema
 
 pub const max_chars = 6000
 
 pub fn buscar(url: String) -> Result(String, Erro) {
-  let bridge_url =
-    get_env("WHATSMEOW_URL") |> result.unwrap("http://localhost:8080")
+  let bridge_url = sistema.url_ponte()
   use html <- result.try(whatsmeow_http.buscar_pagina(bridge_url, url))
   html |> extrair_texto |> truncar(max_chars) |> Ok
 }
-
-@external(erlang, "amelie_gleam_ffi", "get_env")
-fn get_env(name: String) -> Result(String, Nil)
 
 /// Extrai o conteúdo textual de uma página HTML, descartando ruídos como
 /// scripts, estilos, tags de cabeçalho/rodapé e menus.

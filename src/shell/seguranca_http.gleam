@@ -1,12 +1,12 @@
 import gleam/http
 import gleam/http/request.{type Request}
-import gleam/result
 import gleam/string
+import shell/sistema
 
 pub const cabecalho_bridge = "x-amelie-bridge-token"
 
 pub fn token_bridge() -> String {
-  get_env("BRIDGE_TOKEN") |> result.unwrap("")
+  sistema.ler_env_ou("BRIDGE_TOKEN", "")
 }
 
 pub fn autenticar_bridge(req: Request(a)) -> Request(a) {
@@ -46,6 +46,3 @@ pub fn identidade_whatsapp_valida(chat_id: String, remetente: String) -> Bool {
 
 @external(erlang, "amelie_gleam_ffi", "constant_time_equal")
 fn comparar_tokens(a: String, b: String) -> Bool
-
-@external(erlang, "amelie_gleam_ffi", "get_env")
-fn get_env(name: String) -> Result(String, Nil)

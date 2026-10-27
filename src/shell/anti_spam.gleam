@@ -10,13 +10,11 @@ import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
 import gleam/otp/supervision
 import gleam/result
+import shell/sistema
 
 const max_chats_em_memoria = 500
 
 const ttl_inatividade_ms = 3_600_000
-
-@external(erlang, "amelie_gleam_ffi", "now_ms")
-fn now_ms() -> Int
 
 pub type AntiSpam =
   Subject(MensagemAntiSpam)
@@ -134,7 +132,7 @@ pub fn verificar(
   corpo: Conteudo,
 ) -> anti_spam.DecisaoAntiSpam {
   let peso = anti_spam.peso_mensagem(corpo)
-  let agora = now_ms()
+  let agora = sistema.agora_ms()
   process.call(actor, 1000, fn(reply) {
     Verificar(chat_id, remetente, peso, agora, reply)
   })
@@ -145,6 +143,6 @@ pub fn desbloquear(actor: AntiSpam, chat_id: String) -> Bool {
 }
 
 pub fn contar_silenciados(actor: AntiSpam) -> Int {
-  let agora = now_ms()
+  let agora = sistema.agora_ms()
   process.call(actor, 1000, fn(reply) { ContarSilenciados(agora, reply) })
 }

@@ -7,6 +7,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
 import gleam/otp/supervision
 import gleam/result
+import shell/sistema
 
 pub const limite_falhas_padrao = 5
 
@@ -104,7 +105,7 @@ fn tratar(
 }
 
 pub fn checar(estado: Estado, config: Config) -> #(Bool, Estado) {
-  let agora = now_ms()
+  let agora = sistema.agora_ms()
   case estado {
     Fechado(_) -> #(True, estado)
     Aberto(ultima) ->
@@ -129,12 +130,12 @@ pub fn ao_falhar(estado: Estado, config: Config) -> Estado {
     Fechado(f) -> {
       let novo = f + 1
       case novo >= config.limite_falhas {
-        True -> Aberto(now_ms())
+        True -> Aberto(sistema.agora_ms())
         False -> Fechado(novo)
       }
     }
-    SemiAberto(..) -> Aberto(now_ms())
-    Aberto(_) -> Aberto(now_ms())
+    SemiAberto(..) -> Aberto(sistema.agora_ms())
+    Aberto(_) -> Aberto(sistema.agora_ms())
   }
 }
 
@@ -166,6 +167,3 @@ pub fn registrar_sucesso(cb: Subject(Mensagem)) -> Nil {
 pub fn registrar_falha(cb: Subject(Mensagem)) -> Nil {
   process.send(cb, Falha)
 }
-
-@external(erlang, "amelie_gleam_ffi", "now_ms")
-fn now_ms() -> Int
