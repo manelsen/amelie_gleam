@@ -1,6 +1,7 @@
 // Adaptador HTTP para Google Gemini API.
 // Implementa IAPorta.
 
+import adaptadores/gemini_url
 import dominio/erro.{type Erro}
 import dominio/mensagem.{type Turno, TurnoAssistente, TurnoUsuario}
 import gleam/bit_array
@@ -286,9 +287,8 @@ fn aguardar_loop(
   case restantes {
     0 -> Error(erro.ErroUpload("timeout aguardando " <> tipo <> " ficar ativo"))
     n -> {
-      let url = uri <> "?key=" <> api_key
       use req <- result.try(
-        request.to(url)
+        requisicao_gemini(uri, api_key)
         |> result.map_error(fn(_) {
           erro.ErroComunicacao("url de status inválida")
         }),
@@ -340,9 +340,8 @@ fn validar_midia_nao_vazia(dados: BitArray, tipo: String) -> Result(Nil, Erro) {
 }
 
 fn deletar_arquivo(api_key: String, uri: String) -> Result(Nil, Erro) {
-  let url = uri <> "?key=" <> api_key
   use req <- result.try(
-    request.to(url)
+    requisicao_gemini(uri, api_key)
     |> result.map_error(fn(_) {
       erro.ErroComunicacao("url de deleção inválida")
     }),
@@ -357,15 +356,29 @@ fn deletar_arquivo(api_key: String, uri: String) -> Result(Nil, Erro) {
 // HTTP helper
 // ---------------------------------------------------------------------------
 
+/// Monta uma requisição autenticada para a API do Gemini. A chave vai no
+/// cabeçalho `x-goog-api-key`, nunca na URL, que aparece em logs e erros.
+/// Recusa qualquer host fora da API: as URIs de arquivo vêm de respostas,
+/// e a chave não pode seguir para outro destino.
+fn requisicao_gemini(
+  url: String,
+  api_key: String,
+) -> Result(request.Request(String), Nil) {
+  case gemini_url.url_da_api(url) {
+    False -> Error(Nil)
+    True ->
+      request.to(url)
+      |> result.map(request.set_header(_, "x-goog-api-key", api_key))
+  }
+}
+
 fn post_gemini(
   api_key: String,
   modelo: String,
   body: String,
 ) -> Result(String, Erro) {
-  let url = base_url <> modelo <> ":generateContent?key=" <> api_key
-
   use req <- result.try(
-    request.to(url)
+    requisicao_gemini(base_url <> modelo <> ":generateContent", api_key)
     |> result.map_error(fn(_) { erro.ErroComunicacao("url gemini inválida") }),
   )
 
