@@ -298,6 +298,50 @@ pub fn tratar_com_rate_limit_envia_aviso_ao_usuario_test() {
   should.be_true(string.contains(aviso, "Calma lá"))
 }
 
+pub fn atrasadas_em_lote_nao_recebem_aviso_de_spam_test() {
+  let ref = process.new_subject()
+  let portas =
+    tratador_mensagem.Portas(
+      mensageiro: portas_fake.mensageiro_capturar(ref),
+      despachante_ia: portas_fake.despachante_ia_ok("resposta"),
+      config: portas_fake.config_ok(fixtures.config_padrao()),
+      historico: portas_fake.historico_vazio(),
+      fila: fila_midia.iniciar_todas() |> should.be_ok,
+      prompts: portas_fake.prompt_noop(),
+      metricas: met(),
+      usuarios: portas_fake.usuario_noop(),
+      grupos: portas_fake.grupo_noop(),
+      transacoes: portas_fake.transacao_noop(),
+      provedores_config: portas_fake.provedores_config_ok(),
+      anti_spam: spam(),
+      spammers: portas_fake.spammer_noop(),
+      video_contexto: portas_fake.video_contexto_noop(),
+      ponte: portas_fake.ponte_inacessivel(),
+    )
+
+  let img1 =
+    Mensagem(..fixtures.mensagem_imagem(), message_id: option.Some("IMG_1"))
+  let img2 =
+    Mensagem(..fixtures.mensagem_imagem(), message_id: option.Some("IMG_2"))
+  let img3 =
+    Mensagem(..fixtures.mensagem_imagem(), message_id: option.Some("IMG_3"))
+
+  // As mesmas 3 imagens, chegando juntas depois de a Amélie voltar ao ar.
+  let _ = tratador_mensagem.tratar_atrasada(img1, portas)
+  let _ = tratador_mensagem.tratar_atrasada(img2, portas)
+  let _ = tratador_mensagem.tratar_atrasada(img3, portas)
+
+  sem_aviso_de_spam(ref) |> should.be_true
+}
+
+fn sem_aviso_de_spam(ref: process.Subject(#(IdChat, String))) -> Bool {
+  case process.receive(ref, 300) {
+    Error(Nil) -> True
+    Ok(#(_chat_id, texto)) ->
+      !string.contains(texto, "Calma lá") && sem_aviso_de_spam(ref)
+  }
+}
+
 fn buscar_aviso(ref: process.Subject(#(IdChat, String))) -> String {
   let assert Ok(#(_chat_id, texto)) = process.receive(ref, 1000)
   case string.contains(texto, "Calma lá") {

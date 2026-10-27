@@ -8,9 +8,11 @@ import gleeunit/should
 import helpers/fixtures
 import helpers/portas_fake
 import portas/telegram_porta
+import shell/fila_atrasadas
 import shell/fila_midia
 import shell/metricas
 import shell/receptor_telegram
+import shell/sistema
 import shell/tratador_mensagem.{type Portas, Portas}
 
 pub fn extrair_updates_json_test() {
@@ -74,6 +76,7 @@ pub fn processar_updates_avanca_offset_e_despacha_test() {
       0,
       portas_fake.telegram_api(Ok(<<>>), process.new_subject()),
       portas,
+      atrasadas(),
     )
 
   // O novo offset deve ser update_id + 1 = 5002
@@ -120,12 +123,18 @@ pub fn despachar_arquivo_muito_grande_notifica_usuario_test() {
     evento,
     portas_fake.telegram_api(Ok(<<>>), process.new_subject()),
     portas,
+    atrasadas(),
   )
 
   let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 2000)
   chat_id |> should.equal(fixtures.id("tg:887766"))
   should.be_true(string.contains(texto, "limite suportado pelo bot é de 20 MB"))
   should.be_true(string.contains(texto, "25 MB"))
+}
+
+fn atrasadas() -> fila_atrasadas.FilaAtrasadas {
+  let assert Ok(fila) = fila_atrasadas.iniciar()
+  fila
 }
 
 fn portas_capturando(ref_envio) -> Portas {
@@ -156,7 +165,12 @@ pub fn despachar_foto_sinaliza_envio_de_foto_test() {
   let evento =
     telegram_porta.EventoFotoParaBaixar(7001, base_telegram(), "foto_1")
 
-  receptor_telegram.despachar_evento(evento, api, portas_capturando(ref_envio))
+  receptor_telegram.despachar_evento(
+    evento,
+    api,
+    portas_capturando(ref_envio),
+    atrasadas(),
+  )
 
   process.receive(ref_acoes, 2000)
   |> should.equal(Ok(telegram_porta.EnviandoFoto))
@@ -172,9 +186,61 @@ pub fn despachar_foto_com_falha_no_download_avisa_usuario_test() {
   let evento =
     telegram_porta.EventoFotoParaBaixar(7002, base_telegram(), "foto_2")
 
-  receptor_telegram.despachar_evento(evento, api, portas_capturando(ref_envio))
+  receptor_telegram.despachar_evento(
+    evento,
+    api,
+    portas_capturando(ref_envio),
+    atrasadas(),
+  )
 
   let assert Ok(#(chat_id, texto)) = process.receive(ref_envio, 2000)
   chat_id |> should.equal(fixtures.id("tg:887766"))
   string.contains(texto, "Não consegui baixar a imagem") |> should.be_true
+}
+
+// ---------------------------------------------------------------------------
+// Updates acumulados enquanto a Amélie estava fora do ar
+// ---------------------------------------------------------------------------
+
+pub fn update_atrasado_vai_para_a_fila_serial_test() {
+  // A própria fila fica com o teste: o que for enfileirado chega aqui.
+  let fila = process.new_subject()
+  let ref_acoes = process.new_subject()
+  let api = portas_fake.telegram_api(Ok(<<255, 216, 255>>), ref_acoes)
+  let base =
+    mensagem.Mensagem(
+      ..base_telegram(),
+      timestamp: sistema.agora_s() - fila_atrasadas.limiar_atraso_s - 60,
+    )
+
+  receptor_telegram.despachar_evento(
+    telegram_porta.EventoFotoParaBaixar(7003, base, "foto_3"),
+    api,
+    portas_capturando(process.new_subject()),
+    fila,
+  )
+
+  let assert Ok(fila_atrasadas.Processar(tarefa)) = process.receive(fila, 500)
+  // Nada foi baixado antes de chegar a vez dela na fila.
+  process.receive(ref_acoes, 50) |> should.be_error
+  tarefa()
+  process.receive(ref_acoes, 500)
+  |> should.equal(Ok(telegram_porta.EnviandoFoto))
+}
+
+pub fn update_no_horario_nao_passa_pela_fila_test() {
+  let fila = process.new_subject()
+  let ref_acoes = process.new_subject()
+  let api = portas_fake.telegram_api(Ok(<<255, 216, 255>>), ref_acoes)
+
+  receptor_telegram.despachar_evento(
+    telegram_porta.EventoFotoParaBaixar(7004, base_telegram(), "foto_4"),
+    api,
+    portas_capturando(process.new_subject()),
+    fila,
+  )
+
+  process.receive(ref_acoes, 2000)
+  |> should.equal(Ok(telegram_porta.EnviandoFoto))
+  process.receive(fila, 50) |> should.be_error
 }

@@ -32,6 +32,7 @@ import portas/ponte_porta
 import portas/telegram_porta
 import shell/arvore_supervisao
 import shell/despachante_ia
+import shell/fila_atrasadas.{type FilaAtrasadas}
 import shell/fila_offline
 import shell/ia_resiliente
 import shell/metricas
@@ -175,7 +176,12 @@ pub fn main() {
 
   case string.trim(telegram_bot_token) {
     "" -> Nil
-    token -> receptor_telegram.iniciar(telegram_http.criar_api(token), portas)
+    token ->
+      receptor_telegram.iniciar(
+        telegram_http.criar_api(token),
+        portas,
+        procs.fila_atrasadas,
+      )
   }
 
   let assert Ok(_) =
@@ -183,6 +189,7 @@ pub fn main() {
       tratar_requisicao(
         req,
         portas,
+        procs.fila_atrasadas,
         conn,
         telegram_secret_token,
         telegram_bot_token,
@@ -204,6 +211,7 @@ pub fn main() {
 fn tratar_requisicao(
   req: Request(Connection),
   portas: Portas,
+  atrasadas: FilaAtrasadas,
   conn: sqlight.Connection,
   telegram_secret: String,
   telegram_bot_token: String,
@@ -213,10 +221,16 @@ fn tratar_requisicao(
   case req.path {
     "/webhook" ->
       proteger_webhook(req, ponte_porta.cabecalho_token, bridge_token, fn(req) {
-        tratar_webhook(req, portas)
+        tratar_webhook(req, portas, atrasadas)
       })
     "/webhook/telegram" ->
-      tratar_webhook_telegram(req, portas, telegram_secret, telegram_bot_token)
+      tratar_webhook_telegram(
+        req,
+        portas,
+        atrasadas,
+        telegram_secret,
+        telegram_bot_token,
+      )
     "/webhook/bridge-event" ->
       proteger_webhook(req, ponte_porta.cabecalho_token, bridge_token, fn(req) {
         tratar_evento_ponte(req, telegram_bot_token, telegram_admin_chat_id)
@@ -437,6 +451,7 @@ fn decodificar_evento_ponte(body: BitArray) -> Result(EventoPonte, Nil) {
 fn tratar_webhook_telegram(
   req: Request(Connection),
   portas: Portas,
+  atrasadas: FilaAtrasadas,
   secret_token: String,
   bot_token: String,
 ) -> response.Response(ResponseData) {
@@ -444,13 +459,14 @@ fn tratar_webhook_telegram(
     req,
     "x-telegram-bot-api-secret-token",
     secret_token,
-    fn(req) { processar_corpo_telegram(req, portas, bot_token) },
+    fn(req) { processar_corpo_telegram(req, portas, atrasadas, bot_token) },
   )
 }
 
 fn processar_corpo_telegram(
   req: Request(Connection),
   portas: Portas,
+  atrasadas: FilaAtrasadas,
   bot_token: String,
 ) -> response.Response(ResponseData) {
   case mist.read_body(req, 1024 * 1024) {
@@ -466,6 +482,7 @@ fn processar_corpo_telegram(
             evento,
             telegram_http.criar_api(bot_token),
             portas,
+            atrasadas,
           )
           resposta_json(200, "{\"ok\":true}")
         }
@@ -476,6 +493,7 @@ fn processar_corpo_telegram(
 fn tratar_webhook(
   req: Request(Connection),
   portas: Portas,
+  atrasadas: FilaAtrasadas,
 ) -> response.Response(ResponseData) {
   case mist.read_body(req, 20 * 1024 * 1024) {
     Error(_) -> resposta_json(400, "{\"error\":\"failed to read body\"}")
@@ -483,14 +501,43 @@ fn tratar_webhook(
       case decodificar_webhook(req_with_body.body) {
         Error(_) -> resposta_json(400, "{\"error\":\"invalid payload\"}")
         Ok(webhook) -> {
-          // Processa em processo isolado — webhook retorna imediatamente.
-          // Evita bloquear o Mist durante chamadas à IA (2-10s).
-          sistema.disparar(fn() {
-            tratador_mensagem.tratar(carregar_midia(webhook), portas)
-          })
+          despachar_webhook(webhook, portas, atrasadas)
           resposta_json(202, "{\"ok\":true}")
         }
       }
+  }
+}
+
+/// Processa em processo isolado — o webhook retorna imediatamente e não
+/// bloqueia o Mist durante chamadas à IA (2-10s). Mensagens enviadas enquanto
+/// a Amélie estava fora do ar vão para a fila serial, uma por vez.
+fn despachar_webhook(
+  webhook: Webhook,
+  portas: Portas,
+  atrasadas: FilaAtrasadas,
+) -> Nil {
+  case fila_atrasadas.e_atrasada(webhook.msg.timestamp, sistema.agora_s()) {
+    False ->
+      sistema.disparar(fn() {
+        tratador_mensagem.tratar(carregar_midia(webhook), portas)
+      })
+    True -> {
+      logging.log(
+        logging.Info,
+        "["
+          <> tratador_mensagem.extrair_trace_id(webhook.msg)
+          <> "] Mensagem atrasada "
+          <> int.to_string(sistema.agora_s() - webhook.msg.timestamp)
+          <> "s, enviada à fila serial: "
+          <> privacidade.mascarar(webhook.msg.chat_id),
+      )
+      // A mídia sai do spool já, e não quando chegar a vez na fila.
+      let msg = carregar_midia(webhook)
+      fila_atrasadas.enfileirar(atrasadas, fn() {
+        let _ = tratador_mensagem.tratar_atrasada(msg, portas)
+        Nil
+      })
+    }
   }
 }
 

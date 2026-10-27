@@ -7,6 +7,7 @@ import core/anti_spam.{
   limpar_inativos, novo_estado, peso_mensagem,
 }
 import dominio/mensagem.{Audio, Imagem, Texto, Video}
+import gleam/list
 import gleam/option.{None, Some}
 import gleeunit/should
 import helpers/fixtures
@@ -551,4 +552,67 @@ pub fn formatar_identificador_e_numero_test() {
 
   formatar_numero_telefone("14155552671")
   |> should.equal("+14155552671")
+}
+
+// ---------------------------------------------------------------------------
+// Mensagens atrasadas (enviadas com a Amélie fora do ar)
+// ---------------------------------------------------------------------------
+
+pub fn atrasadas_em_lote_nao_sao_rajada_test() {
+  let chat = fixtures.id("user_1@c.us")
+  let agora = 1_000_000
+
+  // Dez mensagens no mesmo instante: no ritmo normal seria flood (strike 3).
+  let #(estado, decisoes) =
+    list.fold(list.repeat(Nil, 10), #(novo_estado(), []), fn(acc, _) {
+      let #(estado, decisoes) = acc
+      let #(estado, decisao) =
+        anti_spam.avaliar_atrasada(estado, chat, chat, None, agora)
+      #(estado, [decisao, ..decisoes])
+    })
+  decisoes |> list.all(fn(d) { d == Permitido }) |> should.be_true
+
+  // Nem strike, nem token gasto: a próxima mensagem no horário passa.
+  let #(_, decisao) = avaliar(estado, chat, chat, None, 1.0, agora + 1000)
+  decisao |> should.equal(Permitido)
+}
+
+pub fn atrasada_de_chat_em_quarentena_segue_silenciada_test() {
+  let chat = fixtures.id("user_1@c.us")
+  let t0 = 1_000_000
+
+  // Flood no horário: strike 3, quarentena de 30 min.
+  let estado =
+    list.fold([0, 1, 2, 3, 4], novo_estado(), fn(estado, i) {
+      avaliar(estado, chat, chat, None, 1.0, t0 + i * 100).0
+    })
+
+  anti_spam.avaliar_atrasada(estado, chat, chat, None, t0 + 1000).1
+  |> should.equal(Silenciado(None))
+}
+
+pub fn atrasadas_respeitam_teto_diario_test() {
+  let chat = fixtures.id("user_1@c.us")
+  let agora = 1_000_000
+
+  let estado =
+    list.fold(
+      list.repeat(Nil, anti_spam.limite_diario_mensagens),
+      novo_estado(),
+      fn(estado, _) {
+        anti_spam.avaliar_atrasada(estado, chat, chat, None, agora).0
+      },
+    )
+
+  let #(estado, decisao) =
+    anti_spam.avaliar_atrasada(estado, chat, chat, None, agora)
+  decisao |> should.equal(AvisoLimite(anti_spam.aviso_limite_diario))
+  anti_spam.avaliar_atrasada(estado, chat, chat, None, agora).1
+  |> should.equal(Silenciado(None))
+}
+
+pub fn atrasada_do_admin_e_permitida_test() {
+  let admin = fixtures.id("tg:12345")
+  anti_spam.avaliar_atrasada(novo_estado(), admin, admin, Some(admin), 0).1
+  |> should.equal(Permitido)
 }

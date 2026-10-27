@@ -8,7 +8,7 @@ import dominio/mensagem.{type Conteudo, type Mensagem, Mensagem}
 import gleam/erlang/process
 import gleam/int
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/string
 import logging
 import portas/telegram_porta.{
@@ -16,15 +16,25 @@ import portas/telegram_porta.{
   WebhookAtivo,
 }
 import shell/arquivos_temporarios
+import shell/fila_atrasadas.{type FilaAtrasadas}
 import shell/sistema
 import shell/tratador_mensagem.{type Portas}
 
-pub fn iniciar(api: TelegramPorta, portas: Portas) -> Nil {
+pub fn iniciar(
+  api: TelegramPorta,
+  portas: Portas,
+  atrasadas: FilaAtrasadas,
+) -> Nil {
   logging.log(logging.Info, "Iniciando Telegram poller (long polling)...")
-  sistema.disparar(fn() { loop(api, 0, portas) })
+  sistema.disparar(fn() { loop(api, 0, portas, atrasadas) })
 }
 
-fn loop(api: TelegramPorta, offset: Int, portas: Portas) -> Nil {
+fn loop(
+  api: TelegramPorta,
+  offset: Int,
+  portas: Portas,
+  atrasadas: FilaAtrasadas,
+) -> Nil {
   case api.obter_updates(offset) {
     NovosUpdates(updates) -> {
       case updates {
@@ -37,7 +47,12 @@ fn loop(api: TelegramPorta, offset: Int, portas: Portas) -> Nil {
               <> " updates",
           )
       }
-      loop(api, processar_updates(updates, offset, api, portas), portas)
+      loop(
+        api,
+        processar_updates(updates, offset, api, portas, atrasadas),
+        portas,
+        atrasadas,
+      )
     }
     WebhookAtivo ->
       logging.log(
@@ -50,7 +65,7 @@ fn loop(api: TelegramPorta, offset: Int, portas: Portas) -> Nil {
         "Telegram poller: conflito 409 (outra instância ativa). Aguardando 5s...",
       )
       process.sleep(5000)
-      loop(api, offset, portas)
+      loop(api, offset, portas, atrasadas)
     }
     FalhaPolling(aviso, esperar_ms) -> {
       case aviso {
@@ -58,24 +73,70 @@ fn loop(api: TelegramPorta, offset: Int, portas: Portas) -> Nil {
         None -> Nil
       }
       process.sleep(esperar_ms)
-      loop(api, offset, portas)
+      loop(api, offset, portas, atrasadas)
     }
   }
 }
 
+/// Despacha o update em processo isolado. Mensagens enviadas enquanto a
+/// Amélie estava fora do ar (o `getUpdates` entrega o acumulado de uma vez)
+/// vão para a fila serial, uma por vez e sem contar como rajada.
 pub fn despachar_evento(
   evento: telegram_porta.EventoUpdate,
   api: TelegramPorta,
   portas: Portas,
+  atrasadas: FilaAtrasadas,
 ) -> Nil {
+  let atrasada = case mensagem_do_evento(evento) {
+    Some(msg) -> fila_atrasadas.e_atrasada(msg.timestamp, sistema.agora_s())
+    None -> False
+  }
+  let tratar = case atrasada {
+    True -> tratador_mensagem.tratar_atrasada
+    False -> tratador_mensagem.tratar
+  }
+  let processar = fn(msg) {
+    let _ = tratar(msg, portas)
+    Nil
+  }
+
+  case tarefa_do_evento(evento, api, portas, processar), atrasada {
+    None, _ -> Nil
+    Some(tarefa), True -> fila_atrasadas.enfileirar(atrasadas, tarefa)
+    Some(tarefa), False -> sistema.disparar(tarefa)
+  }
+}
+
+fn mensagem_do_evento(evento: telegram_porta.EventoUpdate) -> Option(Mensagem) {
+  case evento {
+    telegram_porta.EventoMensagemPronta(_, msg) -> Some(msg)
+    telegram_porta.EventoFotoParaBaixar(_, base, ..)
+    | telegram_porta.EventoAudioParaBaixar(_, base, ..)
+    | telegram_porta.EventoVideoParaBaixar(_, base, ..)
+    | telegram_porta.EventoDocumentoParaBaixar(_, base, ..)
+    | telegram_porta.EventoStickerParaBaixar(_, base, ..) -> Some(base)
+    telegram_porta.EventoArquivoMuitoGrande(..)
+    | telegram_porta.EventoIgnorado(_) -> None
+  }
+}
+
+fn tarefa_do_evento(
+  evento: telegram_porta.EventoUpdate,
+  api: TelegramPorta,
+  portas: Portas,
+  processar: fn(Mensagem) -> Nil,
+) -> Option(fn() -> Nil) {
+  let processar_com = fn(base: Mensagem, corpo: Conteudo) {
+    processar(Mensagem(..base, corpo: corpo))
+  }
   case evento {
     telegram_porta.EventoMensagemPronta(_, msg) ->
-      sistema.disparar(fn() {
+      Some(fn() {
         let _ = api.sinalizar(msg.chat_id, telegram_porta.Digitando)
-        processar(msg, portas)
+        processar(msg)
       })
     telegram_porta.EventoFotoParaBaixar(_, base, file_id) ->
-      sistema.disparar(fn() {
+      Some(fn() {
         use bytes <- baixar_ou_avisar(
           api,
           portas,
@@ -85,10 +146,10 @@ pub fn despachar_evento(
           "foto",
           "Não consegui baixar a imagem do Telegram. Tente enviar novamente.",
         )
-        processar_com(base, mensagem.Imagem("image/jpeg", bytes), portas)
+        processar_com(base, mensagem.Imagem("image/jpeg", bytes))
       })
     telegram_porta.EventoAudioParaBaixar(_, base, file_id, mime) ->
-      sistema.disparar(fn() {
+      Some(fn() {
         use bytes <- baixar_ou_avisar(
           api,
           portas,
@@ -98,10 +159,10 @@ pub fn despachar_evento(
           "áudio",
           "Não consegui baixar o áudio do Telegram. Tente enviar novamente.",
         )
-        processar_com(base, mensagem.Audio(mime, bytes), portas)
+        processar_com(base, mensagem.Audio(mime, bytes))
       })
     telegram_porta.EventoVideoParaBaixar(_, base, file_id, mime) ->
-      sistema.disparar(fn() {
+      Some(fn() {
         use bytes <- baixar_ou_avisar(
           api,
           portas,
@@ -116,7 +177,6 @@ pub fn despachar_evento(
             processar_com(
               base,
               mensagem.Video(caminho_temp: caminho, mime: mime),
-              portas,
             )
           Error(e) -> {
             logging.log(
@@ -132,7 +192,7 @@ pub fn despachar_evento(
         }
       })
     telegram_porta.EventoDocumentoParaBaixar(_, base, file_id, mime, file_name) ->
-      sistema.disparar(fn() {
+      Some(fn() {
         use bytes <- baixar_ou_avisar(
           api,
           portas,
@@ -145,11 +205,10 @@ pub fn despachar_evento(
         processar_com(
           base,
           mensagem.Documento(mime: mime, dados: bytes, nome: file_name),
-          portas,
         )
       })
     telegram_porta.EventoStickerParaBaixar(_, base, file_id, mime) ->
-      sistema.disparar(fn() {
+      Some(fn() {
         use bytes <- baixar_ou_avisar(
           api,
           portas,
@@ -159,10 +218,10 @@ pub fn despachar_evento(
           "figurinha",
           "Não consegui baixar a figurinha do Telegram. Tente enviar novamente.",
         )
-        processar_com(base, mensagem.Sticker(mime: mime, dados: bytes), portas)
+        processar_com(base, mensagem.Sticker(mime: mime, dados: bytes))
       })
     telegram_porta.EventoArquivoMuitoGrande(_, chat_id, tamanho_mb) ->
-      sistema.disparar(fn() {
+      Some(fn() {
         avisar(
           chat_id,
           "Não consegui baixar o arquivo do Telegram. O limite suportado pelo bot é de 20 MB (este arquivo possui cerca de "
@@ -171,7 +230,7 @@ pub fn despachar_evento(
           portas,
         )
       })
-    telegram_porta.EventoIgnorado(_) -> Nil
+    telegram_porta.EventoIgnorado(_) -> None
   }
 }
 
@@ -206,15 +265,6 @@ fn baixar_ou_avisar(
   }
 }
 
-fn processar_com(base: Mensagem, corpo: Conteudo, portas: Portas) -> Nil {
-  processar(Mensagem(..base, corpo: corpo), portas)
-}
-
-fn processar(msg: Mensagem, portas: Portas) -> Nil {
-  let _ = tratador_mensagem.tratar(msg, portas)
-  Nil
-}
-
 fn avisar(chat_id: IdChat, texto: String, portas: Portas) -> Nil {
   portas.mensageiro.enviar(chat_id, texto)
   |> sistema.registrar_falha("Falha ao avisar usuário do Telegram")
@@ -235,9 +285,10 @@ pub fn processar_updates(
   offset_atual: Int,
   api: TelegramPorta,
   portas: Portas,
+  atrasadas: FilaAtrasadas,
 ) -> Int {
   list.fold(updates, offset_atual, fn(maior_offset, evento) {
-    despachar_evento(evento, api, portas)
+    despachar_evento(evento, api, portas, atrasadas)
     int.max(maior_offset, telegram_porta.obter_update_id(evento) + 1)
   })
 }
