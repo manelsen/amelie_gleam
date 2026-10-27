@@ -8,7 +8,6 @@ pub type Acao {
   // Busca conteúdo da URL e injeta no prompt antes de chamar a IA.
   BuscarUrlEResponder(para: String, texto: String, url: String)
   EnviarResposta(para: String, corpo: String)
-  EnviarReacao(para: String, emoji: String)
   EnfileirarMidia(chat_id: String, tipo: TipoMidia)
   SalvarConfig(config: Config)
   LimparHistorico(chat_id: String)

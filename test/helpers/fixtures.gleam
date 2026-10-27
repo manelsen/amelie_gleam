@@ -4,6 +4,7 @@ import dominio/config.{type Config, Config, Curto}
 import dominio/mensagem.{
   type Mensagem, type Turno, Mensagem, TurnoAssistente, TurnoUsuario,
 }
+import dominio/provedor
 import gleam/option.{None, Some}
 
 @external(erlang, "amelie_gleam_ffi", "now_ms")
@@ -24,7 +25,7 @@ pub fn remetente() -> String {
 pub fn config_padrao() -> Config {
   Config(
     chat_id: chat_id(),
-    provedor: "gemini",
+    provedor: provedor.Gemini,
     modelo: "gemini-3.5-flash-lite",
     historico_max: 10,
     prompt_sistema: None,

@@ -104,8 +104,7 @@ pub fn envio_sucesso_marca_entregue_test() {
 
   entrega_auditada.enviar(
     "chat1",
-    "amelie",
-    "texto",
+    transacao.RespostaTexto,
     "oi",
     mensageiro_ok(),
     transacoes,
@@ -127,8 +126,7 @@ pub fn envio_falha_registra_erro_com_tentativa_test() {
   let _ =
     entrega_auditada.enviar(
       "chat1",
-      "amelie",
-      "texto",
+      transacao.RespostaTexto,
       "oi",
       mensageiro_erro(),
       transacoes,
@@ -142,8 +140,7 @@ pub fn envio_falha_registra_erro_com_tentativa_test() {
 pub fn envio_falha_propaga_erro_test() {
   entrega_auditada.enviar(
     "chat1",
-    "amelie",
-    "texto",
+    transacao.RespostaTexto,
     "oi",
     mensageiro_erro(),
     transacao_sem_id(),
@@ -172,8 +169,7 @@ pub fn falha_no_registro_nao_envia_test() {
 
   entrega_auditada.enviar(
     "chat1",
-    "amelie",
-    "texto",
+    transacao.RespostaTexto,
     "oi",
     mensageiro_capturar_envio(enviou),
     transacoes,
@@ -194,8 +190,7 @@ pub fn envio_citando_sucesso_marca_entregue_test() {
 
   entrega_auditada.enviar_citando(
     "chat1",
-    "amelie",
-    "ia_texto",
+    transacao.RespostaIA,
     "resposta",
     "MSG001",
     "user@c.us",
@@ -215,8 +210,7 @@ pub fn envio_citando_falha_registra_erro_test() {
   let _ =
     entrega_auditada.enviar_citando(
       "chat1",
-      "amelie",
-      "ia_texto",
+      transacao.RespostaIA,
       "resposta",
       "MSG001",
       "user@c.us",

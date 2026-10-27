@@ -8,6 +8,7 @@ import dominio/acao.{
 import dominio/config.{type Config, Config, Curto, Longo}
 import dominio/erro.{type Erro}
 
+import dominio/provedor
 import gleam/string
 
 pub fn executar(
@@ -71,7 +72,7 @@ fn modelo_cmd(args: String, cfg: Config) -> List(Acao) {
       EnviarResposta(
         cfg.chat_id,
         "Provedor atual: `"
-          <> cfg.provedor
+          <> provedor.para_string(cfg.provedor)
           <> "`\nModelo atual: `"
           <> cfg.modelo
           <> "`",
