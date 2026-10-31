@@ -394,7 +394,8 @@ fn tratar_evento_ponte(
                     <> code
                     <> "`\n\n"
                     <> "👉 *No WhatsApp do seu celular:*\n"
-                    <> "Aparelhos conectados > Conectar com número de telefone > Digite o código acima."
+                    <> "Aparelhos conectados > Conectar com número de telefone > Digite o código acima.\n\n"
+                    <> "⏳ Vale por cerca de 2 minutos. Se expirar, mando outro, e os anteriores deixam de valer."
                   let _ =
                     telegram_http.enviar_mensagem(
                       bot_token,
