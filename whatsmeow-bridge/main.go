@@ -232,6 +232,9 @@ type Bridge struct {
 	groupLeaves         *leaveAttempts
 	historyMu           sync.Mutex
 	historySeen         map[types.MessageID]struct{}
+	pairingMu           sync.Mutex
+	pairingGen          uint64
+	pairingStop         chan struct{}
 }
 
 type mediaRetryPending struct {
@@ -319,53 +322,8 @@ func (b *Bridge) loginPairingCode() error {
 	if phone == "" {
 		return fmt.Errorf("MOBILE_NUMBER não configurado ou inválido para pairing code")
 	}
-
-	qrChan, _ := b.client.GetQRChannel(context.Background())
-	if err := b.client.Connect(); err != nil {
-		return fmt.Errorf("falha ao conectar websocket para pairing code: %w", err)
-	}
-
-	// Aguarda o primeiro evento do canal para garantir que a conexão websocket está pronta
-	select {
-	case evt, ok := <-qrChan:
-		if !ok {
-			return fmt.Errorf("canal de autenticação fechou antes do pareamento")
-		}
-		if evt.Event == "success" {
-			log.Println("[WhatsApp] Já autenticado com sucesso!")
-			return nil
-		}
-	case <-time.After(5 * time.Second):
-		// Timeout de segurança caso o evento demore
-	}
-
-	code, err := b.client.PairPhone(context.Background(), phone, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
-	if err != nil {
-		return fmt.Errorf("falha ao gerar pairing code para %s: %w", phone, err)
-	}
-
-	b.notifyGleamEvent(map[string]interface{}{
-		"evento": "pairing_code",
-		"phone":  phone,
-		"code":   code,
-	})
-
-	logPairingCode(phone, code)
-
-	for evt := range qrChan {
-		switch evt.Event {
-		case "success":
-			log.Printf("[WhatsApp] Autenticação via Pairing Code realizada com sucesso!")
-			return nil
-		case "timeout":
-			log.Printf("[WhatsApp] Pairing code expirou sem ser confirmado no celular. Aguardando nova solicitação via /parear...")
-			b.setConnectionError("pairing_timeout", "pairing code expirou sem confirmação no celular")
-			return nil
-		default:
-			log.Printf("[WhatsApp] Evento de autenticação: %s\n", evt.Event)
-		}
-	}
-	return nil
+	_, err := b.requestPairingCode(phone)
+	return err
 }
 
 func (b *Bridge) Stop() {
@@ -1979,61 +1937,6 @@ func (b *Bridge) deleteSessionStore() {
 	} else if b.client != nil && b.client.Store != nil {
 		b.client.Store.ID = nil
 	}
-}
-
-func (b *Bridge) requestPairingCode(phone string) (string, error) {
-	phone = cleanPhoneNumber(phone)
-	if b.client.Store.ID != nil && !b.client.IsLoggedIn() {
-		b.deleteSessionStore()
-	}
-
-	qrChan, _ := b.client.GetQRChannel(context.Background())
-	if !b.client.IsConnected() {
-		if err := b.client.Connect(); err != nil {
-			return "", fmt.Errorf("conectar websocket: %w", err)
-		}
-	}
-
-	select {
-	case evt, ok := <-qrChan:
-		if !ok {
-			return "", fmt.Errorf("canal de autenticação fechou antes do pareamento")
-		}
-		if evt.Event == "success" {
-			return "", fmt.Errorf("já autenticado")
-		}
-	case <-time.After(5 * time.Second):
-	}
-
-	code, err := b.client.PairPhone(context.Background(), phone, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
-	if err != nil {
-		return "", err
-	}
-
-	b.notifyGleamEvent(map[string]interface{}{
-		"evento": "pairing_code",
-		"phone":  phone,
-		"code":   code,
-	})
-
-	logPairingCode(phone, code)
-
-	go func() {
-		for evt := range qrChan {
-			switch evt.Event {
-			case "success":
-				log.Printf("[WhatsApp] Autenticação via Pairing Code realizada com sucesso!")
-				return
-			case "timeout":
-				log.Printf("[WhatsApp] Pairing code expirou sem ser confirmado.")
-				return
-			default:
-				log.Printf("[WhatsApp] Evento de autenticação: %s\n", evt.Event)
-			}
-		}
-	}()
-
-	return code, nil
 }
 
 func (b *Bridge) notifyGleamEvent(payload map[string]interface{}) {
