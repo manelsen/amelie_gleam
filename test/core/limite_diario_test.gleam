@@ -61,7 +61,7 @@ pub fn avisa_uma_vez_e_depois_descarta_test() {
       1.0,
       t,
     )
-  d1 |> should.equal(AvisoLimite(aviso_limite_diario))
+  d1 |> should.equal(AvisoLimite(aviso_limite_diario, 1))
 
   let #(_e3, d2) =
     avaliar(
@@ -159,7 +159,7 @@ pub fn pausa_nao_zera_o_teto_test() {
       1.0,
       depois,
     )
-  d |> should.equal(AvisoLimite(aviso_limite_diario))
+  d |> should.equal(AvisoLimite(aviso_limite_diario, 1))
 }
 
 pub fn admin_nao_tem_teto_test() {

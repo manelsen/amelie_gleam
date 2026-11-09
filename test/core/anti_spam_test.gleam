@@ -102,7 +102,10 @@ pub fn strike1_acionado_ao_esgotar_tokens_test() {
   d1 |> should.equal(Permitido)
   let #(_e2, d2) = avaliar(e1, id, id, None, 1.0, t0 + 1000)
   case d2 {
-    AvisoLimite(motivo) -> motivo |> should.not_equal("")
+    AvisoLimite(motivo, nivel) -> {
+      motivo |> should.not_equal("")
+      nivel |> should.equal(1)
+    }
     _ -> panic as "esperava AvisoLimite no Strike 1"
   }
 }
@@ -131,7 +134,7 @@ pub fn recuperacao_apos_aguardar_cooldown_test() {
       t0 + 100,
     )
   case d2 {
-    AvisoLimite(_) -> Nil
+    AvisoLimite(_, _) -> Nil
     _ -> panic as "esperava AvisoLimite"
   }
 
@@ -184,9 +187,10 @@ pub fn reincidencia_durante_cooldown_escala_para_strike2_test() {
       t0 + 5000,
     )
   case d3 {
-    AvisoLimite(motivo) -> {
+    AvisoLimite(motivo, nivel) -> {
       // Aviso de Strike 2 (pausa de 5 minutos)
       motivo |> should.not_equal("")
+      nivel |> should.equal(2)
     }
     _ -> panic as "esperava AvisoLimite de Strike 2"
   }
@@ -278,7 +282,7 @@ pub fn peso_midia_consome_mais_tokens_test() {
   let #(_e4, d4) = video(e3, t0 + 300)
   [d1, d2, d3] |> should.equal([Permitido, Permitido, Permitido])
   case d4 {
-    AvisoLimite(_) -> Nil
+    AvisoLimite(_, _) -> Nil
     _ -> panic as "esperava AvisoLimite no quarto vídeo seguido"
   }
 }
@@ -460,7 +464,7 @@ pub fn atrasadas_respeitam_teto_diario_test() {
 
   let #(estado, decisao) =
     anti_spam.avaliar_atrasada(estado, chat, chat, None, agora)
-  decisao |> should.equal(AvisoLimite(anti_spam.aviso_limite_diario))
+  decisao |> should.equal(AvisoLimite(anti_spam.aviso_limite_diario, 1))
   anti_spam.avaliar_atrasada(estado, chat, chat, None, agora).1
   |> should.equal(Silenciado(None))
 }
@@ -491,7 +495,7 @@ pub fn album_de_fotos_nao_escala_strike_test() {
   |> should.be_true
   // A 11ª dá um único aviso de 30 s.
   case list.drop(decisoes, 10) {
-    [AvisoLimite(_), d12] ->
+    [AvisoLimite(_, _), d12] ->
       // A 12ª já estava a caminho: descartada sem escalar, sem alertar o
       // admin e sem virar incidente de spam.
       d12 |> should.equal(Descartado)

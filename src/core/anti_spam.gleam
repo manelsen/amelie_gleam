@@ -68,7 +68,9 @@ pub type DecisaoAntiSpam {
   /// Mensagem aceita para processamento.
   Permitido
   /// Limite de taxa atingido. Deve responder ao usuário com o aviso explicativo.
-  AvisoLimite(motivo: String)
+  /// `nivel` é o strike que vai para o registro de incidentes (o teto diário
+  /// conta como 1).
+  AvisoLimite(motivo: String, nivel: Int)
   /// Mensagem que já estava a caminho quando o aviso saiu (carência). Descarta
   /// sem registrar incidente: não é reincidência.
   Descartado
@@ -227,7 +229,7 @@ pub fn avaliar_atrasada(
       }
       let decisao = case contagem {
         c if c < limite_diario_mensagens -> Permitido
-        c if c == limite_diario_mensagens -> AvisoLimite(aviso_limite_diario)
+        c if c == limite_diario_mensagens -> AvisoLimite(aviso_limite_diario, 1)
         _ -> Silenciado(None)
       }
       let novo_reg =
@@ -298,7 +300,7 @@ fn avaliar_em_quarentena(
               quarentena_ate_ms: agora_ms + cooldown_strike2_ms,
               ultimo_ts_ms: agora_ms,
             )
-          #(dict.insert(estado, chat_id, novo_reg), AvisoLimite(aviso))
+          #(dict.insert(estado, chat_id, novo_reg), AvisoLimite(aviso, 2))
         }
       }
   }
@@ -372,7 +374,7 @@ fn avaliar_livre(
           let decisao = case contagem {
             c if c < limite_diario_mensagens -> Permitido
             c if c == limite_diario_mensagens ->
-              AvisoLimite(aviso_limite_diario)
+              AvisoLimite(aviso_limite_diario, 1)
             _ -> Silenciado(None)
           }
           // Acima do teto não consome token nem soma strike: só descarta.
@@ -423,7 +425,7 @@ fn avaliar_livre(
                   ..base,
                   quarentena_ate_ms: agora_ms + cooldown_strike1_ms,
                 ),
-                AvisoLimite(aviso),
+                AvisoLimite(aviso, 1),
               )
             }
             2 -> #(
@@ -433,6 +435,7 @@ fn avaliar_livre(
               ),
               AvisoLimite(
                 "⚠️ Muitas mensagens seguidas de novo. Seu chat foi pausado por 5 minutos.",
+                2,
               ),
             )
             _ -> #(
