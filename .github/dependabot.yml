@@ -1,0 +1,15 @@
+# Atualiza os SHAs fixados das actions do CI (o comentário com a versão
+# acompanha). Uma PR por semana, agrupando todas as actions.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: chore
+      include: scope
