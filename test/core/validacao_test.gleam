@@ -166,6 +166,22 @@ pub fn sem_ponto_argumentos_validos_continuam_test() {
   |> should.equal(Ok(#("doc", "OFF")))
 }
 
+pub fn sem_ponto_telefone_com_espacos_test() {
+  validacao.parsear_comando("parear 55 31 99999-0000")
+  |> should.equal(Ok(#("parear", "55 31 99999-0000")))
+  validacao.parsear_comando("reset_whatsapp +55 (31) 99999-0000")
+  |> should.equal(Ok(#("reset_whatsapp", "+55 (31) 99999-0000")))
+  validacao.parsear_comando("unban 55 31 99999-0000")
+  |> should.equal(Ok(#("unban", "55 31 99999-0000")))
+}
+
+pub fn sem_ponto_parear_sem_telefone_e_conversa_test() {
+  validacao.parsear_comando("parear meu celular")
+  |> should.be_error
+  validacao.parsear_comando("reset_whatsapp agora por favor")
+  |> should.be_error
+}
+
 pub fn com_ponto_aceita_qualquer_argumento_test() {
   validacao.parsear_comando(".reset minha conversa")
   |> should.equal(Ok(#("reset", "minha conversa")))

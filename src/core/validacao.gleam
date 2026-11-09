@@ -64,9 +64,23 @@ fn argumento_sem_ponto_valido(nome: String, args: String) -> Bool {
     "video", "on" | "video", "off" -> True
     "doc", "on" | "doc", "off" -> True
     "modelo", a -> um_token && string.contains(a, "/")
-    "parear", _ | "unban", _ | "desbloquear", _ -> um_token
+    "parear", a | "reset_whatsapp", a -> e_telefone(a)
+    "unban", a | "desbloquear", a -> um_token || e_telefone(a)
     _, _ -> False
   }
+}
+
+/// Telefone como as pessoas digitam: "55 31 99999-0000", "+55 (31) 99999-0000".
+fn e_telefone(args: String) -> Bool {
+  let caracteres = string.to_graphemes(args)
+  list.any(caracteres, e_digito)
+  && list.all(caracteres, fn(c) {
+    e_digito(c) || list.contains([" ", "+", "-", "(", ")"], c)
+  })
+}
+
+fn e_digito(c: String) -> Bool {
+  list.contains(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], c)
 }
 
 pub fn normalizar_nome_comando(nome: String) -> String {
