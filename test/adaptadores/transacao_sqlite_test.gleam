@@ -1,4 +1,5 @@
 import adaptadores/transacao_sqlite
+import dominio/id_chat
 import dominio/transacao.{Entregue, Pendente, Transacao}
 import gleam/option.{None, Some}
 import gleeunit/should
@@ -50,16 +51,17 @@ pub fn limpar_antigas_remove_transacoes_e_mensagens_expiradas_test() {
        VALUES ('mid_antigo', unixepoch() - 8 * 24 * 3600);",
       conn,
     )
-  let assert Ok(Nil) = porta.marcar_recebida("mid_recente")
+  let assert Ok(Nil) =
+    porta.marcar_recebida(fixtures.id("chat1@c.us"), "mid_recente")
 
   // 5. Executa limpar_antigas
   let assert Ok(Nil) = porta.limpar_antigas()
 
   // 6. Verifica deduplicação: mid_antigo foi apagado, mid_recente preservado
-  porta.foi_recebida("mid_antigo")
+  porta.foi_recebida(fixtures.id("chat1@c.us"), "mid_antigo")
   |> should.equal(Ok(False))
 
-  porta.foi_recebida("mid_recente")
+  porta.foi_recebida(fixtures.id("chat1@c.us"), "mid_recente")
   |> should.equal(Ok(True))
 
   // 7. Verifica que a transação pendente continua existindo
@@ -106,4 +108,31 @@ pub fn registrar_com_insert_falhando_retorna_erro_test() {
   let assert Ok(Nil) = sqlight.exec("DROP TABLE transacoes", conn)
   porta.registrar(Transacao(..tx, conteudo: "segunda"))
   |> should.be_error
+}
+
+pub fn dedup_telegram_separa_chats_com_mesmo_message_id_test() {
+  use conn <- sqlight.with_connection("file:dedup_telegram?mode=memory")
+  let porta = transacao_sqlite.criar(conn)
+  let chat_a = id_chat.telegram(111)
+  let chat_b = id_chat.telegram(222)
+
+  let assert Ok(Nil) = porta.marcar_recebida(chat_a, "42")
+
+  porta.foi_recebida(chat_a, "42") |> should.equal(Ok(True))
+  // No Telegram o message_id é contador por chat: a 42 do outro chat é nova.
+  porta.foi_recebida(chat_b, "42") |> should.equal(Ok(False))
+}
+
+pub fn dedup_whatsapp_mantem_chave_antiga_test() {
+  use conn <- sqlight.with_connection("file:dedup_whatsapp?mode=memory")
+  let porta = transacao_sqlite.criar(conn)
+  // Registro gravado antes desta mudança, só com o message_id.
+  let assert Ok(Nil) =
+    sqlight.exec(
+      "INSERT INTO mensagens_recebidas (message_id) VALUES ('3EB0ABC')",
+      conn,
+    )
+
+  porta.foi_recebida(fixtures.id("5531999990000@s.whatsapp.net"), "3EB0ABC")
+  |> should.equal(Ok(True))
 }

@@ -172,10 +172,10 @@ fn ja_processada(msg: Mensagem, portas: Portas) -> Bool {
   case msg.message_id {
     option.None -> False
     option.Some(msg_id) ->
-      case portas.transacoes.foi_recebida(msg_id) {
+      case portas.transacoes.foi_recebida(msg.chat_id, msg_id) {
         Ok(True) -> True
         Ok(False) -> {
-          portas.transacoes.marcar_recebida(msg_id)
+          portas.transacoes.marcar_recebida(msg.chat_id, msg_id)
           |> sistema.registrar_falha("Falha ao marcar mensagem como recebida")
           False
         }
