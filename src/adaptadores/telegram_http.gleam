@@ -241,6 +241,9 @@ pub fn mapear_emoji_telegram(emoji: String) -> String {
   case emoji {
     "⌛" | "⏳" -> "🤔"
     "🆗" -> "👍"
+    // ⚠️ não está na lista de reações da Bot API: a chamada falharia e o 🤔
+    // ficaria no lugar do aviso de falha.
+    "⚠️" | "⚠" -> "😢"
     outro -> outro
   }
 }

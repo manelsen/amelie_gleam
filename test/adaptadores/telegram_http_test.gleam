@@ -23,6 +23,10 @@ pub fn mapear_emoji_telegram_test() {
   telegram_http.mapear_emoji_telegram("🆗")
   |> should.equal("👍")
 
+  // Aviso de falha de mídia: ⚠️ não é reação válida no Telegram
+  telegram_http.mapear_emoji_telegram("⚠️")
+  |> should.equal("😢")
+
   // Emojis já permitidos ou outros passam inalterados
   telegram_http.mapear_emoji_telegram("👍")
   |> should.equal("👍")
