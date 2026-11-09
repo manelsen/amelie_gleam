@@ -131,7 +131,25 @@ pub fn e_falha_servico(e: Erro) -> Bool {
     erro.ErroComunicacao(_) | erro.ErroTimeout(_) | erro.ErroIAIndisponivel ->
       True
     erro.ErroIA(msg) -> e_transiente(e) || string.contains(msg, "status 5")
+    erro.ErroUpload(msg) -> falha_servico_upload(msg)
     _ -> False
+  }
+}
+
+/// Mensagens de `ErroUpload` vêm de gemini_http, openrouter_http e do FFI de
+/// upload. 5xx, demora para ativar e erro de transporte são do serviço;
+/// 4xx e recusa do provedor (OpenRouter sem vídeo) são da entrada.
+fn falha_servico_upload(msg: String) -> Bool {
+  case msg {
+    "upload status 5" <> _ -> True
+    "upload status 429" <> _ -> True
+    "upload status " <> _ -> False
+    "timeout aguardando " <> _ | "falha ao verificar status" <> _ -> True
+    "uri ausente" <> _
+    | "status inesperado" <> _
+    | "OpenRouter não suporta" <> _ -> False
+    // O resto é o motivo do httpc formatado pelo FFI: falha de transporte.
+    _ -> True
   }
 }
 

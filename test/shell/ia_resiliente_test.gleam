@@ -51,3 +51,30 @@ pub fn classifica_falhas_do_servico_test() {
   ia_resiliente.e_falha_servico(erro.ErroIA("Gemini retornou status 400"))
   |> should.be_false
 }
+
+pub fn classifica_falhas_de_upload_test() {
+  ia_resiliente.e_falha_servico(erro.ErroUpload(
+    "upload status 503: indisponível",
+  ))
+  |> should.be_true
+  ia_resiliente.e_falha_servico(erro.ErroUpload("upload status 429: quota"))
+  |> should.be_true
+  ia_resiliente.e_falha_servico(erro.ErroUpload("{failed_connect,[]}"))
+  |> should.be_true
+  ia_resiliente.e_falha_servico(erro.ErroUpload("timeout"))
+  |> should.be_true
+  ia_resiliente.e_falha_servico(erro.ErroUpload(
+    "timeout aguardando vídeo ficar ativo",
+  ))
+  |> should.be_true
+  ia_resiliente.e_falha_servico(erro.ErroUpload("upload status 400: inválido"))
+  |> should.be_false
+  ia_resiliente.e_falha_servico(erro.ErroUpload(
+    "OpenRouter não suporta upload direto de vídeo",
+  ))
+  |> should.be_false
+  ia_resiliente.e_falha_servico(erro.ErroUpload(
+    "status inesperado ao ativar vídeo: 403",
+  ))
+  |> should.be_false
+}
