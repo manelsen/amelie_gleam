@@ -239,8 +239,19 @@ func TestShouldRequestMediaRetry(t *testing.T) {
 }
 
 func TestMediaDownloadTimeout(t *testing.T) {
-	if mediaDownloadTimeout("figurinha") <= mediaDownloadTimeout("imagem") {
+	if mediaDownloadTimeout("figurinha", 0) <= mediaDownloadTimeout("imagem", 0) {
 		t.Fatalf("sticker timeout should be longer than image timeout")
+	}
+	// Um vídeo de 40 MiB precisa de mais que o prazo de uma foto pequena.
+	video := mediaDownloadTimeout("video", 40<<20)
+	if video < 40*time.Second {
+		t.Fatalf("vídeo de 40 MiB com prazo curto demais: %v", video)
+	}
+	if got := mediaDownloadTimeout("documento", 1<<40); got != mediaTimeoutMax {
+		t.Fatalf("prazo deve ter teto de %v, veio %v", mediaTimeoutMax, got)
+	}
+	if got := mediaDownloadTimeout("imagem", 200<<10); got > 10*time.Second {
+		t.Fatalf("foto pequena deve desistir rápido, veio %v", got)
 	}
 }
 

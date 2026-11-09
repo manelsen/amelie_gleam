@@ -741,7 +741,7 @@ func (b *Bridge) downloadMediaBytes(
 	applyDirectPath func(string),
 ) ([]byte, bool) {
 	// Fail fast para domínios fantasmas do WhatsApp que causam delays de 15s
-	ctx, cancel := context.WithTimeout(context.Background(), mediaDownloadTimeout(kind))
+	ctx, cancel := context.WithTimeout(context.Background(), mediaDownloadTimeout(kind, declaredMediaBytes(msg)))
 	defer cancel()
 
 	// O tamanho declarado pode mentir; o limitedFile é que limita de fato.
@@ -791,7 +791,7 @@ func (b *Bridge) downloadStickerBytes(
 	applyDirectPath func(string),
 ) ([]byte, bool) {
 	if sticker.GetDirectPath() != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), mediaDownloadTimeout("figurinha"))
+		ctx, cancel := context.WithTimeout(context.Background(), mediaDownloadTimeout("figurinha", sticker.GetFileLength()))
 		defer cancel()
 
 		if declaredMediaTooLarge(sticker) {
@@ -829,11 +829,33 @@ func (b *Bridge) downloadStickerBytes(
 	return b.downloadMediaBytes(evt, "figurinha", mime, "", sticker, applyDirectPath)
 }
 
-func mediaDownloadTimeout(kind string) time.Duration {
-	if kind == "figurinha" {
-		return 8 * time.Second
+// Prazo do download inteiro. Curto o bastante para desistir logo de um host
+// de mídia que não responde (o pedido de reenvio traz outro caminho), mas
+// proporcional ao tamanho declarado: com 2 s fixos, vídeos e PDFs grandes
+// nunca terminavam e eram descartados.
+const (
+	mediaTimeoutBase   = 5 * time.Second
+	mediaTimeoutPorMiB = 1 * time.Second
+	mediaTimeoutMax    = 2 * time.Minute
+	stickerTimeoutMin  = 8 * time.Second
+)
+
+func mediaDownloadTimeout(kind string, declaredBytes uint64) time.Duration {
+	d := mediaTimeoutBase + time.Duration(declaredBytes/(1<<20))*mediaTimeoutPorMiB
+	if kind == "figurinha" && d < stickerTimeoutMin {
+		d = stickerTimeoutMin
 	}
-	return 2 * time.Second
+	if d > mediaTimeoutMax {
+		d = mediaTimeoutMax
+	}
+	return d
+}
+
+func declaredMediaBytes(msg any) uint64 {
+	if sized, ok := msg.(sizedMedia); ok {
+		return sized.GetFileLength()
+	}
+	return 0
 }
 
 func (b *Bridge) requestMediaRetry(
