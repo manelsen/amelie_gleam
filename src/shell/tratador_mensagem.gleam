@@ -199,6 +199,10 @@ fn processar_mensagem_com_anti_spam(
   case decisao {
     core_anti_spam.Permitido -> processar_mensagem(msg, portas)
     core_anti_spam.AvisoLimite(motivo) -> avisar_limite(motivo, msg, portas)
+    core_anti_spam.Descartado -> {
+      limpar_midia_se_descartada(msg)
+      Ok(Nil)
+    }
     core_anti_spam.Silenciado(notificar_admin) ->
       descartar_silenciado(notificar_admin, msg, portas)
   }

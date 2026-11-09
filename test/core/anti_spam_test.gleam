@@ -2,8 +2,8 @@
 // Testes unitários puros para a lógica de rate limiting e anti-spam.
 
 import core/anti_spam.{
-  AvisoLimite, Permitido, RegistroChat, Silenciado, avaliar, contar_silenciados,
-  desbloquear, extrair_telefone, formatar_identificador,
+  AvisoLimite, Descartado, Permitido, RegistroChat, Silenciado, avaliar,
+  contar_silenciados, desbloquear, extrair_telefone, formatar_identificador,
   formatar_numero_telefone, limpar_inativos, novo_estado, peso_mensagem,
 }
 import dominio/mensagem.{Audio, Imagem, Texto, Video}
@@ -637,10 +637,11 @@ pub fn album_de_fotos_nao_escala_strike_test() {
     AvisoLimite(_) -> Nil
     _ -> panic as "esperava AvisoLimite na 3ª foto"
   }
-  // As demais já estavam a caminho: descartadas sem escalar nem alertar o admin.
-  d4 |> should.equal(Silenciado(None))
-  d5 |> should.equal(Silenciado(None))
-  d6 |> should.equal(Silenciado(None))
+  // As demais já estavam a caminho: descartadas sem escalar, sem alertar o
+  // admin e sem virar incidente de spam.
+  d4 |> should.equal(Descartado)
+  d5 |> should.equal(Descartado)
+  d6 |> should.equal(Descartado)
   let assert Ok(reg) = dict.get(e5, id)
   reg.strikes |> should.equal(1)
 }

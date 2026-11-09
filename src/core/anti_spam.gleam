@@ -64,6 +64,9 @@ pub type DecisaoAntiSpam {
   Permitido
   /// Limite de taxa atingido. Deve responder ao usuário com o aviso explicativo.
   AvisoLimite(motivo: String)
+  /// Mensagem que já estava a caminho quando o aviso saiu (carência). Descarta
+  /// sem registrar incidente: não é reincidência.
+  Descartado
   /// Usuário em quarentena/jail. Deve descartar silenciosamente (blackhole).
   /// Se `Some(alerta)`, Amélie deve encaminhar o alerta ao administrador.
   Silenciado(notificar_admin: Option(String))
@@ -216,7 +219,7 @@ fn avaliar_em_quarentena(
     reg.strikes < 3 && agora_ms - inicio_pausa < carencia_reincidencia_ms
   use <- bool.guard(em_carencia, #(
     dict.insert(estado, chat_id, RegistroChat(..reg, ultimo_ts_ms: agora_ms)),
-    Silenciado(None),
+    Descartado,
   ))
   case reg.strikes >= 3 {
     // Já está no Strike 3 (Quarentena/Blackhole): descarte silencioso sem notificar de novo.
