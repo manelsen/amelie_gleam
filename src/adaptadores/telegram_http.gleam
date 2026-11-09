@@ -7,9 +7,11 @@ import dominio/id_chat.{type IdChat}
 import gleam/dynamic/decode
 import gleam/http
 import gleam/http/request
+import gleam/http/response
 import gleam/httpc
 import gleam/int
 import gleam/json
+import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
 import gleam/string
@@ -178,14 +180,10 @@ pub fn enviar_mensagem(
   texto: String,
 ) -> Result(Nil, Erro) {
   use target_id <- result.try(destino(chat_id))
-  let body =
-    json.object([
-      #("chat_id", json.string(target_id)),
-      #("text", json.string(texto)),
-      #("parse_mode", json.string("Markdown")),
-    ])
-    |> json.to_string
-  post(bot_token, "/sendMessage", body)
+  enviar_texto(bot_token, [
+    #("chat_id", json.string(target_id)),
+    #("text", json.string(texto)),
+  ])
 }
 
 fn enviar_citando(
@@ -196,15 +194,47 @@ fn enviar_citando(
 ) -> Result(Nil, Erro) {
   use target_id <- result.try(destino(chat_id))
   let reply_id = int.parse(normalizar_id(quoted_id)) |> result.unwrap(0)
-  let body =
-    json.object([
-      #("chat_id", json.string(target_id)),
-      #("text", json.string(texto)),
-      #("parse_mode", json.string("Markdown")),
-      #("reply_to_message_id", json.int(reply_id)),
-    ])
-    |> json.to_string
-  post(bot_token, "/sendMessage", body)
+  enviar_texto(bot_token, [
+    #("chat_id", json.string(target_id)),
+    #("text", json.string(texto)),
+    #("reply_to_message_id", json.int(reply_id)),
+  ])
+}
+
+/// Corpo de `sendMessage`. Com `markdown`, acrescenta `parse_mode`.
+pub fn corpo_mensagem(
+  campos: List(#(String, json.Json)),
+  markdown: Bool,
+) -> String {
+  case markdown {
+    True -> list.append(campos, [#("parse_mode", json.string("Markdown"))])
+    False -> campos
+  }
+  |> json.object
+  |> json.to_string
+}
+
+/// Envia com Markdown. Se o Telegram recusar (400, em geral Markdown
+/// inválido), reenvia os mesmos campos sem `parse_mode`.
+fn enviar_texto(
+  bot_token: String,
+  campos: List(#(String, json.Json)),
+) -> Result(Nil, Erro) {
+  use resp <- result.try(enviar_post(
+    bot_token,
+    "/sendMessage",
+    corpo_mensagem(campos, True),
+  ))
+  case resp.status {
+    400 -> {
+      logging.log(
+        logging.Info,
+        "Telegram recusou Markdown; reenviando sem formatação: " <> resp.body,
+      )
+      post(bot_token, "/sendMessage", corpo_mensagem(campos, False))
+    }
+    _ -> checar_resposta("/sendMessage", resp)
+  }
 }
 
 pub fn mapear_emoji_telegram(emoji: String) -> String {
@@ -322,87 +352,40 @@ fn obter_caminho_arquivo(
 }
 
 fn post(bot_token: String, method: String, body: String) -> Result(Nil, Erro) {
+  use resp <- result.try(enviar_post(bot_token, method, body))
+  checar_resposta(method, resp)
+}
+
+fn enviar_post(
+  bot_token: String,
+  method: String,
+  body: String,
+) -> Result(response.Response(String), Erro) {
   let url = base_url <> "/bot" <> bot_token <> method
   use req <- result.try(
     request.to(url)
     |> result.map_error(fn(_) { erro.ErroComunicacao("url inválida") }),
   )
-  let req =
-    req
-    |> request.set_method(http.Post)
-    |> request.set_header("content-type", "application/json")
-    |> request.set_body(body)
-  use resp <- result.try(
-    httpc.send(req)
-    |> result.map_error(fn(e) {
-      logging.log(
-        logging.Warning,
-        "Telegram post "
-          <> method
-          <> " httpc.send falhou: "
-          <> string.inspect(e),
-      )
-      erro.ErroComunicacao("falha ao contatar Telegram")
-    }),
-  )
+  req
+  |> request.set_method(http.Post)
+  |> request.set_header("content-type", "application/json")
+  |> request.set_body(body)
+  |> httpc.send
+  |> result.map_error(fn(e) {
+    logging.log(
+      logging.Warning,
+      "Telegram post " <> method <> " httpc.send falhou: " <> string.inspect(e),
+    )
+    erro.ErroComunicacao("falha ao contatar Telegram")
+  })
+}
+
+fn checar_resposta(
+  method: String,
+  resp: response.Response(String),
+) -> Result(Nil, Erro) {
   case resp.status {
     s if s >= 200 && s < 300 -> Ok(Nil)
-    400 -> {
-      // Retry sem parse_mode caso Markdown inválido
-      case string.contains(body, "parse_mode") {
-        True -> {
-          let body_sem_parse =
-            string.replace(body, "\"parse_mode\":\"Markdown\",", "")
-          let url2 = base_url <> "/bot" <> bot_token <> method
-          use req2 <- result.try(
-            request.to(url2)
-            |> result.map_error(fn(_) { erro.ErroComunicacao("url inválida") }),
-          )
-          let req2 =
-            req2
-            |> request.set_method(http.Post)
-            |> request.set_header("content-type", "application/json")
-            |> request.set_body(body_sem_parse)
-          use resp2 <- result.try(
-            httpc.send(req2)
-            |> result.map_error(fn(_) {
-              erro.ErroComunicacao("falha ao contatar Telegram (retry)")
-            }),
-          )
-          case resp2.status {
-            s2 if s2 >= 200 && s2 < 300 -> Ok(Nil)
-            status2 -> {
-              logging.log(
-                logging.Warning,
-                "Telegram post "
-                  <> method
-                  <> " status="
-                  <> int.to_string(status2)
-                  <> " resp="
-                  <> resp2.body,
-              )
-              Error(erro.ErroComunicacao(
-                "Telegram retornou status " <> int.to_string(status2),
-              ))
-            }
-          }
-        }
-        False -> {
-          logging.log(
-            logging.Warning,
-            "Telegram post "
-              <> method
-              <> " status=400 resp="
-              <> resp.body
-              <> " body="
-              <> body,
-          )
-          Error(erro.ErroComunicacao(
-            "Telegram retornou status 400: " <> resp.body,
-          ))
-        }
-      }
-    }
     status -> {
       logging.log(
         logging.Warning,
