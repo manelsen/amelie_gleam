@@ -198,10 +198,17 @@ pub fn checar_status(conexao: Conexao) -> Result(StatusPonte, Erro) {
     use logged_in <- decode.optional_field("logged_in", False, decode.bool)
     decode.success(StatusPonte(conectado: True, logado: logged_in))
   }
-  json.parse(resp.body, decoder)
-  |> result.map_error(fn(_) {
-    erro.ErroComunicacao("resposta de health inválida")
-  })
+  // Sem checar o status, um 401 (token errado) com corpo JSON passava por
+  // "conectado, não pareado".
+  case resp.status {
+    200 ->
+      json.parse(resp.body, decoder)
+      |> result.map_error(fn(_) {
+        erro.ErroComunicacao("resposta de health inválida")
+      })
+    status ->
+      Error(erro.ErroComunicacao(descrever_erro_http(status, resp.body)))
+  }
 }
 
 pub fn pedir_codigo_pareamento(

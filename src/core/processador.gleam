@@ -153,11 +153,11 @@ fn e_url_video(url: String) -> Bool {
 fn extrair_url(texto: String) -> option.Option(String) {
   texto
   |> dividir_em_palavras()
+  |> list.map(limpar_url)
   |> list.find(fn(palavra) {
     string.starts_with(palavra, "https://")
     || string.starts_with(palavra, "http://")
   })
-  |> result.map(limpar_url)
   |> option.from_result
 }
 
@@ -195,31 +195,49 @@ fn finalizar_palavra(
   }
 }
 
-fn limpar_url(url: String) -> String {
-  url
-  |> remover_prefixo("<")
-  |> remover_prefixo("(")
-  |> remover_sufixos([">", ")", "]", "}", ".", ",", ";", "!", "?", "\"", "'"])
+/// Tira a pontuação em volta de um link: `<https://x.com>`, `(https://x.com).`.
+/// Repete até não sobrar nada a tirar. Um `)` só sai se estiver sem par, para
+/// preservar links como `https://pt.wikipedia.org/wiki/Mercúrio_(planeta)`.
+fn limpar_url(palavra: String) -> String {
+  palavra
+  |> remover_prefixos(["<", "(", "[", "\"", "'"])
+  |> remover_sufixos([
+    ">",
+    ")",
+    "]",
+    "}",
+    ".",
+    ",",
+    ";",
+    ":",
+    "!",
+    "?",
+    "\"",
+    "'",
+  ])
 }
 
-fn remover_prefixo(texto: String, prefixo: String) -> String {
-  case string.starts_with(texto, prefixo) {
-    True -> string.drop_start(texto, string.length(prefixo))
-    False -> texto
+fn remover_prefixos(texto: String, prefixos: List(String)) -> String {
+  case list.find(prefixos, string.starts_with(texto, _)) {
+    Ok(p) ->
+      remover_prefixos(string.drop_start(texto, string.length(p)), prefixos)
+    Error(_) -> texto
   }
 }
 
 fn remover_sufixos(texto: String, sufixos: List(String)) -> String {
-  case sufixos {
-    [] -> texto
-    [sufixo, ..resto] -> {
-      let sem_sufixo = case string.ends_with(texto, sufixo) {
-        True -> string.drop_end(texto, string.length(sufixo))
-        False -> texto
-      }
-      remover_sufixos(sem_sufixo, resto)
-    }
+  let removivel = fn(s) {
+    string.ends_with(texto, s) && { s != ")" || parenteses_sem_par(texto) }
   }
+  case list.find(sufixos, removivel) {
+    Ok(s) -> remover_sufixos(string.drop_end(texto, string.length(s)), sufixos)
+    Error(_) -> texto
+  }
+}
+
+fn parenteses_sem_par(texto: String) -> Bool {
+  let contar = fn(c) { list.length(string.split(texto, c)) - 1 }
+  contar(")") > contar("(")
 }
 
 fn processar_comando(
