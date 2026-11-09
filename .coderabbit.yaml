@@ -11,6 +11,11 @@ reviews:
   poem: false
   review_status: true
   collapse_walkthrough: true
+  pre_merge_checks:
+    # Gleam não documenta funções privadas por convenção; o limite padrão de
+    # 80% reprovaria toda PR sem dizer nada útil.
+    docstrings:
+      mode: "off"
 
   auto_review:
     enabled: true
