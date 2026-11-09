@@ -585,6 +585,9 @@ func TestHandleResetSessionMethodNotAllowed(t *testing.T) {
 }
 
 func TestHandleResetSessionSuccess(t *testing.T) {
+	// O pairing code pós-reset roda numa goroutine com cliente de teste; adiada
+	// para não disparar no meio de outros testes.
+	resetPairingDelay = time.Hour
 	bridge := bridgeWithoutSession()
 	recorder := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/reset-session", strings.NewReader(`{"phone":"5531999990000"}`))

@@ -235,6 +235,7 @@ type Bridge struct {
 	pairingMu           sync.Mutex
 	pairingGen          uint64
 	pairingStop         chan struct{}
+	dispatch            chatDispatcher
 }
 
 type mediaRetryPending struct {
@@ -340,7 +341,7 @@ func (b *Bridge) Stop() {
 func (b *Bridge) handleEvent(rawEvt interface{}) {
 	switch evt := rawEvt.(type) {
 	case *events.Message:
-		b.processMessage(evt)
+		b.dispatchMessage(evt)
 	case *events.JoinedGroup:
 		// Sai assim que é adicionada, sem esperar a primeira mensagem.
 		b.leaveGroup(evt.JID)
@@ -525,6 +526,15 @@ func (b *Bridge) leaveGroup(group types.JID) {
 		}
 		log.Printf("[Grupos] A Amélie foi adicionada a um grupo e saiu, como manda a política")
 	}()
+}
+
+// dispatchMessage tira o processamento da mensagem do handler de eventos.
+// Ver chatDispatcher.
+func (b *Bridge) dispatchMessage(evt *events.Message) {
+	chat := evt.Info.Chat.String()
+	if !b.dispatch.submit(chat, func() { b.processMessage(evt) }) {
+		log.Printf("[Despacho] Fila do chat %s cheia; mensagem %s descartada", maskID(chat), evt.Info.ID)
+	}
 }
 
 func (b *Bridge) processMessage(evt *events.Message) {
@@ -840,6 +850,10 @@ const (
 	stickerTimeoutMin  = 8 * time.Second
 )
 
+// Espera entre o reset da sessão e o novo pairing code. Variável para os
+// testes poderem adiá-lo para além do fim da suíte.
+var resetPairingDelay = 2 * time.Second
+
 func mediaDownloadTimeout(kind string, declaredBytes uint64) time.Duration {
 	d := mediaTimeoutBase + time.Duration(declaredBytes/(1<<20))*mediaTimeoutPorMiB
 	if kind == "figurinha" && d < stickerTimeoutMin {
@@ -928,7 +942,7 @@ func (b *Bridge) handleMediaRetry(evt *events.MediaRetry) {
 	}
 
 	pending.applyDirectPath(directPath)
-	b.processMessage(pending.event)
+	b.dispatchMessage(pending.event)
 }
 
 func mediaRetryKey(chat types.JID, messageID types.MessageID) string {
@@ -1921,7 +1935,7 @@ func (b *Bridge) handleResetSession(w http.ResponseWriter, r *http.Request) {
 
 	if phone != "" {
 		go func(targetPhone string) {
-			time.Sleep(2 * time.Second)
+			time.Sleep(resetPairingDelay)
 			log.Printf("[WhatsApp] Gerando novo pairing code pós-reset para %s...\n", maskID(targetPhone))
 			_, err := b.requestPairingCode(targetPhone)
 			if err != nil {
