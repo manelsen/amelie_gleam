@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gleam:
+    name: Gleam (formatação e testes)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Mesmas versões da imagem do Dockerfile (gleam:v1.15.0-erlang).
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          gleam-version: "1.15.0"
+          rebar3-version: "3"
+
+      # ffprobe: usado pelo FFI de vídeo e pelo teste de segurança dele.
+      - name: Instalar ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - uses: actions/cache@v4
+        with:
+          path: build/packages
+          key: gleam-${{ runner.os }}-${{ hashFiles('manifest.toml') }}
+
+      - run: gleam deps download
+      - run: gleam format --check src test
+      - run: gleam build --warnings-as-errors
+      - run: gleam test
+
+  ponte:
+    name: Ponte Go (vet, gofmt e testes)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: whatsmeow-bridge
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: whatsmeow-bridge/go.mod
+          cache-dependency-path: whatsmeow-bridge/go.sum
+
+      - name: Instalar ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: gofmt
+        run: |
+          naoformatados=$(gofmt -l .)
+          if [ -n "$naoformatados" ]; then
+            echo "Arquivos sem gofmt:"; echo "$naoformatados"; exit 1
+          fi
+      - run: go vet ./...
+      - run: go test -count=1 -race ./...
+      - run: go build ./...

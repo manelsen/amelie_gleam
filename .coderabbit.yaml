@@ -1,0 +1,96 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# Configuração do CodeRabbit para a Amélie. As regras de arquitetura e de
+# nomes vêm do CLAUDE.md, que também é lido como guia de código.
+
+language: pt-BR
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: true
+
+  auto_review:
+    enabled: true
+    drafts: false
+    # PRs empilhadas (base em outra branch de correção) também são revisadas.
+    base_branches:
+      - ".*"
+
+  path_filters:
+    - "!build/**"
+    - "!manifest.toml"
+    - "!whatsmeow-bridge/go.sum"
+    - "!**/*.sqlite"
+    - "!db/**"
+
+  path_instructions:
+    - path: "src/dominio/**/*.gleam"
+      instructions: |
+        Camada de domínio: tipos puros, sem efeitos colaterais. Só pode importar
+        outros módulos de `dominio`. `IdChat` é opaco: a forma de texto
+        (`tg:<n>` ou o JID) só existe nas bordas (SQLite, JSON, logs).
+    - path: "src/core/**/*.gleam"
+      instructions: |
+        Núcleo puro e determinístico: recebe dados e devolve `List(Acao)`, nunca
+        faz IO. Pode importar só `core` e `dominio`, nunca `portas`,
+        `adaptadores` ou `shell`. O anti-spam deve proteger o uso principal da
+        Amélie (usuários cegos mandando álbuns de fotos e notas de voz); aponte
+        regras que punam esse uso.
+    - path: "src/portas/**/*.gleam"
+      instructions: |
+        Portas são records de funções e só importam `dominio`.
+    - path: "src/adaptadores/**/*.gleam"
+      instructions: |
+        Adaptadores implementam portas e podem importar `adaptadores`, `dominio`
+        e `portas`. Verifique erros de IO ignorados (`let _ =` sobre uma escrita),
+        respostas de APIs externas decodificadas sem tolerância, e migrações de
+        SQLite que rodem a cada boot sobrescrevendo escolhas do usuário.
+    - path: "src/shell/**/*.gleam"
+      instructions: |
+        Orquestração com efeitos e atores OTP. Pode importar `shell`, `core`,
+        `dominio` e `portas`, nunca `adaptadores`. Variáveis de ambiente e relógio
+        só via `shell/sistema`. Atenção a mensagens perdidas sem aviso ao usuário,
+        respostas duplicadas (a fila offline reenvia entregas que falharam) e
+        jobs que possam derrubar um ator compartilhado.
+    - path: "src/amelie_gleam.gleam"
+      instructions: |
+        Único lugar que constrói adaptadores. `mist.read_body` deve aceitar no
+        mínimo 20 * 1024 * 1024 bytes para mídia de entrada.
+    - path: "whatsmeow-bridge/**/*.go"
+      instructions: |
+        Ponte Go para o WhatsApp. Verifique concorrência (goroutines, estado
+        compartilhado, `b.client` trocado sem lock), checagem e escrita não
+        atômicas no SQLite, IDs de chat sem `maskID` em logs, e caminhos em que
+        uma mensagem é descartada sem chegar ao Gleam. Só conversas privadas
+        são processadas (`chat_policy.go`).
+    - path: "**/*"
+      instructions: |
+        Nomes de módulos, funções, tipos e campos em português; termos técnicos
+        consagrados, nomes de produto e campos de APIs externas ficam como estão.
+        "Bridge" é sempre "ponte". Commits seguem o padrão convencional em
+        português.
+
+  tools:
+    gitleaks:
+      enabled: true
+    shellcheck:
+      enabled: true
+    golangci-lint:
+      enabled: true
+    actionlint:
+      enabled: true
+    yamllint:
+      enabled: true
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "CLAUDE.md"
+      - "AGENTS.md"
