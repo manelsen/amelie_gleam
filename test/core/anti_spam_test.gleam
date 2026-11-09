@@ -2,11 +2,12 @@
 // Testes unitários puros para a lógica de rate limiting e anti-spam.
 
 import core/anti_spam.{
-  AvisoLimite, Permitido, Silenciado, avaliar, contar_silenciados, desbloquear,
-  extrair_telefone, formatar_identificador, formatar_numero_telefone,
-  limpar_inativos, novo_estado, peso_mensagem,
+  AvisoLimite, Permitido, RegistroChat, Silenciado, avaliar, contar_silenciados,
+  desbloquear, extrair_telefone, formatar_identificador,
+  formatar_numero_telefone, limpar_inativos, novo_estado, peso_mensagem,
 }
 import dominio/mensagem.{Audio, Imagem, Texto, Video}
+import gleam/dict
 import gleam/list
 import gleam/option.{None, Some}
 import gleeunit/should
@@ -615,4 +616,77 @@ pub fn atrasada_do_admin_e_permitida_test() {
   let admin = fixtures.id("tg:12345")
   anti_spam.avaliar_atrasada(novo_estado(), admin, admin, Some(admin), 0).1
   |> should.equal(Permitido)
+}
+
+pub fn album_de_fotos_nao_escala_strike_test() {
+  let id = fixtures.id("album@c.us")
+  let t0 = 1_000_000
+  let foto = fn(estado, t) { avaliar(estado, id, id, None, 2.0, t) }
+
+  let #(e1, d1) = foto(novo_estado(), t0)
+  let #(e2, d2) = foto(e1, t0 + 100)
+  let #(e3, d3) = foto(e2, t0 + 200)
+  let #(e4, d4) = foto(e3, t0 + 300)
+  let #(e5, d5) = foto(e4, t0 + 400)
+  let #(_e6, d6) = foto(e5, t0 + 500)
+
+  d1 |> should.equal(Permitido)
+  d2 |> should.equal(Permitido)
+  // A 3ª foto esgota o balde: um único aviso de 30 s.
+  case d3 {
+    AvisoLimite(_) -> Nil
+    _ -> panic as "esperava AvisoLimite na 3ª foto"
+  }
+  // As demais já estavam a caminho: descartadas sem escalar nem alertar o admin.
+  d4 |> should.equal(Silenciado(None))
+  d5 |> should.equal(Silenciado(None))
+  d6 |> should.equal(Silenciado(None))
+  let assert Ok(reg) = dict.get(e5, id)
+  reg.strikes |> should.equal(1)
+}
+
+pub fn reincidente_no_strike2_vai_para_quarentena_de_30_min_test() {
+  let id = fixtures.id("reincidente@c.us")
+  let t0 = 10_000_000
+  // Já cumpriu a pausa de 5 min do strike 2 e voltou sem esperar o perdão.
+  let estado =
+    dict.from_list([
+      #(
+        id,
+        RegistroChat(
+          tokens: 0.0,
+          ultimo_ts_ms: t0 - 1000,
+          strikes: 2,
+          quarentena_ate_ms: t0 - 1000,
+          recentes_ts: [],
+          dia: t0 / anti_spam.dia_ms,
+          mensagens_no_dia: 10,
+        ),
+      ),
+    ])
+
+  let #(e1, d1) = avaliar(estado, id, id, None, 1.0, t0)
+
+  case d1 {
+    Silenciado(Some(_)) -> Nil
+    _ -> panic as "esperava quarentena com alerta ao admin"
+  }
+  let assert Ok(reg) = dict.get(e1, id)
+  reg.strikes |> should.equal(3)
+  reg.quarentena_ate_ms |> should.equal(t0 + anti_spam.quarentena_strike3_ms)
+}
+
+pub fn flood_de_texto_continua_detectado_e_midia_nao_conta_test() {
+  let id = fixtures.id("misto@c.us")
+  let t0 = 1_000_000
+  // 4 textos rápidos não são flood; uma imagem no meio não completa os 5.
+  let #(e1, _) = avaliar(novo_estado(), id, id, None, 0.5, t0)
+  let #(e2, _) = avaliar(e1, id, id, None, 0.5, t0 + 100)
+  let #(e3, _) = avaliar(e2, id, id, None, 0.5, t0 + 200)
+  let #(e4, _) = avaliar(e3, id, id, None, 2.0, t0 + 300)
+  let #(_, d5) = avaliar(e4, id, id, None, 0.5, t0 + 400)
+  case d5 {
+    Silenciado(Some(_)) -> panic as "imagem não deveria contar para o flood"
+    _ -> Nil
+  }
 }
