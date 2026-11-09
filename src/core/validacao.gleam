@@ -43,9 +43,29 @@ pub fn parsear_comando_sem_ponto(
     Error(_) -> #(body, "")
   }
   let nome = normalizar_nome_comando(primeira)
-  case list.contains(comandos_conhecidos, nome) {
+  case
+    list.contains(comandos_conhecidos, nome)
+    && argumento_sem_ponto_valido(nome, resto)
+  {
     True -> Ok(#(nome, resto))
     False -> Error(erro.ErroValidacao("body", "não é um comando"))
+  }
+}
+
+/// Sem ponto, só a mensagem inteira vira comando: o nome sozinho ou o nome
+/// com um argumento que ele aceita. "Reset minha conversa" ou "imagem bonita"
+/// são frases para a IA, não comandos.
+fn argumento_sem_ponto_valido(nome: String, args: String) -> Bool {
+  let um_token = args != "" && !string.contains(args, " ")
+  case nome, string.lowercase(args) {
+    _, "" -> True
+    "audio", "on" | "audio", "off" -> True
+    "imagem", "on" | "imagem", "off" -> True
+    "video", "on" | "video", "off" -> True
+    "doc", "on" | "doc", "off" -> True
+    "modelo", a -> um_token && string.contains(a, "/")
+    "parear", _ | "unban", _ | "desbloquear", _ -> um_token
+    _, _ -> False
   }
 }
 

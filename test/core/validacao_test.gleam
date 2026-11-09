@@ -141,3 +141,32 @@ pub fn validar_texto_longo_retorna_ok_test() {
   |> should.be_ok
   |> should.equal(texto_longo)
 }
+
+pub fn sem_ponto_frase_com_comando_no_inicio_nao_e_comando_test() {
+  validacao.parsear_comando("Reset minha conversa, por favor")
+  |> should.be_error
+  validacao.parsear_comando("imagem bonita")
+  |> should.be_error
+  validacao.parsear_comando("Áudio está ruim")
+  |> should.be_error
+  validacao.parsear_comando("Video https://youtu.be/abc")
+  |> should.be_error
+  validacao.parsear_comando("resumo do áudio")
+  |> should.be_error
+  validacao.parsear_comando("cego, descreve esta foto")
+  |> should.be_error
+  validacao.parsear_comando("modelo novo é melhor")
+  |> should.be_error
+}
+
+pub fn sem_ponto_argumentos_validos_continuam_test() {
+  validacao.parsear_comando("parear 5531999990000")
+  |> should.equal(Ok(#("parear", "5531999990000")))
+  validacao.parsear_comando("doc OFF")
+  |> should.equal(Ok(#("doc", "OFF")))
+}
+
+pub fn com_ponto_aceita_qualquer_argumento_test() {
+  validacao.parsear_comando(".reset minha conversa")
+  |> should.equal(Ok(#("reset", "minha conversa")))
+}
