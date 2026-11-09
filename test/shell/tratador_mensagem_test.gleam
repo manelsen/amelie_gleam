@@ -4,6 +4,7 @@ import dominio/mensagem.{Mensagem}
 import dominio/video_contexto.{VideoContexto}
 import gleam/erlang/process
 import gleam/int
+import gleam/list
 import gleam/option.{Some}
 import gleam/string
 import gleeunit/should
@@ -281,19 +282,8 @@ pub fn tratar_com_rate_limit_envia_aviso_ao_usuario_test() {
       ponte: portas_fake.ponte_inacessivel(),
     )
 
-  let img1 =
-    Mensagem(..fixtures.mensagem_imagem(), message_id: option.Some("IMG_1"))
-  let img2 =
-    Mensagem(..fixtures.mensagem_imagem(), message_id: option.Some("IMG_2"))
-  let img3 =
-    Mensagem(..fixtures.mensagem_imagem(), message_id: option.Some("IMG_3"))
-
-  // Envia 2 imagens consecutivas (2 tokens cada, esgotando os 4 tokens)
-  let _ = tratador_mensagem.tratar(img1, portas)
-  let _ = tratador_mensagem.tratar(img2, portas)
-
-  // 3ª imagem imediata não tem tokens suficientes (quer 2.0, tem 0.0) -> AvisoLimite
-  let _ = tratador_mensagem.tratar(img3, portas)
+  // Um álbum maior que o balde: a foto seguinte às que cabem recebe o aviso.
+  enviar_fotos(portas, 11)
 
   // Aguarda e busca a mensagem que contém o aviso de rate limit
   let aviso = buscar_aviso(ref)
@@ -405,16 +395,8 @@ pub fn tratar_com_rate_limit_registra_incidente_spammer_test() {
       ponte: portas_fake.ponte_inacessivel(),
     )
 
-  let img1 =
-    Mensagem(..fixtures.mensagem_imagem(), message_id: option.Some("IMG_1"))
-  let img2 =
-    Mensagem(..fixtures.mensagem_imagem(), message_id: option.Some("IMG_2"))
-  let img3 =
-    Mensagem(..fixtures.mensagem_imagem(), message_id: option.Some("IMG_3"))
-
-  let _ = tratador_mensagem.tratar(img1, portas)
-  let _ = tratador_mensagem.tratar(img2, portas)
-  let _ = tratador_mensagem.tratar(img3, portas)
+  // Um álbum maior que o balde: a foto seguinte às que cabem recebe o aviso.
+  enviar_fotos(portas, 11)
 
   let assert Ok(evento) = process.receive(ref_spam, 1000)
   case evento {
@@ -667,4 +649,21 @@ fn receber_ate(sub, alvo) -> Bool {
     Ok(_) -> receber_ate(sub, alvo)
     Error(_) -> False
   }
+}
+
+fn enviar_fotos(portas: tratador_mensagem.Portas, n: Int) -> Nil {
+  list.each(de_1_a(n), fn(i) {
+    let foto =
+      Mensagem(
+        ..fixtures.mensagem_imagem(),
+        message_id: option.Some("IMG_" <> int.to_string(i)),
+      )
+    let _ = tratador_mensagem.tratar(foto, portas)
+    Nil
+  })
+}
+
+/// [1, 2, ..., n]
+fn de_1_a(n: Int) -> List(Int) {
+  list.index_map(list.repeat(Nil, n), fn(_, i) { i + 1 })
 }

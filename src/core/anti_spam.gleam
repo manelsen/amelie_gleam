@@ -16,17 +16,22 @@ import gleam/string
 // Constantes de calibração
 // ---------------------------------------------------------------------------
 
-/// Capacidade máxima do balde de tokens (margem de rajada para conversação natural).
-pub const max_tokens: Float = 4.0
+// O custo é limitado pelo teto diário. O balde só reparte a vez nas filas de
+// mídia, que são compartilhadas entre todos os chats, e não deve atrapalhar o
+// uso normal: um álbum de até 10 fotos ou uma conversa por áudio passam sem aviso.
 
-/// Taxa de recarga: 1 token a cada 12 segundos (~0.0833 tokens/s).
-pub const recarga_por_segundo: Float = 0.08333333333333333
+/// Capacidade máxima do balde de tokens: cabe um álbum de 10 fotos.
+pub const max_tokens: Float = 10.0
 
-/// Janela para detecção de rajada de flood: 5 mensagens em até 3 segundos.
-pub const janela_flood_ms: Int = 3000
+/// Taxa de recarga: 1 token a cada 6 segundos (10 por minuto).
+pub const recarga_por_segundo: Float = 0.16666666666666666
 
-/// Quantidade de mensagens dentro da janela que caracteriza flood automatizado.
-pub const limite_msgs_flood: Int = 5
+/// Janela para detecção de rajada de flood de texto: 8 mensagens em até 5 s.
+pub const janela_flood_ms: Int = 5000
+
+/// Mensagens de texto dentro da janela que caracterizam flood automatizado.
+/// Acima do ritmo de quem manda frases picadas ("oi", "tudo bem", "queria...").
+pub const limite_msgs_flood: Int = 8
 
 /// Cooldown do Strike 1: 30 segundos de pausa após esgotar tokens normais.
 pub const cooldown_strike1_ms: Int = 30_000
@@ -97,14 +102,13 @@ pub fn novo_estado() -> EstadoAntiSpam {
 // Cálculo de peso por tipo de mídia
 // ---------------------------------------------------------------------------
 
-/// Atribui peso maior para mídias pesadas (vídeo, áudio) para proteger CPU/IA.
+/// Peso de cada mensagem no balde. Foto e áudio são o uso principal (para quem
+/// é cego, a nota de voz é o "texto") e pesam como texto; documento e vídeo
+/// ocupam a fila por mais tempo.
 pub fn peso_mensagem(corpo: Conteudo) -> Float {
   case corpo {
     mensagem.Video(..) -> 3.0
-    mensagem.Audio(..) -> 2.0
-    mensagem.Imagem(..) -> 2.0
     mensagem.Documento(..) -> 2.0
-    mensagem.Sticker(..) -> 1.5
     _ -> 1.0
   }
 }
@@ -113,12 +117,36 @@ pub fn peso_mensagem(corpo: Conteudo) -> Float {
 // Avaliação principal (Pura)
 // ---------------------------------------------------------------------------
 
+/// Avalia uma mensagem como texto: conta para o flood. Atalho de
+/// `avaliar_carga` para quem só tem o peso.
 pub fn avaliar(
   estado: EstadoAntiSpam,
   chat_id: IdChat,
   remetente: IdChat,
   admin: Option(IdChat),
   peso: Float,
+  agora_ms: Int,
+) -> #(EstadoAntiSpam, DecisaoAntiSpam) {
+  avaliar_carga(estado, chat_id, remetente, admin, peso, True, agora_ms)
+}
+
+/// Só texto conta para o flood: um álbum chega como uma rajada de mídia e já
+/// é limitado pelo balde.
+pub fn conta_para_flood(corpo: Conteudo) -> Bool {
+  case corpo {
+    mensagem.Texto(_) | mensagem.Comando(..) | mensagem.MidiaIndisponivel(_) ->
+      True
+    _ -> False
+  }
+}
+
+pub fn avaliar_carga(
+  estado: EstadoAntiSpam,
+  chat_id: IdChat,
+  remetente: IdChat,
+  admin: Option(IdChat),
+  peso: Float,
+  conta_flood: Bool,
   agora_ms: Int,
 ) -> #(EstadoAntiSpam, DecisaoAntiSpam) {
   // 1. Isenção total para o administrador do bot
@@ -144,7 +172,16 @@ pub fn avaliar(
       // 2. Verificar se o chat está sob cooldown/quarentena ativa
       case agora_ms < reg.quarentena_ate_ms {
         True -> avaliar_em_quarentena(estado, chat_id, remetente, reg, agora_ms)
-        False -> avaliar_livre(estado, chat_id, remetente, reg, peso, agora_ms)
+        False ->
+          avaliar_livre(
+            estado,
+            chat_id,
+            remetente,
+            reg,
+            peso,
+            conta_flood,
+            agora_ms,
+          )
       }
     }
   }
@@ -273,6 +310,7 @@ fn avaliar_livre(
   remetente: IdChat,
   reg: RegistroChat,
   peso: Float,
+  conta_flood: Bool,
   agora_ms: Int,
 ) -> #(EstadoAntiSpam, DecisaoAntiSpam) {
   // Perdão de strikes após período longo de bom comportamento
@@ -283,12 +321,10 @@ fn avaliar_livre(
     False -> reg.strikes
   }
 
-  // 3. Detecção de rajada de flood volumétrico (> 5 msgs em 3s)
-  // Mídia (peso > 1) não conta para o flood: um álbum chega como uma rajada
-  // de imagens e já é limitado pelo peso no token bucket.
+  // 3. Detecção de rajada de flood volumétrico (8 textos em 5 s)
   let recentes_filtrados =
     list.filter(reg.recentes_ts, fn(ts) { agora_ms - ts <= janela_flood_ms })
-  let novos_recentes = case peso <=. 1.0 {
+  let novos_recentes = case conta_flood {
     True -> [agora_ms, ..recentes_filtrados]
     False -> recentes_filtrados
   }
@@ -305,7 +341,7 @@ fn avaliar_livre(
         <> "• Chat: `"
         <> id_chat.para_texto(chat_id)
         <> "`\n"
-        <> "• Motivo: 5 ou mais mensagens em 3 segundos."
+        <> "• Motivo: 8 ou mais mensagens de texto em 5 segundos."
       let novo_reg =
         RegistroChat(
           tokens: 0.0,
