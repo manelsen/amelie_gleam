@@ -710,7 +710,7 @@ func (b *Bridge) processMessage(evt *events.Message) {
 				go b.deliverAnimatedSticker(payload, data, evt.Info.Chat, evt.Info.ID)
 				return
 			}
-			log.Printf("Limite de conversões simultâneas atingido; figurinha animada segue como WebP estático: chat=%s mensagem=%s", chatID, evt.Info.ID)
+			log.Printf("Limite de conversões simultâneas atingido; figurinha animada segue como WebP estático: chat=%s mensagem=%s", maskID(chatID), evt.Info.ID)
 		}
 		if !b.attachMediaFile(&payload, "sticker", "", data) {
 			return
@@ -1149,20 +1149,20 @@ func (b *Bridge) deliverAnimatedSticker(payload IncomingWebhook, data []byte, ch
 		payload.Mime = "video/mp4"
 		payload.Caminho = videoPath
 		payload.Dados = ""
-		log.Printf("Figurinha animada convertida para MP4: chat=%s mensagem=%s caminho=%s", payload.ChatID, messageID, videoPath)
+		log.Printf("Figurinha animada convertida para MP4: chat=%s mensagem=%s caminho=%s", maskID(payload.ChatID), messageID, videoPath)
 	} else if sheet, sheetMime, ok := convertAnimatedStickerToContactSheet(ctx, data); ok {
 		data = sheet
 		payload.Mime = sheetMime
-		log.Printf("Figurinha animada convertida em grade de quadros: chat=%s mensagem=%s bytes=%d", payload.ChatID, messageID, len(data))
+		log.Printf("Figurinha animada convertida em grade de quadros: chat=%s mensagem=%s bytes=%d", maskID(payload.ChatID), messageID, len(data))
 	} else {
-		log.Printf("Figurinha animada será processada como sticker WebP: chat=%s mensagem=%s", payload.ChatID, messageID)
+		log.Printf("Figurinha animada será processada como sticker WebP: chat=%s mensagem=%s", maskID(payload.ChatID), messageID)
 	}
 
 	if payload.Caminho == "" && !b.attachMediaFile(&payload, "sticker", "", data) {
 		return
 	}
 	if err := b.enqueueAndDeliver(payload); err != nil {
-		log.Printf("Erro ao enfileirar figurinha animada: chat=%s mensagem=%s erro=%v", payload.ChatID, messageID, err)
+		log.Printf("Erro ao enfileirar figurinha animada: chat=%s mensagem=%s erro=%v", maskID(payload.ChatID), messageID, err)
 	}
 }
 
@@ -1496,21 +1496,20 @@ func (b *Bridge) enqueueAndDeliver(payload IncomingWebhook) error {
 		return err
 	}
 
-	// Deduplicar: se já existe na fila (entregue ou não), ignorar.
-	if payload.MessageID != "" {
-		var count int
-		b.queueDB.QueryRow("SELECT COUNT(*) FROM webhook_queue WHERE message_id = ?", payload.MessageID).Scan(&count)
-		if count > 0 {
-			return nil
-		}
-	}
-
+	// Deduplicar: se já existe na fila (entregue ou não), ignorar. Checagem e
+	// inserção num só comando, pois o evento ao vivo e a recuperação do
+	// history sync podem trazer a mesma mensagem ao mesmo tempo.
 	result, err := b.queueDB.Exec(
-		"INSERT INTO webhook_queue (message_id, payload) VALUES (?, ?)",
+		`INSERT INTO webhook_queue (message_id, payload)
+		 SELECT ?1, ?2 WHERE ?1 = '' OR NOT EXISTS (
+		   SELECT 1 FROM webhook_queue WHERE message_id = ?1)`,
 		payload.MessageID, string(data),
 	)
 	if err != nil {
 		return fmt.Errorf("fila: erro ao enfileirar: %w", err)
+	}
+	if n, err := result.RowsAffected(); err == nil && n == 0 {
+		return nil
 	}
 
 	id, _ := result.LastInsertId()
