@@ -1,8 +1,11 @@
 import adaptadores/telegram_http
+import dominio/erro
+import gleam/erlang/process
 import gleam/json
 import gleam/list
 import gleam/string
 import gleeunit/should
+import shell/fila_offline
 
 pub fn normalizar_id_remove_prefixo_tg_test() {
   telegram_http.normalizar_id("tg:924255495")
@@ -96,4 +99,65 @@ pub fn nenhuma_parte_passa_do_limite_real_test() {
   list.all(partes, fn(p) { string.length(p) <= telegram_http.limite_mensagem })
   |> should.be_true
   string.join(partes, " ") |> string.trim |> should.equal(string.trim(texto))
+}
+
+// ---------------------------------------------------------------------------
+// enviar_partes — reenvio sem repetir o que já chegou
+// ---------------------------------------------------------------------------
+
+fn sem_espera(_ms: Int) -> Nil {
+  Nil
+}
+
+pub fn primeira_parte_falha_sem_retentar_test() {
+  let tentativas = process.new_subject()
+  telegram_http.enviar_partes(
+    ["a", "b"],
+    fn(_, i) {
+      process.send(tentativas, i)
+      Error(erro.ErroComunicacao("telegram status 502"))
+    },
+    sem_espera,
+  )
+  |> should.equal(Error(erro.ErroComunicacao("telegram status 502")))
+  // Nada chegou: a fila offline pode reenviar tudo.
+  process.receive(tentativas, 10) |> should.equal(Ok(0))
+  process.receive(tentativas, 10) |> should.be_error
+}
+
+pub fn parte_seguinte_retenta_e_passa_test() {
+  let falhas = process.new_subject()
+  process.send(falhas, Nil)
+  telegram_http.enviar_partes(
+    ["a", "b"],
+    fn(_, i) {
+      case i, process.receive(falhas, 0) {
+        1, Ok(Nil) -> Error(erro.ErroComunicacao("telegram status 502"))
+        _, _ -> Ok(Nil)
+      }
+    },
+    sem_espera,
+  )
+  |> should.be_ok
+}
+
+pub fn parte_seguinte_que_nao_passa_vira_envio_parcial_definitivo_test() {
+  let esperas = process.new_subject()
+  let assert Error(e) =
+    telegram_http.enviar_partes(
+      ["a", "b", "c"],
+      fn(_, i) {
+        case i {
+          0 -> Ok(Nil)
+          _ -> Error(erro.ErroComunicacao("telegram status 502"))
+        }
+      },
+      fn(ms) { process.send(esperas, ms) },
+    )
+  erro.descricao(e)
+  |> string.contains("envio parcial: parte 2 de 3")
+  |> should.be_true
+  fila_offline.e_erro_definitivo(e) |> should.be_true
+  process.receive(esperas, 10) |> should.equal(Ok(1000))
+  process.receive(esperas, 10) |> should.equal(Ok(2000))
 }

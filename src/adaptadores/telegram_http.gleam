@@ -5,6 +5,7 @@ import adaptadores/telegram_webhook
 import dominio/erro.{type Erro}
 import dominio/id_chat.{type IdChat}
 import gleam/dynamic/decode
+import gleam/erlang/process
 import gleam/http
 import gleam/http/request
 import gleam/http/response
@@ -205,19 +206,74 @@ fn enviar_em_partes(
   extras_primeira: List(#(String, json.Json)),
 ) -> Result(Nil, Erro) {
   dividir_texto(texto, limite_mensagem)
-  |> list.index_map(fn(parte, i) { #(parte, i) })
+  |> enviar_partes(
+    fn(parte, i) {
+      let extras = case i {
+        0 -> extras_primeira
+        _ -> []
+      }
+      enviar_texto(bot_token, [
+        #("chat_id", json.string(target_id)),
+        #("text", json.string(parte)),
+        ..extras
+      ])
+    },
+    process.sleep,
+  )
+}
+
+/// Esperas entre as tentativas de uma parte que não é a primeira.
+const esperas_parte_ms = [1000, 2000]
+
+/// Envia as partes em ordem. A primeira tenta uma vez: se falhar, nada
+/// chegou, e a fila offline pode reenviar o texto inteiro. Depois que uma
+/// parte chegou, reenviar o texto inteiro repetiria o começo para o usuário;
+/// por isso as seguintes tentam de novo aqui, e se ainda falharem o erro sai
+/// como "envio parcial", que a fila offline trata como definitivo.
+pub fn enviar_partes(
+  partes: List(String),
+  enviar_parte: fn(String, Int) -> Result(Nil, Erro),
+  esperar: fn(Int) -> Nil,
+) -> Result(Nil, Erro) {
+  let total = list.length(partes)
+  list.index_map(partes, fn(parte, i) { #(parte, i) })
   |> list.try_each(fn(item) {
     let #(parte, i) = item
-    let extras = case i {
-      0 -> extras_primeira
-      _ -> []
+    case i {
+      0 -> enviar_parte(parte, 0)
+      _ ->
+        tentar_com_esperas(
+          fn() { enviar_parte(parte, i) },
+          esperas_parte_ms,
+          esperar,
+        )
+        |> result.map_error(fn(e) {
+          erro.ErroComunicacao(
+            "envio parcial: parte "
+            <> int.to_string(i + 1)
+            <> " de "
+            <> int.to_string(total)
+            <> " não foi aceita: "
+            <> erro.descricao(e),
+          )
+        })
     }
-    enviar_texto(bot_token, [
-      #("chat_id", json.string(target_id)),
-      #("text", json.string(parte)),
-      ..extras
-    ])
   })
+}
+
+fn tentar_com_esperas(
+  tentativa: fn() -> Result(Nil, Erro),
+  esperas: List(Int),
+  esperar: fn(Int) -> Nil,
+) -> Result(Nil, Erro) {
+  case tentativa(), esperas {
+    Ok(Nil), _ -> Ok(Nil)
+    Error(e), [] -> Error(e)
+    Error(_), [ms, ..resto] -> {
+      esperar(ms)
+      tentar_com_esperas(tentativa, resto, esperar)
+    }
+  }
 }
 
 /// Abaixo dos 4096 da Bot API: a margem cobre a contagem depois que o
