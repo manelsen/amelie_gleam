@@ -270,7 +270,7 @@ pub fn peso_midia_consome_mais_tokens_test() {
   peso_mensagem(Texto("olá"))
   |> should.equal(1.0)
 
-  // Três vídeos seguidos cabem no balde de 10; o quarto não.
+  // Três vídeos seguidos cabem no balde de 10; o quarto fica adiado.
   let id = fixtures.id("user_v@c.us")
   let t0 = 1_000_000
   let video = fn(estado, t) {
@@ -281,9 +281,11 @@ pub fn peso_midia_consome_mais_tokens_test() {
   let #(e3, d3) = video(e2, t0 + 200)
   let #(_e4, d4) = video(e3, t0 + 300)
   [d1, d2, d3] |> should.equal([Permitido, Permitido, Permitido])
+  // Sobra 1 token (mais a recarga de 0,3 s); faltam ~2 para o vídeo.
   case d4 {
-    AvisoLimite(_, _) -> Nil
-    _ -> panic as "esperava AvisoLimite no quarto vídeo seguido"
+    anti_spam.Adiar(espera_ms: espera, avisar: True) ->
+      { espera > 11_000 && espera <= 12_000 } |> should.be_true
+    _ -> panic as "esperava Adiar no quarto vídeo seguido"
   }
 }
 
@@ -494,16 +496,49 @@ pub fn album_de_fotos_nao_escala_strike_test() {
   list.take(decisoes, 10)
   |> list.all(fn(d) { d == Permitido })
   |> should.be_true
-  // A 11ª dá um único aviso de 30 s.
+  // As seguintes ficam adiadas, em ordem; só a primeira traz o aviso.
   case list.drop(decisoes, 10) {
-    [AvisoLimite(_, _), d12] ->
-      // A 12ª já estava a caminho: descartada sem escalar, sem alertar o
-      // admin e sem virar incidente de spam.
-      d12 |> should.equal(Descartado)
-    _ -> panic as "esperava aviso na 11ª foto"
+    [
+      anti_spam.Adiar(espera_ms: e11, avisar: True),
+      anti_spam.Adiar(espera_ms: e12, avisar: False),
+    ] -> { e11 < e12 } |> should.be_true
+    _ -> panic as "esperava a 11ª e a 12ª fotos adiadas"
+  }
+  // Nada de strike: o usuário não fez nada de errado.
+  let assert Ok(reg) = dict.get(estado, id)
+  reg.strikes |> should.equal(0)
+}
+
+pub fn midia_alem_da_divida_maxima_volta_ao_strike_test() {
+  let id = fixtures.id("enxurrada@c.us")
+  let t0 = 1_000_000
+  // Tudo no mesmo instante: 10 cabem, 20 ficam adiadas, a 31ª não cabe.
+  let #(estado, decisoes) =
+    list.fold(de_1_a(31), #(novo_estado(), []), fn(acc, _) {
+      let #(e, d) = anti_spam.avaliar_carga(acc.0, id, id, None, 1.0, False, t0)
+      #(e, [d, ..acc.1])
+    })
+  let assert [ultima, penultima, ..] = decisoes
+  case penultima {
+    anti_spam.Adiar(..) -> Nil
+    _ -> panic as "esperava a 30ª foto adiada"
+  }
+  case ultima {
+    AvisoLimite(_, 1) -> Nil
+    _ -> panic as "esperava aviso de strike 1 na 31ª foto"
   }
   let assert Ok(reg) = dict.get(estado, id)
   reg.strikes |> should.equal(1)
+}
+
+pub fn texto_alem_do_balde_nao_e_adiado_test() {
+  // Só mídia fica adiada; texto que passa do balde segue para o strike.
+  let id = fixtures.id("texto@c.us")
+  let estado = dict.from_list([#(id, registro_em_pausa(0, 0))])
+  case anti_spam.avaliar_carga(estado, id, id, None, 1.0, True, 1000).1 {
+    AvisoLimite(_, 1) -> Nil
+    _ -> panic as "esperava aviso de strike 1 para texto"
+  }
 }
 
 pub fn reincidente_no_strike2_vai_para_quarentena_de_30_min_test() {

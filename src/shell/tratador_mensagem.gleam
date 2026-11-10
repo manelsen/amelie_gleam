@@ -25,6 +25,7 @@ import dominio/provedores_config.{type ProvedoresConfig}
 import dominio/transacao.{type TipoEntrega, RespostaIA, RespostaTexto}
 import dominio/video_contexto.{type VideoContexto}
 import gleam/bool
+import gleam/erlang/process
 import gleam/int
 import gleam/list
 import gleam/option.{type Option}
@@ -200,12 +201,44 @@ fn processar_mensagem_com_anti_spam(
     core_anti_spam.Permitido -> processar_mensagem(msg, portas)
     core_anti_spam.AvisoLimite(motivo, nivel) ->
       avisar_limite(motivo, nivel, msg, portas)
+    core_anti_spam.Adiar(espera_ms, avisar_usuario) ->
+      adiar_midia(espera_ms, avisar_usuario, msg, portas)
     core_anti_spam.Descartado -> {
       limpar_midia_se_descartada(msg)
       Ok(Nil)
     }
     core_anti_spam.Silenciado(notificar_admin) ->
       descartar_silenciado(notificar_admin, msg, portas)
+  }
+}
+
+/// Mídia além do balde: em vez de descartar (e pedir para reenviar), segue
+/// para o processamento quando a recarga cobrir o custo. A verificação já
+/// foi feita e o custo, descontado. Se a Amélie reiniciar no meio da espera,
+/// a mídia adiada se perde.
+fn adiar_midia(
+  espera_ms: Int,
+  avisar_usuario: Bool,
+  msg: Mensagem,
+  portas: Portas,
+) -> Result(Nil, Erro) {
+  logging.log(
+    logging.Info,
+    "["
+      <> extrair_trace_id(msg)
+      <> "] Mídia adiada por "
+      <> int.to_string(espera_ms / 1000)
+      <> "s para "
+      <> privacidade.mascarar(msg.chat_id),
+  )
+  sistema.disparar(fn() {
+    process.sleep(espera_ms)
+    processar_mensagem(msg, portas)
+    |> sistema.registrar_falha("Falha ao processar mídia adiada")
+  })
+  case avisar_usuario {
+    True -> avisar(msg.chat_id, core_anti_spam.aviso_midias_adiadas, portas)
+    False -> Ok(Nil)
   }
 }
 

@@ -26,6 +26,13 @@ pub const max_tokens: Float = 10.0
 /// Taxa de recarga: 1 token a cada 6 segundos (10 por minuto).
 pub const recarga_por_segundo: Float = 0.16666666666666666
 
+/// Dívida máxima do balde com mídia adiada: 20 mídias além do álbum de 10,
+/// a última processada cerca de 2 min depois. Passou disso, vale o strike.
+pub const divida_maxima_tokens: Float = 20.0
+
+/// Aviso enviado na primeira mídia adiada de uma rajada.
+pub const aviso_midias_adiadas: String = "📥 Recebi muitas mídias de uma vez. Vou descrevendo uma por uma, no meu ritmo; pode levar alguns minutos."
+
 /// Janela para detecção de rajada de flood de texto: 8 mensagens em até 5 s.
 pub const janela_flood_ms: Int = 5000
 
@@ -74,6 +81,10 @@ pub type DecisaoAntiSpam {
   /// Mensagem que já estava a caminho quando o aviso saiu (carência). Descarta
   /// sem registrar incidente: não é reincidência.
   Descartado
+  /// Mídia que passou do balde: processar depois de `espera_ms`, quando a
+  /// recarga cobrir o custo, sem gastar outra verificação. `avisar` vem só
+  /// na primeira mídia adiada de uma rajada, para um aviso único.
+  Adiar(espera_ms: Int, avisar: Bool)
   /// Usuário em quarentena/jail. Deve descartar silenciosamente (blackhole).
   /// Se `Some(alerta)`, Amélie deve encaminhar o alerta ao administrador.
   Silenciado(notificar_admin: Option(String))
@@ -245,6 +256,13 @@ pub fn avaliar_atrasada(
   }
 }
 
+/// Tempo até a recarga zerar a dívida `restante` (negativo), arredondado
+/// para cima.
+fn espera_para_saldar(restante: Float) -> Int {
+  float.ceiling(float.negate(restante) /. recarga_por_segundo *. 1000.0)
+  |> float.round
+}
+
 /// Tokens do balde depois da recarga desde `ultimo_ts_ms`.
 fn recarregar(reg: RegistroChat, agora_ms: Int) -> Float {
   let delta_s =
@@ -373,8 +391,12 @@ fn avaliar_livre(
     False -> {
       // 4. Token Bucket convencional
       let tokens_recarregados = recarregar(reg, agora_ms)
+      let restante = tokens_recarregados -. peso
+      // Mídia que passa do balde fica adiada em vez de descartada, enquanto a
+      // dívida couber; texto (o que conta para flood) segue a regra de sempre.
+      let adiavel = !conta_flood && restante >=. 0.0 -. divida_maxima_tokens
 
-      case tokens_recarregados >=. peso {
+      case restante >=. 0.0 || adiavel {
         True -> {
           let dia_atual = agora_ms / dia_ms
           let contagem = case reg.dia == dia_atual {
@@ -382,7 +404,12 @@ fn avaliar_livre(
             False -> 0
           }
           let decisao = case contagem {
-            c if c < limite_diario_mensagens -> Permitido
+            c if c < limite_diario_mensagens && restante >=. 0.0 -> Permitido
+            c if c < limite_diario_mensagens ->
+              Adiar(
+                espera_ms: espera_para_saldar(restante),
+                avisar: tokens_recarregados >=. 0.0,
+              )
             c if c == limite_diario_mensagens ->
               AvisoLimite(aviso_limite_diario, 1)
             // Acima do teto o usuário já foi avisado e não fez nada de
@@ -391,7 +418,7 @@ fn avaliar_livre(
           }
           // Acima do teto não consome token nem soma strike: só descarta.
           let tokens_restantes = case decisao {
-            Permitido -> tokens_recarregados -. peso
+            Permitido | Adiar(..) -> restante
             _ -> tokens_recarregados
           }
           let novo_reg =
