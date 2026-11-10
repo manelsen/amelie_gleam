@@ -317,3 +317,26 @@ pub fn processar_comando_resumo_barra_test() {
   let assert Ok([SnapshotHistorico(chat_id)]) = result
   chat_id |> should.equal(cfg.chat_id)
 }
+
+fn url_extraida(texto: String) -> String {
+  let msg = fixtures.mensagem_texto(texto)
+  let assert Ok([BuscarUrlEResponder(_, _, url)]) =
+    processador.processar(msg, fixtures.config_padrao(), [])
+  url
+}
+
+pub fn processar_url_entre_sinais_test() {
+  url_extraida("veja <https://example.com/a>")
+  |> should.equal("https://example.com/a")
+  url_extraida("(https://example.com/a).")
+  |> should.equal("https://example.com/a")
+  url_extraida("leia \"https://example.com/a\", depois")
+  |> should.equal("https://example.com/a")
+}
+
+pub fn processar_url_preserva_parenteses_com_par_test() {
+  url_extraida("ver https://pt.wikipedia.org/wiki/Mercúrio_(planeta).")
+  |> should.equal("https://pt.wikipedia.org/wiki/Mercúrio_(planeta)")
+  url_extraida("(ver https://pt.wikipedia.org/wiki/Mercúrio_(planeta))")
+  |> should.equal("https://pt.wikipedia.org/wiki/Mercúrio_(planeta)")
+}

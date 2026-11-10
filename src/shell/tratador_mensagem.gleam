@@ -594,8 +594,8 @@ fn enfileirar_midia(
     "Enfileirando mídia para processamento no chat "
       <> privacidade.mascarar(chat_id),
   )
-  portas.historico.adicionar(chat_id, TurnoUsuario(extrair_texto_usuario(msg)))
-  |> sistema.registrar_falha("Falha ao gravar mídia no histórico")
+  // O turno do usuário é gravado pela fila_midia, junto com a resposta,
+  // só quando a descrição dá certo.
   let ia_porta =
     despachante_ia.como_porta(despachante_ia.DespachanteIAPorta(
       despachante: portas.despachante_ia,

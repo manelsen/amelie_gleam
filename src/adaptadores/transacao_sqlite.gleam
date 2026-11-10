@@ -58,28 +58,22 @@ fn registrar(
 ) -> Result(t.Transacao, Erro) {
   let sql =
     "INSERT INTO transacoes (chat_id, remetente, tipo, conteudo, status, tentativas)
-     VALUES (?, ?, ?, ?, ?, ?)"
+     VALUES (?, ?, ?, ?, ?, ?)
+     RETURNING id"
 
-  let _ =
-    sqlight.query(
-      sql,
-      on: conn,
-      with: [
-        sqlight.text(id_chat.para_texto(tx.chat_id)),
-        sqlight.text(tx.remetente),
-        sqlight.text(tx.tipo),
-        sqlight.text(tx.conteudo),
-        sqlight.text(t.status_para_string(tx.status)),
-        sqlight.int(tx.tentativas),
-      ],
-      expecting: decode.dynamic,
-    )
-    |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
-
+  // RETURNING no próprio INSERT: um last_insert_rowid() separado devolveria o
+  // id de outra transação se o INSERT falhasse.
   sqlight.query(
-    "SELECT last_insert_rowid() as id",
+    sql,
     on: conn,
-    with: [],
+    with: [
+      sqlight.text(id_chat.para_texto(tx.chat_id)),
+      sqlight.text(tx.remetente),
+      sqlight.text(tx.tipo),
+      sqlight.text(tx.conteudo),
+      sqlight.text(t.status_para_string(tx.status)),
+      sqlight.int(tx.tentativas),
+    ],
     expecting: decode.at([0], decode.int),
   )
   |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })

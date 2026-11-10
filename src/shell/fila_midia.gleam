@@ -191,13 +191,27 @@ fn descrever(
     prefixo <> " Iniciando processamento para " <> privacidade.mascarar(chat_id),
   )
   reagir(msg, "⌛", ctx.mensageiro)
-  use resposta <- result.try(gerar())
+  use resposta <- result.try(
+    gerar() |> result.map_error(avisar_falha(chat_id, msg, ctx, _)),
+  )
   logging.log(
     logging.Info,
     prefixo <> " Concluído para " <> privacidade.mascarar(chat_id),
   )
   reagir(msg, "🆗", ctx.mensageiro)
   entregar(chat_id, tipo, resposta, msg, ctx)
+}
+
+/// Aviso enviado quando a IA não consegue descrever a mídia; sem ele o
+/// usuário só veria o ⌛ parado. Falha de entrega não passa por aqui: a fila
+/// offline reenvia a resposta.
+pub const aviso_falha_midia = "⚠️ Não consegui processar sua mídia. Tente enviar novamente."
+
+fn avisar_falha(chat_id: IdChat, msg: Mensagem, ctx: Contexto, e: Erro) -> Erro {
+  reagir(msg, "⚠️", ctx.mensageiro)
+  ctx.mensageiro.enviar(chat_id, aviso_falha_midia)
+  |> sistema.registrar_falha("Falha ao avisar erro de mídia")
+  e
 }
 
 /// Sobe o vídeo para a IA, pede a descrição e guarda o arquivo para as

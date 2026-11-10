@@ -149,7 +149,7 @@ pub fn video_apaga_arquivo_local_e_guarda_contexto_test() {
   simplifile.is_file(caminho) |> should.equal(Ok(False))
 }
 
-pub fn video_com_falha_na_ia_apaga_upload_e_nao_entrega_test() {
+pub fn video_com_falha_na_ia_apaga_upload_e_so_avisa_test() {
   let envios = process.new_subject()
   let apagados = process.new_subject()
   let eventos = process.new_subject()
@@ -177,6 +177,30 @@ pub fn video_com_falha_na_ia_apaga_upload_e_nao_entrega_test() {
 
   process.receive(apagados, espera_ms)
   |> should.equal(Ok("https://files.google.com/fake-uri"))
+  // Só o aviso de falha chega; a descrição nunca é entregue.
+  process.receive(envios, espera_ms)
+  |> should.equal(Ok(#(msg.chat_id, fila_midia.aviso_falha_midia)))
   process.receive(envios, 300) |> should.equal(Error(Nil))
   process.receive(eventos, 100) |> should.equal(Error(Nil))
+}
+
+pub fn falha_da_ia_avisa_usuario_e_nao_grava_historico_test() {
+  let envios = process.new_subject()
+  let turnos = process.new_subject()
+  let assert Ok(filas) = fila_midia.iniciar_todas()
+  let msg = fixtures.mensagem_imagem()
+  let ctx =
+    contexto(
+      portas_fake.ia_erro(erro.ErroIA("bloqueado")),
+      portas_fake.mensageiro_capturar(envios),
+      historico_capturar(turnos),
+      portas_fake.video_contexto_noop(),
+    )
+
+  fila_midia.enfileirar(filas, msg.chat_id, msg, MidiaImagem, ctx)
+  |> should.be_ok
+
+  process.receive(envios, espera_ms)
+  |> should.equal(Ok(#(msg.chat_id, fila_midia.aviso_falha_midia)))
+  process.receive(turnos, 100) |> should.be_error
 }

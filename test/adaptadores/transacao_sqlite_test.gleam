@@ -81,3 +81,29 @@ pub fn sqlite_pragmas_concorrencia_test() {
   sqlight.exec("PRAGMA synchronous = NORMAL;", conn)
   |> should.equal(Ok(Nil))
 }
+
+pub fn registrar_com_insert_falhando_retorna_erro_test() {
+  use conn <- sqlight.with_connection("file:transacao_insert_falha?mode=memory")
+  let porta = transacao_sqlite.criar(conn)
+  let tx =
+    Transacao(
+      id: None,
+      chat_id: fixtures.id("chat1@c.us"),
+      remetente: "user1",
+      tipo: "texto",
+      conteudo: "primeira",
+      status: Pendente,
+      criado_em: 0,
+      atualizado_em: None,
+      tentativas: 0,
+      erro: None,
+    )
+  let assert Ok(primeira) = porta.registrar(tx)
+  primeira.id |> should.be_some
+
+  // Sem a tabela, o INSERT falha; antes, last_insert_rowid() devolvia o id
+  // da primeira transação como se a nova tivesse sido gravada.
+  let assert Ok(Nil) = sqlight.exec("DROP TABLE transacoes", conn)
+  porta.registrar(Transacao(..tx, conteudo: "segunda"))
+  |> should.be_error
+}

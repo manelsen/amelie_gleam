@@ -93,16 +93,23 @@ fn com_novas_tentativas(
           disjuntor.registrar_sucesso(cb)
           Ok(r)
         }
-        Error(e) -> {
-          disjuntor.registrar_falha(cb)
+        Error(e) ->
           case e_transiente(e) && tentativa < max_tentativas {
             True -> {
               process.sleep(espera_base_ms * pot2(tentativa))
               com_novas_tentativas(f, cb, tentativa + 1)
             }
-            False -> Error(e)
+            // Uma contagem por chamada lógica, não por tentativa. Erro da
+            // requisição (4xx, conteúdo bloqueado, resposta fora do formato)
+            // mostra que o provedor respondeu, então não abre o circuito.
+            False -> {
+              case e_falha_servico(e) {
+                True -> disjuntor.registrar_falha(cb)
+                False -> disjuntor.registrar_sucesso(cb)
+              }
+              Error(e)
+            }
           }
-        }
       }
   }
 }
@@ -115,6 +122,34 @@ fn e_transiente(e: Erro) -> Bool {
       || string.contains(msg, "rate limit")
     erro.ErroComunicacao(_) -> True
     _ -> False
+  }
+}
+
+/// Falha do provedor ou do caminho até ele: é o que conta para o disjuntor.
+pub fn e_falha_servico(e: Erro) -> Bool {
+  case e {
+    erro.ErroComunicacao(_) | erro.ErroTimeout(_) | erro.ErroIAIndisponivel ->
+      True
+    erro.ErroIA(msg) -> e_transiente(e) || string.contains(msg, "status 5")
+    erro.ErroUpload(msg) -> falha_servico_upload(msg)
+    _ -> False
+  }
+}
+
+/// Mensagens de `ErroUpload` vêm de gemini_http, openrouter_http e do FFI de
+/// upload. 5xx, demora para ativar e erro de transporte são do serviço;
+/// 4xx e recusa do provedor (OpenRouter sem vídeo) são da entrada.
+fn falha_servico_upload(msg: String) -> Bool {
+  case msg {
+    "upload status 5" <> _ -> True
+    "upload status 429" <> _ -> True
+    "upload status " <> _ -> False
+    "timeout aguardando " <> _ | "falha ao verificar status" <> _ -> True
+    "uri ausente" <> _
+    | "status inesperado" <> _
+    | "OpenRouter não suporta" <> _ -> False
+    // O resto é o motivo do httpc formatado pelo FFI: falha de transporte.
+    _ -> True
   }
 }
 

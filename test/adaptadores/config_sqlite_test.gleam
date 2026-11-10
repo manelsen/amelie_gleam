@@ -1,6 +1,7 @@
 import adaptadores/config_sqlite
 import dominio/config
 import dominio/provedor
+import gleam/option
 import gleeunit/should
 import helpers/fixtures
 import sqlight
@@ -65,4 +66,24 @@ pub fn provedor_desconhecido_no_banco_vira_gemini_test() {
 
   let assert Ok(lida) = porta.obter(fixtures.id("chat-x@c.us"))
   lida.provedor |> should.equal(provedor.Gemini)
+}
+
+pub fn reinicio_preserva_prompt_e_video_desligado_test() {
+  use conn <- sqlight.with_connection("file:config_reinicio?mode=memory")
+  let porta = config_sqlite.criar(conn)
+  let cfg =
+    config.Config(
+      ..config.padrao(fixtures.id("chat-prefs@c.us")),
+      prompt_sistema: option.Some("Responda como pirata."),
+      video_ativo: False,
+      audio_ativo: False,
+    )
+  let assert Ok(Nil) = porta.salvar(cfg)
+
+  let porta_reiniciada = config_sqlite.criar(conn)
+  let assert Ok(lida) = porta_reiniciada.obter(fixtures.id("chat-prefs@c.us"))
+
+  lida.prompt_sistema |> should.equal(option.Some("Responda como pirata."))
+  lida.video_ativo |> should.be_false
+  lida.audio_ativo |> should.be_false
 }
