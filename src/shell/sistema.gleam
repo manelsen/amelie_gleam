@@ -42,6 +42,14 @@ pub fn url_ponte() -> String {
 
 /// Roda `tarefa` num processo próprio, sem vínculo com quem chamou: uma
 /// falha nela não derruba o chamador.
+/// Reserva uma vaga num contador global `nome` limitado a `maximo`. Devolve
+/// False se não couber; quem reservou devolve a vaga com `liberar_vaga`.
+@external(erlang, "amelie_gleam_ffi", "reservar_vaga")
+pub fn reservar_vaga(nome: String, maximo: Int) -> Bool
+
+@external(erlang, "amelie_gleam_ffi", "liberar_vaga")
+pub fn liberar_vaga(nome: String) -> Nil
+
 pub fn disparar(tarefa: fn() -> a) -> Nil {
   process.spawn_unlinked(tarefa)
   Nil

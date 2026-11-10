@@ -658,3 +658,31 @@ pub fn em_quarentena_atrasada_so_conta_strike_3_test() {
   anti_spam.em_quarentena(estado, pausa, True, t0) |> should.be_false
   anti_spam.em_quarentena(estado, jaula, True, t0) |> should.be_true
 }
+
+pub fn teto_diario_vale_antes_do_strike_com_balde_esgotado_test() {
+  // Perto do teto e com a dívida de mídia no limite: a próxima mídia não
+  // cabe nem adiada, mas passar do teto não é motivo de strike.
+  let id = fixtures.id("no_teto@c.us")
+  let t0 = 1_000_000
+  let reg =
+    anti_spam.RegistroChat(
+      tokens: 0.0 -. anti_spam.divida_maxima_tokens,
+      ultimo_ts_ms: t0,
+      strikes: 0,
+      quarentena_ate_ms: 0,
+      recentes_ts: [],
+      dia: t0 / anti_spam.dia_ms,
+      mensagens_no_dia: anti_spam.limite_diario_mensagens,
+    )
+  let estado = dict.from_list([#(id, reg)])
+
+  let #(e1, d1) = anti_spam.avaliar_carga(estado, id, id, None, 1.0, False, t0)
+  d1 |> should.equal(AvisoLimite(anti_spam.aviso_limite_diario, 1))
+  let #(e2, d2) = anti_spam.avaliar_carga(e1, id, id, None, 1.0, False, t0)
+  d2 |> should.equal(Descartado)
+
+  let assert Ok(final) = dict.get(e2, id)
+  final.strikes |> should.equal(0)
+  // O descarte não mexe na dívida.
+  final.tokens |> should.equal(0.0 -. anti_spam.divida_maxima_tokens)
+}

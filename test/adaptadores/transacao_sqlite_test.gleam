@@ -2,6 +2,7 @@ import adaptadores/transacao_sqlite
 import dominio/id_chat
 import dominio/transacao.{Entregue, Pendente, Transacao}
 import gleam/dynamic/decode
+import gleam/list
 import gleam/option.{None, Some}
 import gleeunit/should
 import helpers/fixtures
@@ -186,4 +187,22 @@ pub fn pendentes_pula_e_descarta_linha_com_chat_ilegivel_test() {
     )
   status
   |> should.equal([#("descartada", "chat_id ilegível (descarte definitivo)")])
+}
+
+pub fn pendentes_do_mesmo_segundo_saem_na_ordem_do_id_test() {
+  // As partes de uma resposta longa são registradas no mesmo segundo; a
+  // ordem de reenvio é a do id.
+  use conn <- sqlight.with_connection("file:transacao_ordem?mode=memory")
+  let porta = transacao_sqlite.criar(conn)
+  let assert Ok(Nil) =
+    sqlight.exec(
+      "INSERT INTO transacoes (id, chat_id, remetente, tipo, conteudo, status, criado_em, erro)
+       VALUES (3, 'chat1@c.us', 'bot', 'texto', 'c', 'falha', 1000, 'x'),
+              (1, 'chat1@c.us', 'bot', 'texto', 'a', 'falha', 1000, 'x'),
+              (2, 'chat1@c.us', 'bot', 'texto', 'b', 'falha', 1000, 'x');",
+      conn,
+    )
+
+  let assert Ok(pendentes) = porta.obter_pendentes()
+  list.map(pendentes, fn(tx) { tx.conteudo }) |> should.equal(["a", "b", "c"])
 }

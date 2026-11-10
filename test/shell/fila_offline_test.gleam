@@ -457,3 +457,19 @@ pub fn falha_trava_o_chat_no_ciclo_mas_nao_os_outros_test() {
   )
   |> should.equal([Enviou, AtualizouErro(21, 1), Enviou, AtualizouErro(23, 1)])
 }
+
+pub fn sessao_fora_ve_o_prazo_de_todas_as_do_chat_test() {
+  // Com a sessão fora nada sai do chat, então a ordem não trava o ciclo:
+  // as duas vencidas são descartadas agora, não só a primeira.
+  let vencida = sistema.agora_s() - fila_offline.prazo_espera_sessao_s - 60
+  let a = t.Transacao(..tx_pendente(31, 0), criado_em: vencida)
+  let b = t.Transacao(..tx_pendente(32, 0), criado_em: vencida)
+
+  processar([a, b], ponte_deslogada(), Ok(Nil))
+  |> should.equal([
+    AtualizouErro(31, 0),
+    AtualizouStatus(31, t.Descartada),
+    AtualizouErro(32, 0),
+    AtualizouStatus(32, t.Descartada),
+  ])
+}

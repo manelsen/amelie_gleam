@@ -176,17 +176,16 @@ fn processar_pendentes(state: Estado) -> actor.Next(Estado, Mensagem) {
           case set.contains(travados, tx.chat_id) {
             True -> travados
             False -> {
-              let entregue = case
-                id_chat.canal(tx.chat_id),
-                whatsapp_disponivel
-              {
+              let segue = case id_chat.canal(tx.chat_id), whatsapp_disponivel {
+                // Sessão fora: nada sai deste chat, então não há ordem a
+                // proteger, e o prazo de cada transação precisa ser visto.
                 id_chat.CanalWhatsapp, False -> {
                   aguardar_sessao(state, tx, agora)
-                  False
+                  True
                 }
                 _, _ -> reenviar_transacao(state, tx)
               }
-              case entregue {
+              case segue {
                 True -> travados
                 False -> set.insert(travados, tx.chat_id)
               }

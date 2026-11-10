@@ -395,14 +395,17 @@ fn avaliar_livre(
       // Mídia que passa do balde fica adiada em vez de descartada, enquanto a
       // dívida couber; texto (o que conta para flood) segue a regra de sempre.
       let adiavel = !conta_flood && restante >=. 0.0 -. divida_maxima_tokens
+      let dia_atual = agora_ms / dia_ms
+      let contagem = case reg.dia == dia_atual {
+        True -> reg.mensagens_no_dia
+        False -> 0
+      }
+      // No teto, o aviso do teto (e depois o descarte) vale mesmo com o balde
+      // vazio: passar do limite do dia não é motivo de strike.
+      let no_teto = contagem >= limite_diario_mensagens
 
-      case restante >=. 0.0 || adiavel {
+      case restante >=. 0.0 || adiavel || no_teto {
         True -> {
-          let dia_atual = agora_ms / dia_ms
-          let contagem = case reg.dia == dia_atual {
-            True -> reg.mensagens_no_dia
-            False -> 0
-          }
           let decisao = case contagem {
             c if c < limite_diario_mensagens && restante >=. 0.0 -> Permitido
             c if c < limite_diario_mensagens ->
