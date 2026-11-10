@@ -153,7 +153,7 @@ Messages starting with `.` or `/` (or without prefix where supported) are parsed
 - `.legenda` — toggle video transcription vs description.
 - `.longo` / `.curto` — toggle detailed vs concise image descriptions.
 - `.cego` — accessibility mode for visually impaired users.
-- `.modelo [provedor/modelo]` — display or switch active provider and model (e.g. `.modelo gemini/gemini-2.5-pro`).
+- `.modelo [provedor/modelo]` — display the active provider and model; switching (e.g. `.modelo gemini/gemini-2.5-pro`) is admin-only, because the list includes models far more expensive than the default.
 
 #### Admin Commands (Telegram only, restricted to `TELEGRAM_ADMIN_CHAT_ID`)
 - `/status` — real-time status of WhatsApp and Telegram channels, BEAM memory/process metrics, and message counters.
