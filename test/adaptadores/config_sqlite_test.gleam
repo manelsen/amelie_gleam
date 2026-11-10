@@ -15,6 +15,8 @@ pub fn migrar_antigo_modelo_padrao_para_gemini_3_5_flash_lite_test() {
       modelo: "gemini-3.8-flash",
     )
   let assert Ok(Nil) = porta.salvar(antiga)
+  // Banco de antes do registro de migrações: a migração ainda não rodou.
+  let assert Ok(Nil) = sqlight.exec("DELETE FROM migracoes", conn)
 
   let porta_migrada = config_sqlite.criar(conn)
   let assert Ok(atual) = porta_migrada.obter(fixtures.id("chat-antigo@c.us"))
@@ -86,4 +88,22 @@ pub fn reinicio_preserva_prompt_e_video_desligado_test() {
   lida.prompt_sistema |> should.equal(option.Some("Responda como pirata."))
   lida.video_ativo |> should.be_false
   lida.audio_ativo |> should.be_false
+}
+
+pub fn modelo_escolhido_depois_da_migracao_sobrevive_ao_reinicio_test() {
+  use conn <- sqlight.with_connection("file:config_migracao_unica?mode=memory")
+  let porta = config_sqlite.criar(conn)
+  // Troca feita pelo admin com `.modelo`.
+  let escolhida =
+    config.Config(
+      ..config.padrao(fixtures.id("chat-escolheu@c.us")),
+      modelo: "gemini-3.8-flash",
+    )
+  let assert Ok(Nil) = porta.salvar(escolhida)
+
+  let porta_reiniciada = config_sqlite.criar(conn)
+  let assert Ok(atual) =
+    porta_reiniciada.obter(fixtures.id("chat-escolheu@c.us"))
+
+  atual.modelo |> should.equal("gemini-3.8-flash")
 }
