@@ -12,6 +12,7 @@ import gleam/otp/actor
 import gleam/otp/supervision
 import gleam/result
 import logging
+import shell/tarefa_isolada
 
 pub type FilaAtrasadas =
   Subject(Mensagem)
@@ -75,17 +76,9 @@ fn tratar(tempo_maximo_ms: Int, msg: Mensagem) -> actor.Next(Int, Mensagem) {
 /// Roda a tarefa em processo próprio e espera ela terminar. Se ela quebrar,
 /// a fila não cai junto; se travar, é encerrada no tempo máximo.
 fn executar(tarefa: fn() -> Nil, tempo_maximo_ms: Int) -> Nil {
-  let pid = process.spawn_unlinked(tarefa)
-  let monitor = process.monitor(pid)
-  let terminou =
-    process.new_selector()
-    |> process.select_specific_monitor(monitor, fn(_) { Nil })
-
-  case process.selector_receive(terminou, tempo_maximo_ms) {
-    Ok(Nil) -> Nil
-    Error(Nil) -> {
-      process.demonitor_process(monitor)
-      process.kill(pid)
+  case tarefa_isolada.executar(tarefa, tempo_maximo_ms) {
+    tarefa_isolada.Terminou | tarefa_isolada.Quebrou -> Nil
+    tarefa_isolada.Estourou -> {
       logging.log(
         logging.Warning,
         "FilaAtrasadas: mensagem encerrada após "
