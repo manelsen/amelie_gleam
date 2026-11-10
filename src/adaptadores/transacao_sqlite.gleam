@@ -176,11 +176,41 @@ fn obter_pendentes(conn: sqlight.Connection) -> Result(List(t.Transacao), Erro) 
       logging.Warning,
       "Transação " <> int.to_string(id) <> " com chat_id ilegível; descartada",
     )
-    let _ =
-      atualizar_erro(conn, id, "chat_id ilegível (descarte definitivo)", 0)
-    atualizar_status(conn, id, t.Descartada)
+    case descartar(conn, id, "chat_id ilegível (descarte definitivo)") {
+      Ok(Nil) -> Nil
+      Error(e) ->
+        logging.log(
+          logging.Error,
+          "Falha ao descartar transação "
+            <> int.to_string(id)
+            <> ": "
+            <> erro.descricao(e),
+        )
+    }
   })
   Ok(validas)
+}
+
+// Uma escrita só: duas deixariam a linha em 'falha', de volta à fila, se a
+// segunda não passasse.
+fn descartar(
+  conn: sqlight.Connection,
+  id: Int,
+  motivo: String,
+) -> Result(Nil, Erro) {
+  let sql =
+    "UPDATE transacoes
+     SET status = 'descartada', erro = ?, tentativas = 0, atualizado_em = unixepoch()
+     WHERE id = ?"
+
+  sqlight.query(
+    sql,
+    on: conn,
+    with: [sqlight.text(motivo), sqlight.int(id)],
+    expecting: decode.dynamic,
+  )
+  |> result.map(fn(_) { Nil })
+  |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
 }
 
 fn obter_por_chat(

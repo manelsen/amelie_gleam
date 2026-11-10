@@ -1650,7 +1650,8 @@ func (b *Bridge) processQueue() {
 			b.queueDB.Exec("UPDATE webhook_queue SET delivered_at = -1, attempts = attempts + 1 WHERE id = ?", p.id)
 			removeMediaTemp(payload.Caminho)
 		case gleamServerError:
-			log.Printf("[Fila] Retry falhou id=%d: %v", p.id, err)
+			log.Printf("[Fila] Retry falhou id=%d (tentativa %d de %d); fila parada até o próximo ciclo: %v",
+				p.id, p.attempts+1, maxGleamServerErrors, err)
 			b.queueDB.Exec("UPDATE webhook_queue SET attempts = attempts + 1 WHERE id = ?", p.id)
 			return
 		default: // gleamUnavailable

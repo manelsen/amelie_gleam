@@ -175,10 +175,15 @@ pub fn pendentes_pula_e_descarta_linha_com_chat_ilegivel_test() {
   // A ruim saiu da fila de vez.
   let assert Ok(status) =
     sqlight.query(
-      "SELECT status FROM transacoes WHERE conteudo = 'ruim'",
+      "SELECT status, erro FROM transacoes WHERE conteudo = 'ruim'",
       on: conn,
       with: [],
-      expecting: decode.at([0], decode.string),
+      expecting: {
+        use status <- decode.field(0, decode.string)
+        use motivo <- decode.field(1, decode.string)
+        decode.success(#(status, motivo))
+      },
     )
-  status |> should.equal(["descartada"])
+  status
+  |> should.equal([#("descartada", "chat_id ilegível (descarte definitivo)")])
 }

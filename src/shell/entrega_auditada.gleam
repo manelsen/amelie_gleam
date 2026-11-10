@@ -8,6 +8,7 @@ import logging
 import portas/mensageiro_porta.{type MensageiroPorta}
 import portas/transacao_porta.{type TransacaoPorta}
 import shell/fila_offline
+import shell/sistema
 
 /// Envia a resposta e audita a entrega. Devolve Ok também quando o envio
 /// falha mas a transação ficou na fila offline: a resposta vai chegar, e um
@@ -64,7 +65,12 @@ fn auditar(
 
   case envio(), registrada {
     Ok(_), Some(tx) -> {
-      let _ = marcar_entregue(transacoes, tx.id)
+      // A resposta já chegou; o que a falha aqui causa é um reenvio duplicado
+      // pela fila offline, e o log é o que permite diagnosticá-lo.
+      marcar_entregue(transacoes, tx.id)
+      |> sistema.registrar_falha(
+        "EntregaAuditada: falha ao marcar transação como entregue; pode haver reenvio",
+      )
       Ok(Nil)
     }
     Ok(_), None -> Ok(Nil)
