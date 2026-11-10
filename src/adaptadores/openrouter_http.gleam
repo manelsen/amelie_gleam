@@ -180,6 +180,7 @@ fn formato_audio(subtipo: String) -> String {
     "aac" | "x-aac" -> "aac"
     "flac" | "x-flac" -> "flac"
     "aiff" | "x-aiff" -> "aiff"
+    "webm" -> "webm"
     // WhatsApp e Telegram mandam voz em ogg/opus.
     _ -> "ogg"
   }

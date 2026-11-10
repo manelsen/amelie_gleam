@@ -31,3 +31,9 @@ pub fn pdf_vai_como_file_test() {
     "{\"type\":\"file\",\"file\":{\"filename\":\"documento.pdf\",\"file_data\":\"data:application/pdf;base64,QUJD\"}}",
   )
 }
+
+pub fn audio_webm_mantem_o_formato_test() {
+  parte("audio/webm;codecs=opus")
+  |> string.contains("\"format\":\"webm\"")
+  |> should.be_true
+}

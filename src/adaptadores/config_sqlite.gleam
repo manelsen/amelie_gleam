@@ -91,7 +91,14 @@ fn migrar_uma_vez(conn: sqlight.Connection, nome: String, sql: String) -> Nil {
           )
       }
     }
-    _ -> Nil
+    Ok(_) -> Nil
+    // Sem a tabela migracoes (criação falhou) a consulta falha aqui; sem
+    // este aviso a migração deixaria de rodar em silêncio a cada boot.
+    Error(e) ->
+      logging.log(
+        logging.Warning,
+        "Migração " <> nome <> " não verificada: " <> e.message,
+      )
   }
 }
 

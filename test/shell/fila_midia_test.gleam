@@ -258,13 +258,14 @@ pub fn midia_concluida_conta_na_metrica_test() {
 
 pub fn midia_com_falha_nao_conta_na_metrica_test() {
   let contador = process.new_subject()
+  let envios = process.new_subject()
   let assert Ok(filas) = fila_midia.iniciar_todas()
   let msg = fixtures.mensagem_imagem()
   let ctx =
     fila_midia.Contexto(
       ..contexto(
         portas_fake.ia_erro(erro.ErroIA("bloqueado")),
-        portas_fake.mensageiro_ok(),
+        portas_fake.mensageiro_capturar(envios),
         portas_fake.historico_vazio(),
         portas_fake.video_contexto_noop(),
       ),
@@ -274,5 +275,9 @@ pub fn midia_com_falha_nao_conta_na_metrica_test() {
   fila_midia.enfileirar(filas, msg.chat_id, msg, MidiaImagem, ctx)
   |> should.be_ok
 
-  process.receive(contador, 300) |> should.be_error
+  // O aviso de falha só sai depois que a IA falhou: a partir daí o
+  // incremento, se houvesse, já teria sido enviado.
+  let assert Ok(#(_, aviso)) = process.receive(envios, espera_ms)
+  aviso |> should.equal(fila_midia.aviso_falha_midia)
+  process.receive(contador, 100) |> should.be_error
 }

@@ -84,8 +84,18 @@ pub fn supervisionado(
   supervision.worker(fn() { iniciar_actor(Some(name)) })
 }
 
+/// Contar é acessório: com o ator reiniciando, o nome fica sem dono por um
+/// instante, e `process.send` a um nome sem dono gera panic, que derrubaria
+/// quem conta (a fila de mídia, o tratador). Nesse caso a contagem se perde.
 pub fn registrar(metricas: Metricas, tipo: TipoContador) -> Nil {
-  process.send(metricas, Incrementar(tipo))
+  let vivo = case process.subject_name(metricas) {
+    Ok(nome) -> result.is_ok(process.named(nome))
+    Error(Nil) -> True
+  }
+  case vivo {
+    True -> process.send(metricas, Incrementar(tipo))
+    False -> Nil
+  }
 }
 
 pub fn consultar(metricas: Metricas) -> Estado {
