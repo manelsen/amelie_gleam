@@ -157,7 +157,7 @@ fn obter_pendentes(conn: sqlight.Connection) -> Result(List(t.Transacao), Erro) 
      FROM transacoes 
      WHERE status != 'entregue' AND status != 'descartada'
        AND (erro IS NOT NULL OR tentativas > 0 OR criado_em <= unixepoch() - ?)
-     ORDER BY criado_em ASC"
+     ORDER BY criado_em ASC, id ASC"
 
   use linhas <- result.try(
     sqlight.query(

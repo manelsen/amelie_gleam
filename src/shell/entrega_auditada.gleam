@@ -1,9 +1,11 @@
 import core/privacidade
 import dominio/erro.{type Erro}
 import dominio/id_chat.{type IdChat}
+import dominio/texto_partes
 import dominio/transacao
 import gleam/int
-import gleam/option.{None, Some}
+import gleam/list
+import gleam/option.{type Option, None, Some}
 import logging
 import portas/mensageiro_porta.{type MensageiroPorta}
 import portas/transacao_porta.{type TransacaoPorta}
@@ -14,6 +16,10 @@ import shell/sistema
 /// falha mas a transação ficou na fila offline: a resposta vai chegar, e um
 /// "tente novamente" faria o usuário pagar outra chamada de IA e receber duas
 /// respostas. Error só quando a resposta não vai chegar.
+///
+/// Resposta maior que o limite do canal (Telegram) sai em partes, cada uma
+/// com transação própria: se uma parte falhar, a fila offline reenvia dela
+/// em diante, sem repetir o que já chegou.
 pub fn enviar(
   chat_id: IdChat,
   tipo: transacao.TipoEntrega,
@@ -21,8 +27,9 @@ pub fn enviar(
   mensageiro: MensageiroPorta,
   transacoes: TransacaoPorta,
 ) -> Result(Nil, Erro) {
-  use <- auditar(chat_id, tipo, conteudo, transacoes)
-  mensageiro.enviar(chat_id, conteudo)
+  entregar(chat_id, tipo, conteudo, mensageiro, transacoes, fn(parte) {
+    mensageiro.enviar(chat_id, parte)
+  })
 }
 
 pub fn enviar_citando(
@@ -34,22 +41,45 @@ pub fn enviar_citando(
   mensageiro: MensageiroPorta,
   transacoes: TransacaoPorta,
 ) -> Result(Nil, Erro) {
-  use <- auditar(chat_id, tipo, conteudo, transacoes)
-  mensageiro.enviar_citando(chat_id, quoted_id, quoted_sender, conteudo)
+  // Só a primeira parte cita a mensagem original.
+  entregar(chat_id, tipo, conteudo, mensageiro, transacoes, fn(parte) {
+    mensageiro.enviar_citando(chat_id, quoted_id, quoted_sender, parte)
+  })
 }
 
-fn auditar(
+fn entregar(
+  chat_id: IdChat,
+  tipo: transacao.TipoEntrega,
+  conteudo: String,
+  mensageiro: MensageiroPorta,
+  transacoes: TransacaoPorta,
+  enviar_primeira: fn(String) -> Result(Nil, Erro),
+) -> Result(Nil, Erro) {
+  let partes = case id_chat.canal(chat_id) {
+    id_chat.CanalTelegram ->
+      texto_partes.dividir(conteudo, texto_partes.limite_telegram)
+    _ -> [conteudo]
+  }
+  // Todas registradas antes do primeiro envio: se o envio parar no meio, o
+  // resto já está na fila, na ordem.
+  let registradas =
+    list.map(partes, fn(parte) {
+      #(parte, registrar(chat_id, tipo, parte, transacoes))
+    })
+  enviar_em_ordem(registradas, enviar_primeira, transacoes, fn(parte) {
+    mensageiro.enviar(chat_id, parte)
+  })
+}
+
+/// O registro é de melhor esforço: a resposta já foi paga, e um SQLite
+/// ocupado não pode impedir que ela chegue. Sem registro, só não há reenvio.
+fn registrar(
   chat_id: IdChat,
   tipo: transacao.TipoEntrega,
   conteudo: String,
   transacoes: TransacaoPorta,
-  envio: fn() -> Result(Nil, Erro),
-) -> Result(Nil, Erro) {
-  // O registro é de melhor esforço: a resposta já foi paga, e um SQLite
-  // ocupado não pode impedir que ela chegue. Sem registro, só não há reenvio.
-  let registrada = case
-    transacoes.registrar(transacao.novo(chat_id, tipo, conteudo))
-  {
+) -> Option(transacao.Transacao) {
+  case transacoes.registrar(transacao.novo(chat_id, tipo, conteudo)) {
     Ok(tx) -> Some(tx)
     Error(e) -> {
       logging.log(
@@ -62,25 +92,67 @@ fn auditar(
       None
     }
   }
+}
 
-  case envio(), registrada {
-    Ok(_), Some(tx) -> {
-      // A resposta já chegou; o que a falha aqui causa é um reenvio duplicado
-      // pela fila offline, e o log é o que permite diagnosticá-lo.
-      marcar_entregue(transacoes, tx.id)
-      |> sistema.registrar_falha(
-        "EntregaAuditada: falha ao marcar transação como entregue; pode haver reenvio",
-      )
-      Ok(Nil)
-    }
-    Ok(_), None -> Ok(Nil)
-    Error(e), None -> Error(e)
-    Error(e), Some(tx) ->
-      case marcar_falha(transacoes, tx, e) {
-        FicaNaFila -> Ok(Nil)
-        NaoVaiChegar -> Error(e)
+fn enviar_em_ordem(
+  itens: List(#(String, Option(transacao.Transacao))),
+  enviar_parte: fn(String) -> Result(Nil, Erro),
+  transacoes: TransacaoPorta,
+  enviar_seguinte: fn(String) -> Result(Nil, Erro),
+) -> Result(Nil, Erro) {
+  case itens {
+    [] -> Ok(Nil)
+    [#(parte, registrada), ..resto] -> {
+      let continuar = fn() {
+        enviar_em_ordem(resto, enviar_seguinte, transacoes, enviar_seguinte)
       }
+      case enviar_parte(parte), registrada {
+        Ok(_), Some(tx) -> {
+          // A parte já chegou; o que a falha aqui causa é um reenvio
+          // duplicado pela fila offline, e o log permite diagnosticá-lo.
+          marcar_entregue(transacoes, tx.id)
+          |> sistema.registrar_falha(
+            "EntregaAuditada: falha ao marcar transação como entregue; pode haver reenvio",
+          )
+          continuar()
+        }
+        Ok(_), None -> continuar()
+        Error(e), None -> {
+          descartar_resto(resto, transacoes)
+          Error(e)
+        }
+        Error(e), Some(tx) ->
+          case marcar_falha(transacoes, tx, e) {
+            // As partes seguintes já estão registradas: a fila offline as
+            // envia depois desta, na ordem.
+            FicaNaFila -> Ok(Nil)
+            NaoVaiChegar -> {
+              descartar_resto(resto, transacoes)
+              Error(e)
+            }
+          }
+      }
+    }
   }
+}
+
+/// Uma parte que não vai chegar invalida as seguintes: entregá-las sem ela
+/// deixaria um buraco no meio da resposta.
+fn descartar_resto(
+  resto: List(#(String, Option(transacao.Transacao))),
+  transacoes: TransacaoPorta,
+) -> Nil {
+  list.each(resto, fn(item) {
+    case item.1 {
+      Some(transacao.Transacao(id: Some(id), ..)) -> {
+        let _ =
+          transacoes.atualizar_erro(id, "parte anterior não foi entregue", 0)
+        let _ = transacoes.atualizar_status(id, transacao.Descartada)
+        Nil
+      }
+      _ -> Nil
+    }
+  })
 }
 
 type DestinoFalha {

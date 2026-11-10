@@ -442,3 +442,18 @@ pub fn erro_de_sessao_no_reenvio_nao_gasta_tentativa_test() {
   )
   |> should.equal([Enviou, AtualizouErro(15, 2)])
 }
+
+pub fn falha_trava_o_chat_no_ciclo_mas_nao_os_outros_test() {
+  // Duas partes de uma resposta e uma transação de outro chat. A primeira
+  // parte falha: a segunda não pode sair antes dela; o outro chat segue.
+  let parte1 = tx_pendente(21, 0)
+  let parte2 = tx_pendente(22, 0)
+  let outro = t.Transacao(..tx_pendente(23, 0), chat_id: fixtures.id("tg:999"))
+
+  processar(
+    [parte1, parte2, outro],
+    ponte_ok(),
+    Error(erro.ErroComunicacao("telegram status 502")),
+  )
+  |> should.equal([Enviou, AtualizouErro(21, 1), Enviou, AtualizouErro(23, 1)])
+}
