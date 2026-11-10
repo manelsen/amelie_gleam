@@ -1,5 +1,6 @@
 import adaptadores/telegram_http
 import gleam/json
+import gleam/list
 import gleam/string
 import gleeunit/should
 
@@ -57,4 +58,42 @@ pub fn corpo_mensagem_sem_markdown_omite_parse_mode_test() {
   |> should.equal(
     "{\"chat_id\":\"1\",\"text\":\"a_b *c\",\"reply_to_message_id\":7}",
   )
+}
+
+// ---------------------------------------------------------------------------
+// dividir_texto — limite de tamanho da Bot API
+// ---------------------------------------------------------------------------
+
+pub fn texto_curto_vai_inteiro_test() {
+  telegram_http.dividir_texto("oi", 10) |> should.equal(["oi"])
+}
+
+pub fn corta_entre_paragrafos_test() {
+  telegram_http.dividir_texto("aaaa bbbb\n\ncccc", 12)
+  |> should.equal(["aaaa bbbb", "cccc"])
+}
+
+pub fn corta_entre_palavras_sem_quebra_de_linha_test() {
+  telegram_http.dividir_texto("aaaa bbbb cccc", 10)
+  |> should.equal(["aaaa bbbb", "cccc"])
+}
+
+pub fn palavra_maior_que_o_limite_e_cortada_test() {
+  telegram_http.dividir_texto("abcdefghij", 4)
+  |> should.equal(["abcd", "efgh", "ij"])
+}
+
+pub fn emoji_conta_como_duas_unidades_test() {
+  // Cada 😀 ocupa 2 unidades UTF-16; 3 deles passam de 5.
+  telegram_http.dividir_texto("😀😀😀", 5)
+  |> should.equal(["😀😀", "😀"])
+}
+
+pub fn nenhuma_parte_passa_do_limite_real_test() {
+  let texto = string.repeat("palavra ", 1500)
+  let partes = telegram_http.dividir_texto(texto, telegram_http.limite_mensagem)
+  list.length(partes) |> should.equal(3)
+  list.all(partes, fn(p) { string.length(p) <= telegram_http.limite_mensagem })
+  |> should.be_true
+  string.join(partes, " ") |> string.trim |> should.equal(string.trim(texto))
 }
