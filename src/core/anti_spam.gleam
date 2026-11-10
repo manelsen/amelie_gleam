@@ -230,7 +230,9 @@ pub fn avaliar_atrasada(
       let decisao = case contagem {
         c if c < limite_diario_mensagens -> Permitido
         c if c == limite_diario_mensagens -> AvisoLimite(aviso_limite_diario, 1)
-        _ -> Silenciado(None)
+        // Acima do teto o usuário já foi avisado e não fez nada de errado:
+        // descarte simples, sem virar incidente de quarentena.
+        _ -> Descartado
       }
       let novo_reg =
         RegistroChat(
@@ -383,7 +385,9 @@ fn avaliar_livre(
             c if c < limite_diario_mensagens -> Permitido
             c if c == limite_diario_mensagens ->
               AvisoLimite(aviso_limite_diario, 1)
-            _ -> Silenciado(None)
+            // Acima do teto o usuário já foi avisado e não fez nada de
+            // errado: descarte simples, sem virar incidente de quarentena.
+            _ -> Descartado
           }
           // Acima do teto não consome token nem soma strike: só descarta.
           let tokens_restantes = case decisao {

@@ -465,8 +465,9 @@ pub fn atrasadas_respeitam_teto_diario_test() {
   let #(estado, decisao) =
     anti_spam.avaliar_atrasada(estado, chat, chat, None, agora)
   decisao |> should.equal(AvisoLimite(anti_spam.aviso_limite_diario, 1))
+  // Passado o aviso, descarte simples: não é incidente de quarentena.
   anti_spam.avaliar_atrasada(estado, chat, chat, None, agora).1
-  |> should.equal(Silenciado(None))
+  |> should.equal(Descartado)
 }
 
 pub fn atrasada_do_admin_e_permitida_test() {
