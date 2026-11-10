@@ -157,7 +157,7 @@ fn obter_pendentes(conn: sqlight.Connection) -> Result(List(t.Transacao), Erro) 
      FROM transacoes 
      WHERE status != 'entregue' AND status != 'descartada'
        AND (erro IS NOT NULL OR tentativas > 0 OR criado_em <= unixepoch() - ?)
-     ORDER BY criado_em ASC"
+     ORDER BY criado_em ASC, id ASC"
 
   use linhas <- result.try(
     sqlight.query(
@@ -168,7 +168,10 @@ fn obter_pendentes(conn: sqlight.Connection) -> Result(List(t.Transacao), Erro) 
     )
     |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) }),
   )
-  let #(validas, ilegiveis) = result.partition(linhas)
+  // result.partition devolve as listas invertidas; a ordem da consulta é a
+  // ordem de reenvio (partes de uma resposta longa, uma depois da outra).
+  let #(validas_invertidas, ilegiveis) = result.partition(linhas)
+  let validas = list.reverse(validas_invertidas)
   // Uma linha com chat_id ilegível derrubava a consulta inteira, todo ciclo.
   // Sai da fila como descartada; as outras seguem.
   list.each(ilegiveis, fn(id) {

@@ -1,7 +1,7 @@
 // Teto diário de mensagens por chat (achado M1 do relatório de segurança).
 
 import core/anti_spam.{
-  AvisoLimite, Permitido, Silenciado, avaliar, aviso_limite_diario, dia_ms,
+  AvisoLimite, Descartado, Permitido, avaliar, aviso_limite_diario, dia_ms,
   limite_diario_mensagens, limpar_inativos, novo_estado,
 }
 import dominio/id_chat.{type IdChat}
@@ -72,7 +72,8 @@ pub fn avisa_uma_vez_e_depois_descarta_test() {
       1.0,
       t + intervalo_ms,
     )
-  d2 |> should.equal(Silenciado(None))
+  // Descarte simples: passar do teto não é incidente de quarentena.
+  d2 |> should.equal(Descartado)
 }
 
 pub fn teto_zera_no_dia_seguinte_test() {

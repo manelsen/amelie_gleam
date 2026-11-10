@@ -25,6 +25,7 @@ import dominio/provedores_config.{type ProvedoresConfig}
 import dominio/transacao.{type TipoEntrega, RespostaIA, RespostaTexto}
 import dominio/video_contexto.{type VideoContexto}
 import gleam/bool
+import gleam/erlang/process
 import gleam/int
 import gleam/list
 import gleam/option.{type Option}
@@ -49,6 +50,7 @@ import shell/extrator_url
 import shell/fila_midia.{type FilasMidia}
 import shell/metricas.{type Metricas}
 import shell/sistema
+import shell/tarefa_isolada
 
 /// O history sync do WhatsApp reenvia o histórico completo ao reconectar;
 /// mensagens mais antigas que isso já foram respondidas antes.
@@ -200,6 +202,8 @@ fn processar_mensagem_com_anti_spam(
     core_anti_spam.Permitido -> processar_mensagem(msg, portas)
     core_anti_spam.AvisoLimite(motivo, nivel) ->
       avisar_limite(motivo, nivel, msg, portas)
+    core_anti_spam.Adiar(espera_ms, avisar_usuario) ->
+      adiar_midia(espera_ms, avisar_usuario, msg, portas)
     core_anti_spam.Descartado -> {
       limpar_midia_se_descartada(msg)
       Ok(Nil)
@@ -208,6 +212,90 @@ fn processar_mensagem_com_anti_spam(
       descartar_silenciado(notificar_admin, msg, portas)
   }
 }
+
+/// Mídia além do balde: em vez de descartar (e pedir para reenviar), segue
+/// para o processamento quando a recarga cobrir o custo. A verificação já
+/// foi feita e o custo, descontado. Se a Amélie reiniciar no meio da espera,
+/// a mídia adiada se perde.
+///
+/// A dívida é por chat; o total de mídias em espera, com seus bytes em
+/// memória, tem teto global. Sem vaga, a mídia não é guardada e o usuário
+/// é avisado para reenviar mais tarde.
+fn adiar_midia(
+  espera_ms: Int,
+  avisar_usuario: Bool,
+  msg: Mensagem,
+  portas: Portas,
+) -> Result(Nil, Erro) {
+  case sistema.reservar_vaga(vagas_adiadas, max_midias_adiadas) {
+    False -> {
+      logging.log(
+        logging.Warning,
+        "["
+          <> extrair_trace_id(msg)
+          <> "] Teto global de mídias adiadas atingido; mídia recusada para "
+          <> privacidade.mascarar(msg.chat_id),
+      )
+      limpar_midia_se_descartada(msg)
+      avisar(msg.chat_id, aviso_adiadas_lotado, portas)
+    }
+    True -> {
+      logging.log(
+        logging.Info,
+        "["
+          <> extrair_trace_id(msg)
+          <> "] Mídia adiada por "
+          <> int.to_string(espera_ms / 1000)
+          <> "s para "
+          <> privacidade.mascarar(msg.chat_id),
+      )
+      sistema.disparar(fn() {
+        process.sleep(espera_ms)
+        // Isolado: a vaga volta mesmo se o processamento quebrar.
+        let desfecho =
+          tarefa_isolada.executar(
+            fn() {
+              processar_mensagem(msg, portas)
+              |> sistema.registrar_falha("Falha ao processar mídia adiada")
+            },
+            tempo_maximo_adiada_ms,
+          )
+        sistema.liberar_vaga(vagas_adiadas)
+        case desfecho {
+          tarefa_isolada.Terminou -> Nil
+          // Não dá para saber se a mídia já chegou à fila de mídia, então o
+          // arquivo temporário fica para a varredura de órfãos (1 h).
+          tarefa_isolada.Quebrou | tarefa_isolada.Estourou -> {
+            logging.log(
+              logging.Error,
+              "["
+                <> extrair_trace_id(msg)
+                <> "] Mídia adiada não foi processada para "
+                <> privacidade.mascarar(msg.chat_id),
+            )
+            avisar(msg.chat_id, fila_midia.aviso_falha_midia, portas)
+            |> sistema.registrar_falha("Falha ao avisar mídia adiada perdida")
+          }
+        }
+      })
+      case avisar_usuario {
+        True -> avisar(msg.chat_id, core_anti_spam.aviso_midias_adiadas, portas)
+        False -> Ok(Nil)
+      }
+    }
+  }
+}
+
+const vagas_adiadas = "midias_adiadas"
+
+/// Teto global de mídias em espera, somando todos os chats. Com 20 por
+/// chat, cobre 5 rajadas grandes ao mesmo tempo.
+const max_midias_adiadas = 100
+
+/// Só enfileirar na fila de mídia; o job em si tem teto próprio lá.
+const tempo_maximo_adiada_ms = 60_000
+
+pub const aviso_adiadas_lotado = "⏳ Estou com muitas mídias na fila agora e não consegui guardar esta. Por favor, reenvie daqui a alguns minutos."
 
 fn avisar_limite(
   motivo: String,

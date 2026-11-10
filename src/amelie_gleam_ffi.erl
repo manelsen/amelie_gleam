@@ -6,7 +6,8 @@
          strip_timestamps/1, video_tem_audio/1,
          constant_time_equal/2, validate_bridge_media/1, read_bridge_media/1,
          cache_key/3, write_private_media/1, limpar_midias_antigas/1,
-         delete_file/1, ensure_applications_started/0, safe_mime/1]).
+         delete_file/1, ensure_applications_started/0, safe_mime/1,
+         reservar_vaga/2, liberar_vaga/1]).
 
 %% Lê arquivo do disco.
 %% Retorna {ok, Binary} | {error, Binary} — Result(BitArray, String) no Gleam.
@@ -307,3 +308,43 @@ ffprobe_wait(Port, Acc, Deadline) ->
         false
     end.
 
+
+%% Contador global de vagas, sem dono: um atomics guardado em persistent_term
+%% por nome. Reserva só se couber em Max; liberar devolve a vaga.
+vagas_ref(Nome) ->
+    Chave = {amelie_vagas, Nome},
+    case persistent_term:get(Chave, undefined) of
+        undefined ->
+            %% Criação sob lock: duas primeiras reservas simultâneas não
+            %% podem publicar contadores diferentes para o mesmo nome.
+            global:trans({Chave, self()}, fun() ->
+                case persistent_term:get(Chave, undefined) of
+                    undefined ->
+                        Ref = atomics:new(1, []),
+                        persistent_term:put(Chave, Ref),
+                        Ref;
+                    Ref -> Ref
+                end
+            end, [node()]);
+        Ref -> Ref
+    end.
+
+%% Compara e troca: só incrementa se ainda couber, para uma tentativa sem
+%% vaga não ocupar uma vaga por um instante e recusar outra que caberia.
+reservar_vaga(Nome, Max) ->
+    reservar_vaga_cas(vagas_ref(Nome), Max).
+
+reservar_vaga_cas(Ref, Max) ->
+    Atual = atomics:get(Ref, 1),
+    case Atual < Max of
+        false -> false;
+        true ->
+            case atomics:compare_exchange(Ref, 1, Atual, Atual + 1) of
+                ok -> true;
+                _Outro -> reservar_vaga_cas(Ref, Max)
+            end
+    end.
+
+liberar_vaga(Nome) ->
+    atomics:sub(vagas_ref(Nome), 1, 1),
+    nil.

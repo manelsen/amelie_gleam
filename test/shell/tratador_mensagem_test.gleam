@@ -1,3 +1,4 @@
+import core/anti_spam as core_anti_spam
 import dominio/erro
 import dominio/id_chat.{type IdChat}
 import dominio/mensagem.{Mensagem}
@@ -284,8 +285,9 @@ pub fn tratar_com_rate_limit_envia_aviso_ao_usuario_test() {
       ponte: portas_fake.ponte_inacessivel(),
     )
 
-  // Um álbum maior que o balde: a foto seguinte às que cabem recebe o aviso.
-  enviar_fotos(portas, 11)
+  // Além do balde e da dívida de mídia adiada (10 + 20), a 31ª foto recebe
+  // o aviso.
+  enviar_fotos(portas, 31)
 
   // Aguarda e busca a mensagem que contém o aviso de rate limit
   let aviso = buscar_aviso(ref)
@@ -397,8 +399,9 @@ pub fn tratar_com_rate_limit_registra_incidente_spammer_test() {
       ponte: portas_fake.ponte_inacessivel(),
     )
 
-  // Um álbum maior que o balde: a foto seguinte às que cabem recebe o aviso.
-  enviar_fotos(portas, 11)
+  // Além do balde e da dívida de mídia adiada (10 + 20), a 31ª foto recebe
+  // o aviso.
+  enviar_fotos(portas, 31)
 
   let assert Ok(evento) = process.receive(ref_spam, 1000)
   case evento {
@@ -668,4 +671,37 @@ fn enviar_fotos(portas: tratador_mensagem.Portas, n: Int) -> Nil {
 /// [1, 2, ..., n]
 fn de_1_a(n: Int) -> List(Int) {
   list.index_map(list.repeat(Nil, n), fn(_, i) { i + 1 })
+}
+
+pub fn album_maior_que_o_balde_e_adiado_com_um_aviso_test() {
+  let ref = process.new_subject()
+  let ref_spam = process.new_subject()
+  let portas =
+    tratador_mensagem.Portas(
+      ..portas_fake.portas_ok(fixtures.config_padrao(), "Uma foto."),
+      mensageiro: portas_fake.mensageiro_capturar(ref),
+      anti_spam: spam(),
+      spammers: portas_fake.spammer_capturar(ref_spam),
+    )
+
+  // 10 cabem no balde; a 11ª e a 12ª ficam adiadas.
+  enviar_fotos(portas, 12)
+
+  let avisos = coletar_textos(ref, [])
+  list.filter(avisos, fn(t) { t == core_anti_spam.aviso_midias_adiadas })
+  |> list.length
+  |> should.equal(1)
+  list.any(avisos, fn(t) { string.contains(t, "Calma lá") }) |> should.be_false
+  // Adiar não é incidente de spam.
+  process.receive(ref_spam, 100) |> should.be_error
+}
+
+fn coletar_textos(
+  ref: process.Subject(#(IdChat, String)),
+  acc: List(String),
+) -> List(String) {
+  case process.receive(ref, 500) {
+    Ok(#(_, texto)) -> coletar_textos(ref, [texto, ..acc])
+    Error(Nil) -> list.reverse(acc)
+  }
 }

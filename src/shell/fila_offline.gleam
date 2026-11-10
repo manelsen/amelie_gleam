@@ -8,6 +8,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
 import gleam/otp/supervision
 import gleam/result
+import gleam/set
 import gleam/string
 import logging
 import portas/mensageiro_porta.{type MensageiroPorta}
@@ -168,11 +169,27 @@ fn processar_pendentes(state: Estado) -> actor.Next(Estado, Mensagem) {
         })
       let whatsapp_disponivel = tem_whatsapp && whatsapp_disponivel(state)
       let agora = sistema.agora_s()
+      // Um chat que falhou neste ciclo fica para o próximo: as partes de uma
+      // resposta longa não podem chegar fora de ordem.
       let _ =
-        list.each(pendentes, fn(tx) {
-          case id_chat.canal(tx.chat_id), whatsapp_disponivel {
-            id_chat.CanalWhatsapp, False -> aguardar_sessao(state, tx, agora)
-            _, _ -> reenviar_transacao(state, tx)
+        list.fold(pendentes, set.new(), fn(travados, tx) {
+          case set.contains(travados, tx.chat_id) {
+            True -> travados
+            False -> {
+              let segue = case id_chat.canal(tx.chat_id), whatsapp_disponivel {
+                // Sessão fora: nada sai deste chat, então não há ordem a
+                // proteger, e o prazo de cada transação precisa ser visto.
+                id_chat.CanalWhatsapp, False -> {
+                  aguardar_sessao(state, tx, agora)
+                  True
+                }
+                _, _ -> reenviar_transacao(state, tx)
+              }
+              case segue {
+                True -> travados
+                False -> set.insert(travados, tx.chat_id)
+              }
+            }
           }
         })
       actor.continue(state)
@@ -228,9 +245,10 @@ fn aguardar_sessao(state: Estado, tx: t.Transacao, agora: Int) -> Nil {
   }
 }
 
-fn reenviar_transacao(state: Estado, tx: t.Transacao) -> Nil {
+/// Devolve True se a transação foi entregue agora.
+fn reenviar_transacao(state: Estado, tx: t.Transacao) -> Bool {
   case tx.id {
-    None -> Nil
+    None -> False
     Some(id) -> {
       case tx.tentativas < state.tentativas_max {
         True -> {
@@ -252,6 +270,7 @@ fn reenviar_transacao(state: Estado, tx: t.Transacao) -> Nil {
                   <> int.to_string(id)
                   <> " enviada com sucesso",
               )
+              True
             }
             Error(e) -> {
               case e_erro_sessao(e), e_erro_definitivo(e) {
@@ -302,6 +321,7 @@ fn reenviar_transacao(state: Estado, tx: t.Transacao) -> Nil {
                   )
                 }
               }
+              False
             }
           }
         }
@@ -313,7 +333,7 @@ fn reenviar_transacao(state: Estado, tx: t.Transacao) -> Nil {
               <> " atingiu máximo de tentativas",
           )
           let _ = state.transacoes.atualizar_status(id, t.Descartada)
-          Nil
+          False
         }
       }
     }

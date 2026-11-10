@@ -442,3 +442,34 @@ pub fn erro_de_sessao_no_reenvio_nao_gasta_tentativa_test() {
   )
   |> should.equal([Enviou, AtualizouErro(15, 2)])
 }
+
+pub fn falha_trava_o_chat_no_ciclo_mas_nao_os_outros_test() {
+  // Duas partes de uma resposta e uma transação de outro chat. A primeira
+  // parte falha: a segunda não pode sair antes dela; o outro chat segue.
+  let parte1 = tx_pendente(21, 0)
+  let parte2 = tx_pendente(22, 0)
+  let outro = t.Transacao(..tx_pendente(23, 0), chat_id: fixtures.id("tg:999"))
+
+  processar(
+    [parte1, parte2, outro],
+    ponte_ok(),
+    Error(erro.ErroComunicacao("telegram status 502")),
+  )
+  |> should.equal([Enviou, AtualizouErro(21, 1), Enviou, AtualizouErro(23, 1)])
+}
+
+pub fn sessao_fora_ve_o_prazo_de_todas_as_do_chat_test() {
+  // Com a sessão fora nada sai do chat, então a ordem não trava o ciclo:
+  // as duas vencidas são descartadas agora, não só a primeira.
+  let vencida = sistema.agora_s() - fila_offline.prazo_espera_sessao_s - 60
+  let a = t.Transacao(..tx_pendente(31, 0), criado_em: vencida)
+  let b = t.Transacao(..tx_pendente(32, 0), criado_em: vencida)
+
+  processar([a, b], ponte_deslogada(), Ok(Nil))
+  |> should.equal([
+    AtualizouErro(31, 0),
+    AtualizouStatus(31, t.Descartada),
+    AtualizouErro(32, 0),
+    AtualizouStatus(32, t.Descartada),
+  ])
+}
