@@ -181,7 +181,7 @@ pub fn envio_falha_propaga_erro_test() {
 // enviar — falha no registro
 // ---------------------------------------------------------------------------
 
-pub fn falha_no_registro_nao_envia_test() {
+pub fn falha_no_registro_envia_mesmo_assim_test() {
   let enviou = process.new_subject()
   let transacoes =
     TransacaoPorta(
@@ -196,6 +196,7 @@ pub fn falha_no_registro_nao_envia_test() {
       marcar_recebida: fn(_, _) { Ok(Nil) },
     )
 
+  // A resposta já foi paga: o banco ocupado não pode segurá-la.
   entrega_auditada.enviar(
     fixtures.id("chat1@c.us"),
     transacao.RespostaTexto,
@@ -203,10 +204,61 @@ pub fn falha_no_registro_nao_envia_test() {
     mensageiro_capturar_envio(enviou),
     transacoes,
   )
-  |> should.be_error
+  |> should.be_ok
 
-  // Não deve ter enviado
-  process.receive(enviou, 50) |> should.be_error
+  process.receive(enviou, 50) |> should.equal(Ok(True))
+}
+
+// ---------------------------------------------------------------------------
+// enviar — o que volta para quem chamou
+// ---------------------------------------------------------------------------
+
+pub fn falha_que_fica_na_fila_devolve_ok_test() {
+  // A fila offline reenvia; um "tente novamente" geraria resposta duplicada.
+  let ref = process.new_subject()
+  entrega_auditada.enviar(
+    fixtures.id("chat1@c.us"),
+    transacao.RespostaIA,
+    "resposta",
+    mensageiro_erro(),
+    transacao_capturar_erro(ref, 3),
+  )
+  |> should.be_ok
+}
+
+pub fn falha_definitiva_devolve_erro_test() {
+  let mensageiro =
+    MensageiroPorta(
+      enviar: fn(_, _) {
+        Error(erro.ErroComunicacao("telegram status 403: bot was blocked"))
+      },
+      enviar_citando: fn(_, _, _, _) { Ok(Nil) },
+      reagir: fn(_, _, _, _) { Ok(Nil) },
+    )
+  let ref = process.new_subject()
+  entrega_auditada.enviar(
+    fixtures.id("chat1@c.us"),
+    transacao.RespostaIA,
+    "resposta",
+    mensageiro,
+    transacao_capturar_erro(ref, 4),
+  )
+  |> should.be_error
+}
+
+pub fn falha_sem_registro_devolve_erro_test() {
+  let transacoes =
+    TransacaoPorta(..transacao_sem_id(), registrar: fn(_) {
+      Error(erro.ErroBancoDados("db offline"))
+    })
+  entrega_auditada.enviar(
+    fixtures.id("chat1@c.us"),
+    transacao.RespostaTexto,
+    "oi",
+    mensageiro_erro(),
+    transacoes,
+  )
+  |> should.be_error
 }
 
 // ---------------------------------------------------------------------------

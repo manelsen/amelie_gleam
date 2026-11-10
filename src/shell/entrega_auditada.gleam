@@ -1,14 +1,18 @@
+import core/privacidade
 import dominio/erro.{type Erro}
 import dominio/id_chat.{type IdChat}
 import dominio/transacao
 import gleam/int
-import gleam/option
-import gleam/result
+import gleam/option.{None, Some}
 import logging
 import portas/mensageiro_porta.{type MensageiroPorta}
 import portas/transacao_porta.{type TransacaoPorta}
 import shell/fila_offline
 
+/// Envia a resposta e audita a entrega. Devolve Ok também quando o envio
+/// falha mas a transação ficou na fila offline: a resposta vai chegar, e um
+/// "tente novamente" faria o usuário pagar outra chamada de IA e receber duas
+/// respostas. Error só quando a resposta não vai chegar.
 pub fn enviar(
   chat_id: IdChat,
   tipo: transacao.TipoEntrega,
@@ -16,19 +20,8 @@ pub fn enviar(
   mensageiro: MensageiroPorta,
   transacoes: TransacaoPorta,
 ) -> Result(Nil, Erro) {
-  let tx = transacao.novo(chat_id, tipo, conteudo)
-  use registrada <- result.try(transacoes.registrar(tx))
-
-  case mensageiro.enviar(chat_id, conteudo) {
-    Ok(_) -> {
-      let _ = marcar_entregue(transacoes, registrada.id)
-      Ok(Nil)
-    }
-    Error(e) -> {
-      let _ = marcar_falha(transacoes, registrada, e)
-      Error(e)
-    }
-  }
+  use <- auditar(chat_id, tipo, conteudo, transacoes)
+  mensageiro.enviar(chat_id, conteudo)
 }
 
 pub fn enviar_citando(
@@ -40,19 +33,53 @@ pub fn enviar_citando(
   mensageiro: MensageiroPorta,
   transacoes: TransacaoPorta,
 ) -> Result(Nil, Erro) {
-  let tx = transacao.novo(chat_id, tipo, conteudo)
-  use registrada <- result.try(transacoes.registrar(tx))
+  use <- auditar(chat_id, tipo, conteudo, transacoes)
+  mensageiro.enviar_citando(chat_id, quoted_id, quoted_sender, conteudo)
+}
 
-  case mensageiro.enviar_citando(chat_id, quoted_id, quoted_sender, conteudo) {
-    Ok(_) -> {
-      let _ = marcar_entregue(transacoes, registrada.id)
-      Ok(Nil)
-    }
+fn auditar(
+  chat_id: IdChat,
+  tipo: transacao.TipoEntrega,
+  conteudo: String,
+  transacoes: TransacaoPorta,
+  envio: fn() -> Result(Nil, Erro),
+) -> Result(Nil, Erro) {
+  // O registro é de melhor esforço: a resposta já foi paga, e um SQLite
+  // ocupado não pode impedir que ela chegue. Sem registro, só não há reenvio.
+  let registrada = case
+    transacoes.registrar(transacao.novo(chat_id, tipo, conteudo))
+  {
+    Ok(tx) -> Some(tx)
     Error(e) -> {
-      let _ = marcar_falha(transacoes, registrada, e)
-      Error(e)
+      logging.log(
+        logging.Warning,
+        "EntregaAuditada: falha ao registrar transação para "
+          <> privacidade.mascarar(chat_id)
+          <> "; enviando sem auditoria: "
+          <> erro.descricao(e),
+      )
+      None
     }
   }
+
+  case envio(), registrada {
+    Ok(_), Some(tx) -> {
+      let _ = marcar_entregue(transacoes, tx.id)
+      Ok(Nil)
+    }
+    Ok(_), None -> Ok(Nil)
+    Error(e), None -> Error(e)
+    Error(e), Some(tx) ->
+      case marcar_falha(transacoes, tx, e) {
+        FicaNaFila -> Ok(Nil)
+        NaoVaiChegar -> Error(e)
+      }
+  }
+}
+
+type DestinoFalha {
+  FicaNaFila
+  NaoVaiChegar
 }
 
 fn marcar_entregue(
@@ -60,8 +87,8 @@ fn marcar_entregue(
   tx_id: option.Option(Int),
 ) -> Result(Nil, Erro) {
   case tx_id {
-    option.Some(id) -> transacoes.marcar_entregue(id)
-    option.None -> Ok(Nil)
+    Some(id) -> transacoes.marcar_entregue(id)
+    None -> Ok(Nil)
   }
 }
 
@@ -69,9 +96,9 @@ fn marcar_falha(
   transacoes: TransacaoPorta,
   tx: transacao.Transacao,
   e: Erro,
-) -> Result(Nil, Erro) {
+) -> DestinoFalha {
   case tx.id {
-    option.Some(id) -> {
+    Some(id) -> {
       case fila_offline.e_erro_sessao(e), fila_offline.e_erro_definitivo(e) {
         // Sessão fora do ar: fica pendente, sem gastar tentativa, até a
         // fila offline ver a sessão de volta.
@@ -83,7 +110,9 @@ fn marcar_falha(
               <> " aguardando a sessão do WhatsApp: "
               <> erro.descricao(e),
           )
-          transacoes.atualizar_erro(id, erro.descricao(e), tx.tentativas)
+          let _ =
+            transacoes.atualizar_erro(id, erro.descricao(e), tx.tentativas)
+          FicaNaFila
         }
         _, True -> {
           let _ =
@@ -100,12 +129,17 @@ fn marcar_falha(
               <> " descartada imediatamente por erro definitivo: "
               <> erro.descricao(e),
           )
-          Ok(Nil)
+          NaoVaiChegar
         }
-        _, False ->
-          transacoes.atualizar_erro(id, erro.descricao(e), tx.tentativas + 1)
+        _, False -> {
+          // Mesmo que atualizar_erro falhe, a linha continua pendente e a
+          // fila offline a encontra.
+          let _ =
+            transacoes.atualizar_erro(id, erro.descricao(e), tx.tentativas + 1)
+          FicaNaFila
+        }
       }
     }
-    option.None -> Ok(Nil)
+    None -> NaoVaiChegar
   }
 }

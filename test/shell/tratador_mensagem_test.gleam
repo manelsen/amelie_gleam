@@ -136,7 +136,9 @@ pub fn tratar_texto_marca_transacao_entregue_test() {
   let assert Ok(portas_fake.MarcadaEntregue(1)) = process.receive(ref, 1000)
 }
 
-pub fn tratar_texto_falha_atualiza_transacao_test() {
+/// Envio que falha fica na fila offline: sem erro para quem chamou e, por
+/// isso, sem o "tente novamente" que gerava resposta duplicada.
+pub fn tratar_texto_falha_fica_na_fila_test() {
   let ref = process.new_subject()
   let msg = fixtures.mensagem_texto("teste")
   let fila = case fila_midia.iniciar_todas() {
@@ -162,7 +164,7 @@ pub fn tratar_texto_falha_atualiza_transacao_test() {
       ponte: portas_fake.ponte_inacessivel(),
     )
   let result = tratador_mensagem.tratar(msg, portas)
-  result |> should.be_error
+  result |> should.be_ok
   let assert Ok(portas_fake.Registrada(_)) = process.receive(ref, 1000)
   let assert Ok(portas_fake.ErroAtualizado(1, _, 1)) =
     process.receive(ref, 1000)
