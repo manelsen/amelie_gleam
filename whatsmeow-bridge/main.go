@@ -1948,8 +1948,10 @@ func (b *Bridge) handleResetSession(w http.ResponseWriter, r *http.Request) {
 	b.deleteSessionStore()
 
 	if phone != "" {
+		// Lido aqui, não na goroutine: os testes trocam o valor entre rodadas.
+		delay := resetPairingDelay
 		go func(targetPhone string) {
-			time.Sleep(resetPairingDelay)
+			time.Sleep(delay)
 			log.Printf("[WhatsApp] Gerando novo pairing code pós-reset para %s...\n", maskID(targetPhone))
 			_, err := b.requestPairingCode(targetPhone)
 			if err != nil {
