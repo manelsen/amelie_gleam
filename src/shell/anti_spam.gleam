@@ -5,6 +5,7 @@
 import core/anti_spam
 import dominio/id_chat.{type IdChat}
 import dominio/mensagem.{type Conteudo}
+import gleam/bool
 import gleam/dict
 import gleam/erlang/process.{type Subject}
 import gleam/option.{type Option, None, Some}
@@ -194,11 +195,22 @@ pub fn desbloquear(actor: AntiSpam, alvo: String) -> Bool {
 }
 
 /// Ver `anti_spam.em_quarentena`. Não muda o estado.
+/// É só uma economia de download: se o ator não responder (reiniciando,
+/// ocupado), devolve False e o download segue; o anti-spam do tratador
+/// decide como sempre. Um process.call aqui geraria panic e a mensagem se
+/// perderia sem aviso.
 pub fn em_quarentena(actor: AntiSpam, chat_id: IdChat, atrasada: Bool) -> Bool {
-  let agora = sistema.agora_ms()
-  process.call(actor, 1000, fn(resposta) {
-    EmQuarentena(chat_id, atrasada, agora, resposta)
-  })
+  let vivo = case process.subject_name(actor) {
+    Ok(nome) -> result.is_ok(process.named(nome))
+    Error(Nil) -> True
+  }
+  use <- bool.guard(!vivo, False)
+  let resposta = process.new_subject()
+  process.send(
+    actor,
+    EmQuarentena(chat_id, atrasada, sistema.agora_ms(), resposta),
+  )
+  process.receive(resposta, 1000) |> result.unwrap(False)
 }
 
 pub fn contar_silenciados(actor: AntiSpam) -> Int {

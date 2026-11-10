@@ -2039,11 +2039,16 @@ func (b *Bridge) handleResetSession(w http.ResponseWriter, r *http.Request) {
 	phone = cleanPhoneNumber(phone)
 
 	log.Printf("[WhatsApp] Reset de sessão solicitado. Desconectando e limpando dados...")
+	// Sob pairingMu: um pareamento em andamento usa o cliente atual do começo
+	// ao fim, e o reset não pode trocá-lo no meio. Mesma ordem de locks de
+	// pairLocked (pairingMu, depois resetMu em deleteSessionStore).
+	b.pairingMu.Lock()
 	if c := b.wa(); c != nil && c.IsConnected() {
 		c.Disconnect()
 	}
 	b.setConnectionError("session_reset", "sessão reiniciada manualmente pelo administrador")
 	b.deleteSessionStore()
+	b.pairingMu.Unlock()
 
 	if phone != "" {
 		// Lido aqui, não na goroutine: os testes trocam o valor entre rodadas.

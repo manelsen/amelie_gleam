@@ -22,23 +22,27 @@ pub fn tarefa_travada_estoura_e_morre_test() {
     20,
   )
   |> should.equal(tarefa_isolada.Estourou)
+  // Encerrada: o envio de depois da espera nunca acontece.
   process.receive(ref, 400) |> should.be_error
 }
 
 pub fn tarefa_morre_junto_com_quem_chama_test() {
   // Um ator reiniciado não pode ter o job antigo correndo junto com o novo.
-  let ref = process.new_subject()
+  let comecou = process.new_subject()
+  let terminou = process.new_subject()
   let chamador =
     process.spawn_unlinked(fn() {
       tarefa_isolada.executar(
         fn() {
+          process.send(comecou, Nil)
           process.sleep(200)
-          process.send(ref, Nil)
+          process.send(terminou, Nil)
         },
         10_000,
       )
     })
-  process.sleep(20)
+  // Só mata quem chama depois que a tarefa de fato começou.
+  let assert Ok(Nil) = process.receive(comecou, 1000)
   process.kill(chamador)
-  process.receive(ref, 400) |> should.be_error
+  process.receive(terminou, 400) |> should.be_error
 }
