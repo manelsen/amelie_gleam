@@ -30,6 +30,7 @@ import portas/mensageiro_porta.{type MensageiroPorta}
 import portas/transacao_porta.{type TransacaoPorta}
 import portas/video_contexto_porta.{type VideoContextoPorta}
 import shell/entrega_auditada
+import shell/metricas.{type Metricas}
 import shell/sistema
 import simplifile
 
@@ -55,6 +56,7 @@ pub type Contexto {
     transacoes: TransacaoPorta,
     historico: HistoricoPorta,
     video_contexto: VideoContextoPorta,
+    metricas: Metricas,
   )
 }
 
@@ -198,6 +200,7 @@ fn descrever(
     logging.Info,
     prefixo <> " Concluído para " <> privacidade.mascarar(chat_id),
   )
+  metricas.registrar(ctx.metricas, metricas.MidiaPorTipo(tipo))
   reagir(msg, "🆗", ctx.mensageiro)
   entregar(chat_id, tipo, resposta, msg, ctx)
 }

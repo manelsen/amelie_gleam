@@ -16,6 +16,7 @@ import portas/ia_porta.{type IAPorta, IAPorta}
 import portas/mensageiro_porta.{type MensageiroPorta}
 import portas/video_contexto_porta.{type VideoContextoPorta}
 import shell/fila_midia
+import shell/metricas
 import simplifile
 
 const espera_ms = 2000
@@ -44,6 +45,7 @@ fn contexto(
     transacoes: portas_fake.transacao_noop(),
     historico:,
     video_contexto:,
+    metricas: process.new_subject(),
   )
 }
 
@@ -229,4 +231,48 @@ pub fn falha_da_ia_avisa_usuario_e_nao_grava_historico_test() {
   process.receive(envios, espera_ms)
   |> should.equal(Ok(#(msg.chat_id, fila_midia.aviso_falha_midia)))
   process.receive(turnos, 100) |> should.be_error
+}
+
+pub fn midia_concluida_conta_na_metrica_test() {
+  // O /status mostrava "Mídias processadas: 0" com mídias atendidas.
+  let contador = process.new_subject()
+  let assert Ok(filas) = fila_midia.iniciar_todas()
+  let msg = fixtures.mensagem_audio()
+  let ctx =
+    fila_midia.Contexto(
+      ..contexto(
+        portas_fake.ia_ok("Olá."),
+        portas_fake.mensageiro_ok(),
+        portas_fake.historico_vazio(),
+        portas_fake.video_contexto_noop(),
+      ),
+      metricas: contador,
+    )
+
+  fila_midia.enfileirar(filas, msg.chat_id, msg, MidiaAudio, ctx)
+  |> should.be_ok
+
+  process.receive(contador, espera_ms)
+  |> should.equal(Ok(metricas.Incrementar(metricas.MidiaPorTipo(MidiaAudio))))
+}
+
+pub fn midia_com_falha_nao_conta_na_metrica_test() {
+  let contador = process.new_subject()
+  let assert Ok(filas) = fila_midia.iniciar_todas()
+  let msg = fixtures.mensagem_imagem()
+  let ctx =
+    fila_midia.Contexto(
+      ..contexto(
+        portas_fake.ia_erro(erro.ErroIA("bloqueado")),
+        portas_fake.mensageiro_ok(),
+        portas_fake.historico_vazio(),
+        portas_fake.video_contexto_noop(),
+      ),
+      metricas: contador,
+    )
+
+  fila_midia.enfileirar(filas, msg.chat_id, msg, MidiaImagem, ctx)
+  |> should.be_ok
+
+  process.receive(contador, 300) |> should.be_error
 }
