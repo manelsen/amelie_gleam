@@ -133,11 +133,11 @@ pub fn avaliar(
 }
 
 /// Só texto conta para o flood: um álbum chega como uma rajada de mídia e já
-/// é limitado pelo balde.
+/// é limitado pelo balde. Mídia indisponível também fica de fora: um álbum
+/// cuja leitura falhou chega como uma rajada delas, sem culpa do usuário.
 pub fn conta_para_flood(corpo: Conteudo) -> Bool {
   case corpo {
-    mensagem.Texto(_) | mensagem.Comando(..) | mensagem.MidiaIndisponivel(_) ->
-      True
+    mensagem.Texto(_) | mensagem.Comando(..) -> True
     _ -> False
   }
 }
@@ -243,6 +243,20 @@ pub fn avaliar_atrasada(
   }
 }
 
+/// Tokens do balde depois da recarga desde `ultimo_ts_ms`.
+fn recarregar(reg: RegistroChat, agora_ms: Int) -> Float {
+  let delta_s =
+    float.max(0.0, int.to_float(agora_ms - reg.ultimo_ts_ms) /. 1000.0)
+  float.min(max_tokens, reg.tokens +. delta_s *. recarga_por_segundo)
+}
+
+/// Avança `ultimo_ts_ms` (que conta para o perdão de strikes) sem perder a
+/// recarga do intervalo: senão quem insiste durante a pausa sai dela com o
+/// balde vazio e volta direto para a quarentena.
+fn tocar(reg: RegistroChat, agora_ms: Int) -> RegistroChat {
+  RegistroChat(..reg, tokens: recarregar(reg, agora_ms), ultimo_ts_ms: agora_ms)
+}
+
 fn avaliar_em_quarentena(
   estado: EstadoAntiSpam,
   chat_id: IdChat,
@@ -257,14 +271,13 @@ fn avaliar_em_quarentena(
   let em_carencia =
     reg.strikes < 3 && agora_ms - inicio_pausa < carencia_reincidencia_ms
   use <- bool.guard(em_carencia, #(
-    dict.insert(estado, chat_id, RegistroChat(..reg, ultimo_ts_ms: agora_ms)),
+    dict.insert(estado, chat_id, tocar(reg, agora_ms)),
     Descartado,
   ))
   case reg.strikes >= 3 {
     // Já está no Strike 3 (Quarentena/Blackhole): descarte silencioso sem notificar de novo.
     True -> {
-      let novo_reg = RegistroChat(..reg, ultimo_ts_ms: agora_ms)
-      #(dict.insert(estado, chat_id, novo_reg), Silenciado(None))
+      #(dict.insert(estado, chat_id, tocar(reg, agora_ms)), Silenciado(None))
     }
     // Reincidência durante Strike 2 (timeout de 5 min) -> escala para Strike 3 (Jail 30m)
     False ->
@@ -282,10 +295,9 @@ fn avaliar_em_quarentena(
             <> "• Ação: Quarentena ativada."
           let novo_reg =
             RegistroChat(
-              ..reg,
+              ..tocar(reg, agora_ms),
               strikes: 3,
               quarentena_ate_ms: agora_ms + quarentena_strike3_ms,
-              ultimo_ts_ms: agora_ms,
             )
           #(dict.insert(estado, chat_id, novo_reg), Silenciado(Some(alerta)))
         }
@@ -295,10 +307,9 @@ fn avaliar_em_quarentena(
             "⚠️ Muitas mensagens durante o tempo de espera. Seu chat foi pausado por 5 minutos."
           let novo_reg =
             RegistroChat(
-              ..reg,
+              ..tocar(reg, agora_ms),
               strikes: 2,
               quarentena_ate_ms: agora_ms + cooldown_strike2_ms,
-              ultimo_ts_ms: agora_ms,
             )
           #(dict.insert(estado, chat_id, novo_reg), AvisoLimite(aviso, 2))
         }
@@ -359,10 +370,7 @@ fn avaliar_livre(
 
     False -> {
       // 4. Token Bucket convencional
-      let delta_s =
-        float.max(0.0, int.to_float(agora_ms - reg.ultimo_ts_ms) /. 1000.0)
-      let tokens_recarregados =
-        float.min(max_tokens, reg.tokens +. delta_s *. recarga_por_segundo)
+      let tokens_recarregados = recarregar(reg, agora_ms)
 
       case tokens_recarregados >=. peso {
         True -> {

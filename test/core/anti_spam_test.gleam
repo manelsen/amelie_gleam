@@ -6,7 +6,7 @@ import core/anti_spam.{
   contar_silenciados, desbloquear, extrair_telefone, formatar_identificador,
   formatar_numero_telefone, limpar_inativos, novo_estado, peso_mensagem,
 }
-import dominio/mensagem.{Audio, Imagem, Texto, Video}
+import dominio/mensagem.{Audio, Comando, Imagem, MidiaIndisponivel, Texto, Video}
 import gleam/dict
 import gleam/list
 import gleam/option.{None, Some}
@@ -548,6 +548,34 @@ pub fn flood_de_texto_continua_detectado_e_midia_nao_conta_test() {
     )
   let #(_, d) =
     anti_spam.avaliar_carga(estado, id, id, None, 1.0, False, t0 + 950)
+  d |> should.equal(Permitido)
+}
+
+pub fn midia_indisponivel_nao_conta_para_flood_test() {
+  // Álbum cuja leitura falhou chega como rajada de mídias indisponíveis.
+  anti_spam.conta_para_flood(MidiaIndisponivel("falha ao ler"))
+  |> should.be_false
+  anti_spam.conta_para_flood(Texto("oi")) |> should.be_true
+  anti_spam.conta_para_flood(Comando("ajuda", "")) |> should.be_true
+}
+
+pub fn insistir_na_quarentena_nao_esvazia_o_balde_na_saida_test() {
+  let id = fixtures.id("insistente@c.us")
+  let t0 = 1_000_000
+  let #(estado, _) = rajada_de_texto(novo_estado(), id, t0)
+  let assert Ok(reg) = dict.get(estado, id)
+  let fim = reg.quarentena_ate_ms
+
+  // Uma mensagem por minuto durante toda a quarentena: todas descartadas.
+  let #(estado, _) =
+    list.fold(de_1_a({ fim - t0 } / 60_000), #(estado, Permitido), fn(acc, i) {
+      let #(e, d) = avaliar(acc.0, id, id, None, 1.0, t0 + i * 60_000)
+      d |> should.equal(Silenciado(None))
+      #(e, d)
+    })
+
+  // Logo depois da quarentena, a recarga do período conta: a foto passa.
+  let #(_, d) = avaliar(estado, id, id, None, 1.0, fim + 1000)
   d |> should.equal(Permitido)
 }
 
