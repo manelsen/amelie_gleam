@@ -1559,6 +1559,8 @@ func (b *Bridge) enqueueAndDeliver(payload IncomingWebhook) error {
 		return fmt.Errorf("fila: erro ao enfileirar: %w", err)
 	}
 	if n, err := result.RowsAffected(); err == nil && n == 0 {
+		// Duplicata: a mídia que esta cópia gravou nunca será lida.
+		removeMediaTemp(payload.Caminho)
 		return nil
 	}
 
@@ -1594,12 +1596,19 @@ func (b *Bridge) startQueueWorker() {
 	}()
 }
 
+// Linha nova e nunca tentada pela fila é a de um enqueueAndDeliver cujo
+// POST direto ainda pode estar em andamento; pegá-la agora entregaria duas
+// vezes.
+const queueInFlightGraceSeconds = 30
+
 func (b *Bridge) processQueue() {
 	rows, err := b.queueDB.Query(
-		`SELECT id, payload FROM webhook_queue
-		 WHERE delivered_at IS NULL AND attempts < 100
+		`SELECT id, payload, attempts FROM webhook_queue
+		 WHERE delivered_at IS NULL
 		 AND created_at > unixepoch() - 86400
+		 AND (attempts > 0 OR created_at <= unixepoch() - ?)
 		 ORDER BY id ASC LIMIT 50`,
+		queueInFlightGraceSeconds,
 	)
 	if err != nil {
 		log.Printf("[Fila] Erro ao consultar pendentes: %v", err)
@@ -1607,29 +1616,110 @@ func (b *Bridge) processQueue() {
 	}
 	defer rows.Close()
 
+	type pendente struct {
+		id       int64
+		payload  string
+		attempts int
+	}
+	var pendentes []pendente
 	for rows.Next() {
-		var id int64
-		var payloadJSON string
-		if err := rows.Scan(&id, &payloadJSON); err != nil {
-			continue
+		var p pendente
+		if err := rows.Scan(&p.id, &p.payload, &p.attempts); err == nil {
+			pendentes = append(pendentes, p)
 		}
+	}
+	rows.Close()
 
+	for _, p := range pendentes {
 		var payload IncomingWebhook
-		if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
-			log.Printf("[Fila] Payload corrompido id=%d, descartando: %v", id, err)
-			b.queueDB.Exec("UPDATE webhook_queue SET delivered_at = -1 WHERE id = ?", id)
+		if err := json.Unmarshal([]byte(p.payload), &payload); err != nil {
+			log.Printf("[Fila] Payload corrompido id=%d, descartando: %v", p.id, err)
+			b.queueDB.Exec("UPDATE webhook_queue SET delivered_at = -1 WHERE id = ?", p.id)
 			continue
 		}
 
-		b.queueDB.Exec("UPDATE webhook_queue SET attempts = attempts + 1 WHERE id = ?", id)
-
-		if err := b.postToGleam(payload); err != nil {
-			log.Printf("[Fila] Retry falhou id=%d: %v", id, err)
-			return // Gleam indisponível, parar e tentar tudo de novo no próximo tick
+		err := b.postToGleam(payload)
+		switch classifyGleamFailure(err, p.attempts+1) {
+		case gleamDelivered:
+			b.queueDB.Exec("UPDATE webhook_queue SET delivered_at = unixepoch(), attempts = attempts + 1 WHERE id = ?", p.id)
+			log.Printf("[Fila] Mensagem %d entregue com sucesso (msg_id=%s)", p.id, payload.MessageID)
+		case gleamRejected:
+			// Recusada pelo Gleam: não vai passar em nova tentativa e não pode
+			// segurar as mensagens de trás.
+			log.Printf("[Fila] Mensagem %d recusada pelo Gleam, descartada (msg_id=%s): %v", p.id, payload.MessageID, err)
+			b.queueDB.Exec("UPDATE webhook_queue SET delivered_at = -1, attempts = attempts + 1 WHERE id = ?", p.id)
+			removeMediaTemp(payload.Caminho)
+		case gleamServerError:
+			log.Printf("[Fila] Retry falhou id=%d (tentativa %d de %d); fila parada até o próximo ciclo: %v",
+				p.id, p.attempts+1, maxGleamServerErrors, err)
+			b.queueDB.Exec("UPDATE webhook_queue SET attempts = attempts + 1 WHERE id = ?", p.id)
+			return
+		default: // gleamUnavailable
+			// Gleam fora do ar (deploy, reinício): espera sem gastar tentativa.
+			// Só a retenção de 24 h descarta.
+			log.Printf("[Fila] Gleam indisponível, aguardando (id=%d): %v", p.id, err)
+			return
 		}
+	}
+}
 
-		b.queueDB.Exec("UPDATE webhook_queue SET delivered_at = unixepoch() WHERE id = ?", id)
-		log.Printf("[Fila] Mensagem %d entregue com sucesso (msg_id=%s)", id, payload.MessageID)
+// Desfecho de uma entrega ao Gleam, para a fila decidir o que fazer com a
+// mensagem e com as de trás.
+type gleamOutcome int
+
+const (
+	gleamDelivered   gleamOutcome = iota
+	gleamUnavailable              // transporte, 4xx do caminho, 502/503/504: parar sem contar tentativa
+	gleamServerError              // outros 5xx: parar e contar tentativa
+	gleamRejected                 // 400/413/422, ou 5xx insistente: descartar e seguir
+)
+
+// Depois de tantos 5xx seguidos, a mensagem é tratada como a causa (derruba
+// o handler) e sai da frente das outras.
+const maxGleamServerErrors = 20
+
+type gleamStatusError struct {
+	status int
+	body   string
+}
+
+func (e *gleamStatusError) Error() string {
+	return fmt.Sprintf("gleam retornou status %d: %s", e.status, e.body)
+}
+
+func classifyGleamFailure(err error, attempts int) gleamOutcome {
+	if err == nil {
+		return gleamDelivered
+	}
+	var se *gleamStatusError
+	if !errors.As(err, &se) {
+		return gleamUnavailable
+	}
+	switch {
+	// Só estes apontam para o payload. Os outros 4xx (401, 404 de URL
+	// errada, 429...) e 502/503/504 de proxy ou deploy são do caminho até o
+	// Gleam: descartar ali perderia mensagens boas.
+	case se.status == http.StatusBadRequest, se.status == http.StatusRequestEntityTooLarge,
+		se.status == http.StatusUnprocessableEntity:
+		return gleamRejected
+	case se.status < 500, se.status == http.StatusBadGateway,
+		se.status == http.StatusServiceUnavailable, se.status == http.StatusGatewayTimeout:
+		return gleamUnavailable
+	case attempts >= maxGleamServerErrors:
+		return gleamRejected
+	default:
+		return gleamServerError
+	}
+}
+
+// removeMediaTemp apaga a mídia temporária de um payload que não vai chegar
+// ao Gleam (quem apagaria é o Gleam, depois de ler).
+func removeMediaTemp(path string) {
+	if path == "" {
+		return
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("[Fila] Falha ao remover mídia temporária: %v", err)
 	}
 }
 
@@ -1656,7 +1746,7 @@ func (b *Bridge) postToGleam(payload IncomingWebhook) error {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("gleam retornou status %d: %s", resp.StatusCode, string(body))
+		return &gleamStatusError{status: resp.StatusCode, body: string(body)}
 	}
 	return nil
 }

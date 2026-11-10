@@ -2,9 +2,11 @@ import dominio/erro.{type Erro}
 import dominio/id_chat.{type IdChat}
 import dominio/transacao as t
 import gleam/dynamic/decode
+import gleam/int
 import gleam/list
 import gleam/option.{Some}
 import gleam/result
+import logging
 import portas/transacao_porta
 import sqlight
 
@@ -145,14 +147,69 @@ fn atualizar_erro(
   |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
 }
 
+/// Segundos que uma transação nova, sem nenhuma falha registrada, fica fora
+/// da fila offline: é o envio dela que ainda está em andamento.
+pub const espera_envio_em_voo_s = 60
+
 fn obter_pendentes(conn: sqlight.Connection) -> Result(List(t.Transacao), Erro) {
   let sql =
     "SELECT id, chat_id, remetente, tipo, conteudo, status, criado_em, atualizado_em, tentativas, erro
      FROM transacoes 
      WHERE status != 'entregue' AND status != 'descartada'
+       AND (erro IS NOT NULL OR tentativas > 0 OR criado_em <= unixepoch() - ?)
      ORDER BY criado_em ASC"
 
-  sqlight.query(sql, on: conn, with: [], expecting: transacao_decoder())
+  use linhas <- result.try(
+    sqlight.query(
+      sql,
+      on: conn,
+      with: [sqlight.int(espera_envio_em_voo_s)],
+      expecting: linha_decoder(),
+    )
+    |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) }),
+  )
+  let #(validas, ilegiveis) = result.partition(linhas)
+  // Uma linha com chat_id ilegível derrubava a consulta inteira, todo ciclo.
+  // Sai da fila como descartada; as outras seguem.
+  list.each(ilegiveis, fn(id) {
+    logging.log(
+      logging.Warning,
+      "Transação " <> int.to_string(id) <> " com chat_id ilegível; descartada",
+    )
+    case descartar(conn, id, "chat_id ilegível (descarte definitivo)") {
+      Ok(Nil) -> Nil
+      Error(e) ->
+        logging.log(
+          logging.Error,
+          "Falha ao descartar transação "
+            <> int.to_string(id)
+            <> ": "
+            <> erro.descricao(e),
+        )
+    }
+  })
+  Ok(validas)
+}
+
+// Uma escrita só: duas deixariam a linha em 'falha', de volta à fila, se a
+// segunda não passasse.
+fn descartar(
+  conn: sqlight.Connection,
+  id: Int,
+  motivo: String,
+) -> Result(Nil, Erro) {
+  let sql =
+    "UPDATE transacoes
+     SET status = 'descartada', erro = ?, tentativas = 0, atualizado_em = unixepoch()
+     WHERE id = ?"
+
+  sqlight.query(
+    sql,
+    on: conn,
+    with: [sqlight.text(motivo), sqlight.int(id)],
+    expecting: decode.dynamic,
+  )
+  |> result.map(fn(_) { Nil })
   |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
 }
 
@@ -171,8 +228,9 @@ fn obter_por_chat(
     sql,
     on: conn,
     with: [sqlight.text(id_chat.para_texto(chat_id))],
-    expecting: transacao_decoder(),
+    expecting: linha_decoder(),
   )
+  |> result.map(fn(linhas) { result.values(linhas) })
   |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
 }
 
@@ -228,9 +286,18 @@ fn limpar_antigas(conn: sqlight.Connection) -> Result(Nil, Erro) {
   Ok(Nil)
 }
 
-fn transacao_decoder() -> decode.Decoder(t.Transacao) {
-  use id <- decode.then(decode.at([0], decode.optional(decode.int)))
-  use chat_id <- decode.then(decode.at([1], id_chat.decoder()))
+/// Linha da tabela: Error(id) quando o chat_id não pode ser lido, para uma
+/// linha ruim não derrubar a consulta toda.
+fn linha_decoder() -> decode.Decoder(Result(t.Transacao, Int)) {
+  use id <- decode.then(decode.at([0], decode.int))
+  use chat_texto <- decode.then(decode.at([1], decode.string))
+  case id_chat.de_texto(chat_texto) {
+    Ok(chat_id) -> transacao_decoder(id, chat_id) |> decode.map(Ok)
+    Error(Nil) -> decode.success(Error(id))
+  }
+}
+
+fn transacao_decoder(id: Int, chat_id: IdChat) -> decode.Decoder(t.Transacao) {
   use remetente <- decode.then(decode.at([2], decode.string))
   use tipo <- decode.then(decode.at([3], decode.string))
   use conteudo <- decode.then(decode.at([4], decode.string))
@@ -240,7 +307,7 @@ fn transacao_decoder() -> decode.Decoder(t.Transacao) {
   use tentativas <- decode.then(decode.at([8], decode.int))
   use erro <- decode.then(decode.at([9], decode.optional(decode.string)))
   decode.success(t.Transacao(
-    id: id,
+    id: Some(id),
     chat_id: chat_id,
     remetente: remetente,
     tipo: tipo,

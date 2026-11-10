@@ -1,6 +1,7 @@
 import adaptadores/transacao_sqlite
 import dominio/id_chat
 import dominio/transacao.{Entregue, Pendente, Transacao}
+import gleam/dynamic/decode
 import gleam/option.{None, Some}
 import gleeunit/should
 import helpers/fixtures
@@ -135,4 +136,54 @@ pub fn dedup_whatsapp_mantem_chave_antiga_test() {
 
   porta.foi_recebida(fixtures.id("5531999990000@s.whatsapp.net"), "3EB0ABC")
   |> should.equal(Ok(True))
+}
+
+fn tx_nova(conteudo: String) -> transacao.Transacao {
+  transacao.novo(fixtures.id("chat1@c.us"), transacao.RespostaIA, conteudo)
+}
+
+pub fn pendentes_ignora_envio_em_voo_test() {
+  use conn <- sqlight.with_connection("file:transacao_em_voo?mode=memory")
+  let porta = transacao_sqlite.criar(conn)
+
+  // Recém-registrada e sem falha: o envio ainda está em andamento.
+  let assert Ok(tx) = porta.registrar(tx_nova("em voo"))
+  porta.obter_pendentes() |> should.equal(Ok([]))
+
+  // Depois da primeira falha, é da fila offline.
+  let assert Some(id) = tx.id
+  let assert Ok(Nil) = porta.atualizar_erro(id, "offline", 1)
+  let assert Ok([pendente]) = porta.obter_pendentes()
+  pendente.conteudo |> should.equal("em voo")
+}
+
+pub fn pendentes_pula_e_descarta_linha_com_chat_ilegivel_test() {
+  use conn <- sqlight.with_connection("file:transacao_ilegivel?mode=memory")
+  let porta = transacao_sqlite.criar(conn)
+
+  let assert Ok(Nil) =
+    sqlight.exec(
+      "INSERT INTO transacoes (chat_id, remetente, tipo, conteudo, status, criado_em)
+       VALUES ('lixo sem arroba', 'bot', 'texto', 'ruim', 'pendente', unixepoch() - 3600),
+              ('chat1@c.us', 'bot', 'texto', 'boa', 'pendente', unixepoch() - 3600);",
+      conn,
+    )
+
+  let assert Ok([boa]) = porta.obter_pendentes()
+  boa.conteudo |> should.equal("boa")
+
+  // A ruim saiu da fila de vez.
+  let assert Ok(status) =
+    sqlight.query(
+      "SELECT status, erro FROM transacoes WHERE conteudo = 'ruim'",
+      on: conn,
+      with: [],
+      expecting: {
+        use status <- decode.field(0, decode.string)
+        use motivo <- decode.field(1, decode.string)
+        decode.success(#(status, motivo))
+      },
+    )
+  status
+  |> should.equal([#("descartada", "chat_id ilegível (descarte definitivo)")])
 }

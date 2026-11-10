@@ -7,6 +7,7 @@ import dominio/spammer.{
   type IncidenteSpam, type ResumoSpammer, IncidenteSpam, ResumoSpammer,
 }
 import gleam/dynamic/decode
+import gleam/option
 import gleam/result
 import portas/spammer_porta.{type SpammerPorta, SpammerPorta}
 import sqlight
@@ -73,6 +74,8 @@ fn listar_recentes(
     with: [sqlight.int(limite)],
     expecting: decoder_incidente(),
   )
+  // Linha com ID ilegível fica de fora em vez de derrubar a listagem.
+  |> result.map(option.values)
   |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
 }
 
@@ -107,10 +110,22 @@ fn contar(conn: sqlight.Connection) -> Result(Int, Erro) {
   }
 }
 
-fn decoder_incidente() -> decode.Decoder(IncidenteSpam) {
+fn decoder_incidente() -> decode.Decoder(option.Option(IncidenteSpam)) {
   use id <- decode.then(decode.at([0], decode.int))
-  use chat_id <- decode.then(decode.at([1], id_chat.decoder()))
-  use remetente <- decode.then(decode.at([2], id_chat.decoder()))
+  use chat_texto <- decode.then(decode.at([1], decode.string))
+  use remetente_texto <- decode.then(decode.at([2], decode.string))
+  case id_chat.de_texto(chat_texto), id_chat.de_texto(remetente_texto) {
+    Ok(chat_id), Ok(remetente) ->
+      decoder_incidente_resto(id, chat_id, remetente) |> decode.map(option.Some)
+    _, _ -> decode.success(option.None)
+  }
+}
+
+fn decoder_incidente_resto(
+  id: Int,
+  chat_id: IdChat,
+  remetente: IdChat,
+) -> decode.Decoder(IncidenteSpam) {
   use telefone <- decode.then(decode.at([3], decode.string))
   use motivo <- decode.then(decode.at([4], decode.string))
   use strike <- decode.then(decode.at([5], decode.int))
