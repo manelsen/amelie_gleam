@@ -9,35 +9,53 @@ import (
 // volta, nenhum outro evento é lido. O download de mídia pode levar até
 // mediaTimeoutMax, então o processamento das mensagens sai do handler e vai
 // para uma fila por chat. Cada chat tem no máximo um worker, o que preserva a
-// ordem das mensagens da conversa; chats diferentes andam em paralelo, até
-// maxConcurrentJobs ao mesmo tempo.
+// ordem das mensagens da conversa; chats diferentes andam em paralelo.
+//
+// A ordem é de melhor esforço: uma mídia que precisou de media retry volta
+// para o fim da fila do chat quando o reenvio chega, depois de mensagens que
+// chegaram nesse meio-tempo.
+//
+// O que é limitado globalmente são os downloads (mediaDownloadSlots), não os
+// jobs: texto de um chat não espera vídeo de outro.
 const (
-	maxConcurrentJobs = 4
-	maxQueuedPerChat  = 256
+	maxConcurrentDownloads = 4
+	maxQueuedPerChat       = 256
 )
+
+var mediaDownloadSlots = make(chan struct{}, maxConcurrentDownloads)
+
+// withMediaDownloadSlot espera uma vaga de download e roda fn com ela. O
+// prazo do download deve ser criado dentro de fn, para a espera não comê-lo.
+func withMediaDownloadSlot[T any](fn func() T) T {
+	mediaDownloadSlots <- struct{}{}
+	defer func() { <-mediaDownloadSlots }()
+	return fn()
+}
+
+type dispatchJob struct {
+	id  string
+	run func()
+}
 
 type chatDispatcher struct {
 	mu     sync.Mutex
-	queues map[string][]func()
-	once   sync.Once
-	slots  chan struct{}
+	queues map[string][]dispatchJob
 }
 
-// submit enfileira job no chat indicado e nunca bloqueia quem chama.
-// Devolve false se a fila do chat estiver cheia e o job for descartado.
-func (d *chatDispatcher) submit(chat string, job func()) bool {
-	d.once.Do(func() { d.slots = make(chan struct{}, maxConcurrentJobs) })
-
+// submit enfileira job no chat indicado e nunca bloqueia quem chama. id só
+// identifica a mensagem nos logs. Devolve false se a fila do chat estiver
+// cheia e o job for descartado.
+func (d *chatDispatcher) submit(chat, id string, job func()) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.queues == nil {
-		d.queues = make(map[string][]func())
+		d.queues = make(map[string][]dispatchJob)
 	}
 	queue, running := d.queues[chat]
 	if len(queue) >= maxQueuedPerChat {
 		return false
 	}
-	d.queues[chat] = append(queue, job)
+	d.queues[chat] = append(queue, dispatchJob{id: id, run: job})
 	if !running {
 		go d.run(chat)
 	}
@@ -57,19 +75,17 @@ func (d *chatDispatcher) run(chat string) {
 			return
 		}
 		job := queue[0]
-		queue[0] = nil
+		queue[0] = dispatchJob{}
 		d.queues[chat] = queue[1:]
 		d.mu.Unlock()
 
-		d.slots <- struct{}{}
 		func() {
 			defer func() {
-				<-d.slots
 				if r := recover(); r != nil {
-					log.Printf("[Despacho] Pânico ao processar mensagem do chat %s: %v", maskID(chat), r)
+					log.Printf("[Despacho] Pânico ao processar mensagem %s do chat %s: %v", job.id, maskID(chat), r)
 				}
 			}()
-			job()
+			job.run()
 		}()
 	}
 }

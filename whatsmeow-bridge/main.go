@@ -532,7 +532,7 @@ func (b *Bridge) leaveGroup(group types.JID) {
 // Ver chatDispatcher.
 func (b *Bridge) dispatchMessage(evt *events.Message) {
 	chat := evt.Info.Chat.String()
-	if !b.dispatch.submit(chat, func() { b.processMessage(evt) }) {
+	if !b.dispatch.submit(chat, string(evt.Info.ID), func() { b.processMessage(evt) }) {
 		log.Printf("[Despacho] Fila do chat %s cheia; mensagem %s descartada", maskID(chat), evt.Info.ID)
 	}
 }
@@ -750,18 +750,25 @@ func (b *Bridge) downloadMediaBytes(
 	msg whatsmeow.DownloadableMessage,
 	applyDirectPath func(string),
 ) ([]byte, bool) {
-	// Fail fast para domínios fantasmas do WhatsApp que causam delays de 15s
-	ctx, cancel := context.WithTimeout(context.Background(), mediaDownloadTimeout(kind, declaredMediaBytes(msg)))
-	defer cancel()
-
 	// O tamanho declarado pode mentir; o limitedFile é que limita de fato.
 	if declaredMediaTooLarge(msg) {
 		log.Printf("%s recusado antes do download: tamanho declarado acima de 50 MiB", kind)
 		return nil, false
 	}
-	data, err := downloadIntoLimitedFile(func(f *limitedFile) error {
-		return b.client.DownloadToFile(ctx, msg, f)
+	type resultado struct {
+		data []byte
+		err  error
+	}
+	r := withMediaDownloadSlot(func() resultado {
+		// Fail fast para domínios fantasmas do WhatsApp que causam delays de 15s
+		ctx, cancel := context.WithTimeout(context.Background(), mediaDownloadTimeout(kind, declaredMediaBytes(msg)))
+		defer cancel()
+		data, err := downloadIntoLimitedFile(func(f *limitedFile) error {
+			return b.client.DownloadToFile(ctx, msg, f)
+		})
+		return resultado{data, err}
 	})
+	data, err := r.data, r.err
 	if errors.Is(err, errMediaTooLarge) {
 		log.Printf("%s descartado: download passou de 50 MiB", kind)
 		return nil, false
@@ -801,26 +808,33 @@ func (b *Bridge) downloadStickerBytes(
 	applyDirectPath func(string),
 ) ([]byte, bool) {
 	if sticker.GetDirectPath() != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), mediaDownloadTimeout("figurinha", sticker.GetFileLength()))
-		defer cancel()
-
 		if declaredMediaTooLarge(sticker) {
 			log.Printf("figurinha recusada antes do download: tamanho declarado acima de 50 MiB")
 			return nil, false
 		}
-		data, err := downloadIntoLimitedFile(func(f *limitedFile) error {
-			return b.client.DownloadMediaWithPathToFile(
-				ctx,
-				sticker.GetDirectPath(),
-				sticker.GetFileEncSHA256(),
-				sticker.GetFileSHA256(),
-				sticker.GetMediaKey(),
-				whatsmeow.MediaImage,
-				"sticker",
-				false,
-				f,
-			)
+		type resultado struct {
+			data []byte
+			err  error
+		}
+		r := withMediaDownloadSlot(func() resultado {
+			ctx, cancel := context.WithTimeout(context.Background(), mediaDownloadTimeout("figurinha", sticker.GetFileLength()))
+			defer cancel()
+			data, err := downloadIntoLimitedFile(func(f *limitedFile) error {
+				return b.client.DownloadMediaWithPathToFile(
+					ctx,
+					sticker.GetDirectPath(),
+					sticker.GetFileEncSHA256(),
+					sticker.GetFileSHA256(),
+					sticker.GetMediaKey(),
+					whatsmeow.MediaImage,
+					"sticker",
+					false,
+					f,
+				)
+			})
+			return resultado{data, err}
 		})
+		data, err := r.data, r.err
 		if errors.Is(err, errMediaTooLarge) {
 			log.Printf("figurinha descartada: download passou de 50 MiB")
 			return nil, false

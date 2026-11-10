@@ -13,8 +13,8 @@ func TestDispatcherNaoBloqueiaOutrosChats(t *testing.T) {
 	outro := make(chan struct{})
 
 	inicio := time.Now()
-	d.submit("lento", func() { <-liberar })
-	d.submit("rapido", func() { close(outro) })
+	d.submit("lento", "", func() { <-liberar })
+	d.submit("rapido", "", func() { close(outro) })
 	if time.Since(inicio) > 100*time.Millisecond {
 		t.Fatal("submit bloqueou quem chamou")
 	}
@@ -38,7 +38,7 @@ func TestDispatcherPreservaOrdemPorChat(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
 		i := i
-		d.submit("chat", func() {
+		d.submit("chat", "", func() {
 			defer wg.Done()
 			mu.Lock()
 			ativos++
@@ -65,41 +65,71 @@ func TestDispatcherPreservaOrdemPorChat(t *testing.T) {
 	}
 }
 
-// Nunca passam de maxConcurrentJobs ao mesmo tempo, somando todos os chats.
-func TestDispatcherLimiteGlobal(t *testing.T) {
-	var d chatDispatcher
+// Nunca passam de maxConcurrentDownloads downloads ao mesmo tempo.
+func TestLimiteGlobalDeDownloads(t *testing.T) {
 	var mu sync.Mutex
 	ativos, maxAtivos := 0, 0
 	var wg sync.WaitGroup
 
-	for i := 0; i < maxConcurrentJobs*3; i++ {
+	for i := 0; i < maxConcurrentDownloads*3; i++ {
 		wg.Add(1)
-		d.submit(string(rune('a'+i)), func() {
+		go func() {
 			defer wg.Done()
-			mu.Lock()
-			ativos++
-			if ativos > maxAtivos {
-				maxAtivos = ativos
-			}
-			mu.Unlock()
-			time.Sleep(20 * time.Millisecond)
-			mu.Lock()
-			ativos--
-			mu.Unlock()
-		})
+			withMediaDownloadSlot(func() struct{} {
+				mu.Lock()
+				ativos++
+				if ativos > maxAtivos {
+					maxAtivos = ativos
+				}
+				mu.Unlock()
+				time.Sleep(20 * time.Millisecond)
+				mu.Lock()
+				ativos--
+				mu.Unlock()
+				return struct{}{}
+			})
+		}()
 	}
 	wg.Wait()
 
-	if maxAtivos > maxConcurrentJobs {
-		t.Fatalf("%d jobs simultâneos, limite %d", maxAtivos, maxConcurrentJobs)
+	if maxAtivos > maxConcurrentDownloads {
+		t.Fatalf("%d downloads simultâneos, limite %d", maxAtivos, maxConcurrentDownloads)
 	}
+}
+
+// Downloads lentos ocupando todas as vagas não seguram texto de outro chat.
+func TestDispatcherTextoNaoEsperaDownloads(t *testing.T) {
+	var d chatDispatcher
+	liberar := make(chan struct{})
+	ocupados := make(chan struct{}, maxConcurrentDownloads+2)
+	for i := 0; i < maxConcurrentDownloads+2; i++ {
+		d.submit(string(rune('a'+i)), "", func() {
+			withMediaDownloadSlot(func() struct{} {
+				ocupados <- struct{}{}
+				<-liberar
+				return struct{}{}
+			})
+		})
+	}
+	for i := 0; i < maxConcurrentDownloads; i++ {
+		<-ocupados
+	}
+
+	texto := make(chan struct{})
+	d.submit("texto", "", func() { close(texto) })
+	select {
+	case <-texto:
+	case <-time.After(2 * time.Second):
+		t.Fatal("texto ficou esperando vaga de download")
+	}
+	close(liberar)
 }
 
 // Worker sai quando a fila esvazia, e um job novo no mesmo chat ainda roda.
 func TestDispatcherReativaChatOcioso(t *testing.T) {
 	var d chatDispatcher
 	feito := make(chan struct{}, 2)
-	d.submit("chat", func() { feito <- struct{}{} })
+	d.submit("chat", "", func() { feito <- struct{}{} })
 	<-feito
 
 	prazo := time.Now().Add(2 * time.Second)
@@ -116,7 +146,7 @@ func TestDispatcherReativaChatOcioso(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 
-	d.submit("chat", func() { feito <- struct{}{} })
+	d.submit("chat", "", func() { feito <- struct{}{} })
 	select {
 	case <-feito:
 	case <-time.After(2 * time.Second):
@@ -128,20 +158,20 @@ func TestDispatcherReativaChatOcioso(t *testing.T) {
 func TestDispatcherFilaCheia(t *testing.T) {
 	var d chatDispatcher
 	liberar := make(chan struct{})
-	d.submit("chat", func() { <-liberar })
+	d.submit("chat", "", func() { <-liberar })
 	defer close(liberar)
 
 	// O primeiro job pode ainda estar na fila ou já em execução.
 	aceitos := 0
 	for i := 0; i < maxQueuedPerChat+1; i++ {
-		if d.submit("chat", func() {}) {
+		if d.submit("chat", "", func() {}) {
 			aceitos++
 		}
 	}
 	if aceitos > maxQueuedPerChat {
 		t.Fatalf("aceitou %d jobs, limite %d", aceitos, maxQueuedPerChat)
 	}
-	if d.submit("chat", func() {}) {
+	if d.submit("chat", "", func() {}) {
 		t.Fatal("fila cheia aceitou mais um job")
 	}
 }
