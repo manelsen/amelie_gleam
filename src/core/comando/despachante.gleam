@@ -57,7 +57,7 @@ fn ajuda(cfg: Config) -> List(Acao) {
     <> "`.curto` — usar descrição concisa\n"
     <> "`.cego` — modo acessibilidade para deficientes visuais\n"
     <> "`.modelo` — mostrar provedor/modelo atual\n"
-    <> "`.modelo provedor/modelo` — alterar provedor e modelo\n"
+    <> "`.modelo provedor/modelo` — alterar provedor e modelo (admin)\n"
     <> "`.parear` — status ou pareamento do WhatsApp (admin)\n"
     <> "`.status` — painel de status e métricas do sistema (admin)\n"
     <> "`.reset_whatsapp` — resetar sessão do WhatsApp (admin)\n"

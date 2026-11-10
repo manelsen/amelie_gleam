@@ -635,6 +635,7 @@ fn enfileirar_midia(
       transacoes: portas.transacoes,
       historico: portas.historico,
       video_contexto: portas.video_contexto,
+      metricas: portas.metricas,
     ),
   )
 }

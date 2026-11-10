@@ -8,6 +8,7 @@ import gleam/dynamic/decode
 import gleam/option.{None, Some}
 import gleam/result
 import gleam/string
+import logging
 import portas/config_porta.{type ConfigPorta, ConfigPorta}
 import sqlight
 
@@ -28,19 +29,79 @@ const schema = "CREATE TABLE IF NOT EXISTS configs (
 
 pub fn criar(conn: sqlight.Connection) -> ConfigPorta {
   let _ = sqlight.exec(schema, conn)
-  // Só migrações idempotentes rodam aqui, pois `criar` executa a cada boot.
-  // Nunca sobrescrever preferências que o usuário pode escolher de novo
-  // (prompt, toggles de mídia).
-  let _ =
-    sqlight.exec(
-      "UPDATE configs SET modelo = 'gemini-3.5-flash-lite' WHERE provedor = 'gemini' AND modelo IN ('gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash-lite')",
-      conn,
-    )
+  let _ = sqlight.exec(schema_migracoes, conn)
+  // `criar` roda a cada boot, e a migração de modelo rodava junto: a troca
+  // feita pelo admin com `.modelo` para gemini-3.8-flash ou
+  // gemini-2.5-flash-lite se desfazia no reinício seguinte. Agora ela roda
+  // uma vez só por banco.
+  migrar_uma_vez(
+    conn,
+    "modelo_padrao_gemini_3_5_flash_lite",
+    "UPDATE configs SET modelo = 'gemini-3.5-flash-lite' WHERE provedor = 'gemini' AND modelo IN ('gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash-lite')",
+  )
   ConfigPorta(
     obter: fn(chat_id) { obter(conn, chat_id) },
     salvar: fn(cfg) { salvar(conn, cfg) },
     resetar: fn(chat_id) { resetar(conn, chat_id) },
   )
+}
+
+const schema_migracoes = "CREATE TABLE IF NOT EXISTS migracoes (
+  nome TEXT PRIMARY KEY,
+  aplicada_em INTEGER NOT NULL DEFAULT (unixepoch())
+)"
+
+/// Executa `sql` só se a migração `nome` ainda não foi registrada, e a
+/// registra na mesma transação.
+fn migrar_uma_vez(conn: sqlight.Connection, nome: String, sql: String) -> Nil {
+  let pendente =
+    sqlight.query(
+      "SELECT 1 FROM migracoes WHERE nome = ?",
+      on: conn,
+      with: [sqlight.text(nome)],
+      expecting: decode.at([0], decode.int),
+    )
+  case pendente {
+    Ok([]) -> {
+      let resultado = {
+        use _ <- result.try(sqlight.exec("BEGIN IMMEDIATE", conn))
+        let aplicada = {
+          use _ <- result.try(sqlight.exec(sql, conn))
+          sqlight.query(
+            "INSERT INTO migracoes (nome) VALUES (?)",
+            on: conn,
+            with: [sqlight.text(nome)],
+            expecting: decode.dynamic,
+          )
+        }
+        // Também se o COMMIT falhar (banco ocupado): a transação aberta
+        // engoliria as escritas seguintes nesta conexão.
+        case result.try(aplicada, fn(_) { sqlight.exec("COMMIT", conn) }) {
+          Ok(_) -> Ok(Nil)
+          Error(e) -> {
+            let _ = sqlight.exec("ROLLBACK", conn)
+            Error(e)
+          }
+        }
+      }
+      case resultado {
+        Ok(_) -> logging.log(logging.Info, "Migração aplicada: " <> nome)
+        Error(e) ->
+          logging.log(
+            logging.Warning,
+            "Migração " <> nome <> " falhou: " <> e.message,
+          )
+      }
+    }
+    Ok(_) -> Nil
+    // Sem a tabela migracoes (criação falhou) a consulta falha aqui; sem
+    // este aviso a migração deixaria de rodar em silêncio a cada boot.
+    Error(e) ->
+      logging.log(
+        logging.Warning,
+        "Migração " <> nome <> " não verificada: " <> e.message,
+      )
+  }
 }
 
 fn obter(conn: sqlight.Connection, chat_id: IdChat) -> Result(Config, Erro) {

@@ -397,20 +397,31 @@ fn post_gemini(
 // Decodificação de respostas JSON (gleam_json 3.x — json.parse + decode)
 // ---------------------------------------------------------------------------
 
-fn extrair_texto_resposta(json_str: String) -> Result(String, Erro) {
-  // {"candidates":[{"content":{"parts":[{"text":"..."}]}}]}
+/// Junta o texto das partes do primeiro candidato. A resposta pode vir em
+/// várias partes; partes sem texto (assinatura de pensamento, por exemplo)
+/// e partes de pensamento ficam de fora em vez de derrubar a resposta.
+pub fn extrair_texto_resposta(json_str: String) -> Result(String, Erro) {
+  // {"candidates":[{"content":{"parts":[{"text":"..."}, ...]}}]}
+  let parte = {
+    use texto <- decode.optional_field("text", "", decode.string)
+    use pensamento <- decode.optional_field("thought", False, decode.bool)
+    decode.success(case pensamento {
+      True -> ""
+      False -> texto
+    })
+  }
   let decoder =
     decode.at(
       ["candidates"],
-      decode.list(decode.at(
-        ["content"],
-        decode.at(["parts"], decode.list(decode.at(["text"], decode.string))),
-      )),
+      decode.list(decode.at(["content", "parts"], decode.list(parte))),
     )
 
-  case json.parse(json_str, decoder) {
-    Ok([[text, ..], ..]) -> Ok(text)
-    _ -> {
+  let texto = case json.parse(json_str, decoder) {
+    Ok([partes, ..]) -> string.concat(partes)
+    _ -> ""
+  }
+  case string.trim(texto) {
+    "" -> {
       logging.log(
         logging.Warning,
         "[Gemini] Resposta sem texto: "
@@ -418,6 +429,7 @@ fn extrair_texto_resposta(json_str: String) -> Result(String, Erro) {
       )
       Error(erro.ErroIA("formato de resposta Gemini inesperado"))
     }
+    _ -> Ok(texto)
   }
 }
 

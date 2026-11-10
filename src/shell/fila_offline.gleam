@@ -77,6 +77,8 @@ pub fn e_erro_definitivo(e: erro.Erro) -> Bool {
       || string.contains(desc_baixa, "status 400")
       || string.contains(desc_baixa, "status 403")
       || string.contains(desc_baixa, "status 404")
+      // Parte da resposta já chegou: reenviar tudo repetiria o começo.
+      || string.contains(desc_baixa, "envio parcial")
     }
     _ -> False
   }

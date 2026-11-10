@@ -96,22 +96,13 @@ fn processar_inline(
       #("text", json.string(prompt)),
     ])
 
-  let image =
-    json.object([
-      #("type", json.string("image_url")),
-      #(
-        "image_url",
-        json.object([
-          #("url", json.string("data:" <> mime <> ";base64," <> b64)),
-        ]),
-      ),
-    ])
+  let midia = parte_midia(b64, mime)
 
   let messages =
     json.preprocessed_array([
       json.object([
         #("role", json.string("user")),
-        #("content", json.preprocessed_array([content, image])),
+        #("content", json.preprocessed_array([content, midia])),
       ]),
     ])
 
@@ -124,6 +115,86 @@ fn processar_inline(
 
   use resp_body <- result.try(post_openrouter(api_key, body))
   extrair_texto_resposta(resp_body)
+}
+
+/// Parte de conteúdo da mídia no formato que o OpenRouter espera para o
+/// tipo: imagem em `image_url`, áudio em `input_audio` e o resto (PDF e
+/// outros documentos) em `file`. Áudio e PDF como `image_url` eram recusados.
+pub fn parte_midia(b64: String, mime: String) -> json.Json {
+  let #(tipo, subtipo) = separar_mime(mime)
+  case tipo {
+    "image" ->
+      json.object([
+        #("type", json.string("image_url")),
+        #(
+          "image_url",
+          json.object([#("url", json.string(data_url(mime, b64)))]),
+        ),
+      ])
+    "audio" ->
+      json.object([
+        #("type", json.string("input_audio")),
+        #(
+          "input_audio",
+          json.object([
+            #("data", json.string(b64)),
+            #("format", json.string(formato_audio(subtipo))),
+          ]),
+        ),
+      ])
+    _ ->
+      json.object([
+        #("type", json.string("file")),
+        #(
+          "file",
+          json.object([
+            #("filename", json.string("documento." <> extensao(subtipo))),
+            #("file_data", json.string(data_url(mime, b64))),
+          ]),
+        ),
+      ])
+  }
+}
+
+fn data_url(mime: String, b64: String) -> String {
+  "data:" <> mime <> ";base64," <> b64
+}
+
+/// "audio/ogg; codecs=opus" -> #("audio", "ogg")
+fn separar_mime(mime: String) -> #(String, String) {
+  let essencia = case string.split_once(mime, ";") {
+    Ok(#(antes, _)) -> antes
+    Error(_) -> mime
+  }
+  case string.split_once(string.lowercase(string.trim(essencia)), "/") {
+    Ok(#(tipo, subtipo)) -> #(tipo, subtipo)
+    Error(_) -> #("", "")
+  }
+}
+
+fn formato_audio(subtipo: String) -> String {
+  case subtipo {
+    "mpeg" | "mp3" -> "mp3"
+    "wav" | "x-wav" | "wave" | "vnd.wave" -> "wav"
+    "mp4" | "m4a" | "x-m4a" -> "m4a"
+    "aac" | "x-aac" -> "aac"
+    "flac" | "x-flac" -> "flac"
+    "aiff" | "x-aiff" -> "aiff"
+    "webm" -> "webm"
+    // WhatsApp e Telegram mandam voz em ogg/opus.
+    _ -> "ogg"
+  }
+}
+
+fn extensao(subtipo: String) -> String {
+  case subtipo {
+    "pdf" -> "pdf"
+    "plain" -> "txt"
+    "vnd.openxmlformats-officedocument.wordprocessingml.document" -> "docx"
+    "msword" -> "doc"
+    "" -> "bin"
+    outro -> outro
+  }
 }
 
 fn processar_video(
