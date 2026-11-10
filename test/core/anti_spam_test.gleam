@@ -583,3 +583,42 @@ pub fn insistir_na_quarentena_nao_esvazia_o_balde_na_saida_test() {
 fn de_1_a(n: Int) -> List(Int) {
   list.index_map(list.repeat(Nil, n), fn(_, i) { i + 1 })
 }
+
+fn registro_em_pausa(strikes: Int, ate_ms: Int) -> anti_spam.RegistroChat {
+  RegistroChat(
+    tokens: 0.0,
+    ultimo_ts_ms: 0,
+    strikes: strikes,
+    quarentena_ate_ms: ate_ms,
+    recentes_ts: [],
+    dia: 0,
+    mensagens_no_dia: 0,
+  )
+}
+
+pub fn em_quarentena_consulta_sem_mudar_estado_test() {
+  let id = fixtures.id("pausado@c.us")
+  let t0 = 10_000_000
+  let estado = dict.from_list([#(id, registro_em_pausa(1, t0 + 5000))])
+
+  anti_spam.em_quarentena(estado, id, False, t0) |> should.be_true
+  // Passada a pausa, ou chat desconhecido: livre.
+  anti_spam.em_quarentena(estado, id, False, t0 + 5000) |> should.be_false
+  anti_spam.em_quarentena(estado, fixtures.id("novo@c.us"), False, t0)
+  |> should.be_false
+}
+
+pub fn em_quarentena_atrasada_so_conta_strike_3_test() {
+  // Como avaliar_atrasada: a pausa dos strikes 1 e 2 não segura atrasadas.
+  let t0 = 10_000_000
+  let pausa = fixtures.id("pausa@c.us")
+  let jaula = fixtures.id("jaula@c.us")
+  let estado =
+    dict.from_list([
+      #(pausa, registro_em_pausa(2, t0 + 5000)),
+      #(jaula, registro_em_pausa(3, t0 + 5000)),
+    ])
+
+  anti_spam.em_quarentena(estado, pausa, True, t0) |> should.be_false
+  anti_spam.em_quarentena(estado, jaula, True, t0) |> should.be_true
+}

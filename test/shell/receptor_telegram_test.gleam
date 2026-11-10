@@ -1,4 +1,5 @@
 import adaptadores/telegram_webhook
+import core/anti_spam as core_anti_spam
 import dominio/config
 import dominio/erro
 import dominio/mensagem
@@ -8,6 +9,7 @@ import gleeunit/should
 import helpers/fixtures
 import helpers/portas_fake
 import portas/telegram_porta
+import shell/anti_spam
 import shell/fila_atrasadas
 import shell/fila_midia
 import shell/metricas
@@ -243,4 +245,50 @@ pub fn update_no_horario_nao_passa_pela_fila_test() {
   process.receive(ref_acoes, 2000)
   |> should.equal(Ok(telegram_porta.EnviandoFoto))
   process.receive(fila, 50) |> should.be_error
+}
+
+// ---------------------------------------------------------------------------
+// Quarentena antes do download
+// ---------------------------------------------------------------------------
+
+pub fn chat_em_quarentena_nao_baixa_a_midia_test() {
+  let ref_acoes = process.new_subject()
+  let ref_spam = process.new_subject()
+  let portas =
+    Portas(
+      ..portas_capturando(process.new_subject()),
+      spammers: portas_fake.spammer_capturar(ref_spam),
+    )
+  ate_a_quarentena(portas)
+  anti_spam.em_quarentena(portas.anti_spam, fixtures.id("tg:887766"), False)
+  |> should.be_true
+
+  receptor_telegram.despachar_evento(
+    telegram_porta.EventoFotoParaBaixar(7003, base_telegram(), "foto_3"),
+    portas_fake.telegram_api(Ok(<<255, 216, 255>>), ref_acoes),
+    portas,
+    atrasadas(),
+  )
+
+  // A mensagem chega ao tratador, sem a mídia, e a reincidência é contada.
+  let assert Ok(portas_fake.IncidenteRegistrado(chat_id: chat, ..)) =
+    process.receive(ref_spam, 2000)
+  chat |> should.equal(fixtures.id("tg:887766"))
+  // E nada foi baixado: sem "enviando foto".
+  process.receive(ref_acoes, 100) |> should.be_error
+}
+
+/// Manda texto até o anti-spam recusar, sem depender da calibração.
+fn ate_a_quarentena(portas: Portas) -> Nil {
+  case
+    anti_spam.verificar(
+      portas.anti_spam,
+      fixtures.id("tg:887766"),
+      fixtures.id("tg:887766"),
+      mensagem.Texto("oi"),
+    )
+  {
+    core_anti_spam.Permitido -> ate_a_quarentena(portas)
+    _ -> Nil
+  }
 }

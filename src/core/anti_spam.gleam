@@ -485,6 +485,23 @@ pub fn desbloquear(
   #(restante, dict.size(restante) < dict.size(estado))
 }
 
+/// Consulta, sem gastar tokens, se a próxima mensagem do chat cairia na
+/// quarentena. Serve para não baixar mídia que vai ser descartada. Para
+/// mensagem atrasada só vale a quarentena do strike 3, como em
+/// `avaliar_atrasada`.
+pub fn em_quarentena(
+  estado: EstadoAntiSpam,
+  chat_id: IdChat,
+  atrasada: Bool,
+  agora_ms: Int,
+) -> Bool {
+  case dict.get(estado, chat_id) {
+    Ok(reg) ->
+      agora_ms < reg.quarentena_ate_ms && { !atrasada || reg.strikes >= 3 }
+    Error(Nil) -> False
+  }
+}
+
 pub fn contar_silenciados(estado: EstadoAntiSpam, agora_ms: Int) -> Int {
   dict.fold(estado, 0, fn(acc, _chat_id, reg) {
     case agora_ms < reg.quarentena_ate_ms && reg.strikes >= 3 {

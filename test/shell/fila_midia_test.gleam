@@ -281,3 +281,36 @@ pub fn midia_com_falha_nao_conta_na_metrica_test() {
   aviso |> should.equal(fila_midia.aviso_falha_midia)
   process.receive(contador, 100) |> should.be_error
 }
+
+pub fn job_que_quebra_avisa_e_nao_derruba_a_fila_test() {
+  // Antes, o panic matava o ator do tipo e os jobs de trás se perdiam.
+  let envios = process.new_subject()
+  let assert Ok(filas) = fila_midia.iniciar_todas()
+  let msg = fixtures.mensagem_imagem()
+  let quebra =
+    contexto(
+      IAPorta(..portas_fake.ia_ok("x"), processar_imagem: fn(_, _, _, _) {
+        panic as "falha simulada"
+      }),
+      portas_fake.mensageiro_capturar(envios),
+      portas_fake.historico_vazio(),
+      portas_fake.video_contexto_noop(),
+    )
+  let funciona =
+    contexto(
+      portas_fake.ia_ok("Um gato."),
+      portas_fake.mensageiro_capturar(envios),
+      portas_fake.historico_vazio(),
+      portas_fake.video_contexto_noop(),
+    )
+
+  fila_midia.enfileirar(filas, msg.chat_id, msg, MidiaImagem, quebra)
+  |> should.be_ok
+  fila_midia.enfileirar(filas, msg.chat_id, msg, MidiaImagem, funciona)
+  |> should.be_ok
+
+  let assert Ok(#(_, aviso)) = process.receive(envios, espera_ms)
+  aviso |> should.equal(fila_midia.aviso_falha_midia)
+  let assert Ok(#(_, descricao)) = process.receive(envios, espera_ms)
+  descricao |> should.equal("Um gato.")
+}

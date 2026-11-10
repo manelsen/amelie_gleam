@@ -32,6 +32,7 @@ import portas/video_contexto_porta.{type VideoContextoPorta}
 import shell/entrega_auditada
 import shell/metricas.{type Metricas}
 import shell/sistema
+import shell/tarefa_isolada
 import simplifile
 
 pub type FilaMidia =
@@ -65,6 +66,57 @@ pub type MensagemFila {
   Parar
 }
 
+/// Teto de um job de mídia. O mais longo é o vídeo: upload (até 2 min),
+/// espera o arquivo ficar ativo (até 1 min) e a descrição, com as
+/// retentativas do disjuntor.
+const tempo_maximo_job_ms = 600_000
+
+/// Roda o job em processo próprio: um panic ou uma trava derrubava o ator, e
+/// com ele os jobs que esperavam na fila do tipo, sem aviso a ninguém. A
+/// fila segue serial (um job por vez por tipo); quem teve o job perdido
+/// recebe o aviso de falha.
+fn executar_job(
+  chat_id: IdChat,
+  msg: Mensagem,
+  tipo: TipoMidia,
+  ctx: Contexto,
+) -> Nil {
+  let desfecho =
+    tarefa_isolada.executar(
+      fn() {
+        processar(chat_id, msg, tipo, ctx)
+        |> sistema.registrar_falha(
+          "Erro ao processar mídia em " <> privacidade.mascarar(chat_id),
+        )
+      },
+      tempo_maximo_job_ms,
+    )
+  let motivo = case desfecho {
+    tarefa_isolada.Terminou -> None
+    tarefa_isolada.Quebrou -> Some("quebrou")
+    tarefa_isolada.Estourou -> Some("passou do tempo máximo")
+  }
+  case motivo {
+    None -> Nil
+    Some(motivo) -> {
+      logging.log(
+        logging.Error,
+        "["
+          <> rotulo_log(tipo)
+          <> "]"
+          <> tag_trace(msg)
+          <> " Job "
+          <> motivo
+          <> " para "
+          <> privacidade.mascarar(chat_id),
+      )
+      let _ =
+        avisar_falha(chat_id, msg, ctx, erro.ErroIA("job de mídia " <> motivo))
+      Nil
+    }
+  }
+}
+
 /// Quantas perguntas de acompanhamento um vídeo aceita depois da descrição.
 const perguntas_followup_video = 2
 
@@ -77,10 +129,7 @@ pub fn iniciar_uma_actor(
       case msg {
         Parar -> actor.stop()
         Enfileirar(chat_id, mensagem, tipo, ctx) -> {
-          processar(chat_id, mensagem, tipo, ctx)
-          |> sistema.registrar_falha(
-            "Erro ao processar mídia em " <> privacidade.mascarar(chat_id),
-          )
+          executar_job(chat_id, mensagem, tipo, ctx)
           actor.continue(state)
         }
       }

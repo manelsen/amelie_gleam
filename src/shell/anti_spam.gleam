@@ -5,12 +5,14 @@
 import core/anti_spam
 import dominio/id_chat.{type IdChat}
 import dominio/mensagem.{type Conteudo}
+import gleam/bool
 import gleam/dict
 import gleam/erlang/process.{type Subject}
 import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
 import gleam/otp/supervision
 import gleam/result
+import shell/ator_vivo
 import shell/sistema
 
 const max_chats_em_memoria = 500
@@ -37,6 +39,12 @@ pub type MensagemAntiSpam {
   )
   Desbloquear(alvo: String, resposta: Subject(Bool))
   ContarSilenciados(agora_ms: Int, resposta: Subject(Int))
+  EmQuarentena(
+    chat_id: IdChat,
+    atrasada: Bool,
+    agora_ms: Int,
+    resposta: Subject(Bool),
+  )
   LimpezaPeriodica(agora_ms: Int)
 }
 
@@ -137,6 +145,14 @@ fn tratar(
       actor.continue(estado)
     }
 
+    EmQuarentena(chat_id, atrasada, agora_ms, resposta) -> {
+      process.send(
+        resposta,
+        anti_spam.em_quarentena(estado.dados, chat_id, atrasada, agora_ms),
+      )
+      actor.continue(estado)
+    }
+
     LimpezaPeriodica(agora_ms) -> {
       let novos_dados =
         anti_spam.limpar_inativos(estado.dados, agora_ms, ttl_inatividade_ms)
@@ -177,6 +193,22 @@ pub fn verificar_atrasada(
 
 pub fn desbloquear(actor: AntiSpam, alvo: String) -> Bool {
   process.call(actor, 1000, fn(resposta) { Desbloquear(alvo, resposta) })
+}
+
+/// Ver `anti_spam.em_quarentena`. Não muda o estado.
+/// É só uma economia de download: se o ator não responder (reiniciando,
+/// ocupado), devolve False e o download segue; o anti-spam do tratador
+/// decide como sempre. Um process.call aqui geraria panic e a mensagem se
+/// perderia sem aviso.
+pub fn em_quarentena(actor: AntiSpam, chat_id: IdChat, atrasada: Bool) -> Bool {
+  let resposta = process.new_subject()
+  let enviado =
+    ator_vivo.enviar(
+      actor,
+      EmQuarentena(chat_id, atrasada, sistema.agora_ms(), resposta),
+    )
+  use <- bool.guard(!enviado, False)
+  process.receive(resposta, 1000) |> result.unwrap(False)
 }
 
 pub fn contar_silenciados(actor: AntiSpam) -> Int {
