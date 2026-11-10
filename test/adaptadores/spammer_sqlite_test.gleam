@@ -122,3 +122,26 @@ pub fn listar_top_test() {
   top2.total_incidentes |> should.equal(1)
   top2.ultimo_strike |> should.equal(1)
 }
+
+pub fn listar_recentes_pula_linha_ilegivel_test() {
+  use conn <- sqlight.with_connection("file:spammer_ilegivel_test?mode=memory")
+  let porta = spammer_sqlite.criar(conn)
+
+  let assert Ok(Nil) =
+    sqlight.exec(
+      "INSERT INTO incidentes_spam (chat_id, remetente, telefone, motivo, strike)
+       VALUES ('lixo', 'lixo', '000', 'ruim', 1);",
+      conn,
+    )
+  let _ =
+    porta.registrar(
+      fixtures.id("chat1@c.us"),
+      fixtures.id("user1@c.us"),
+      "5511911111111",
+      "bom",
+      1,
+    )
+
+  let assert Ok([unico]) = porta.listar_recentes(10)
+  unico.motivo |> should.equal("bom")
+}
