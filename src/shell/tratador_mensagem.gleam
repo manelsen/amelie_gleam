@@ -252,7 +252,7 @@ fn adiar_midia(
       sistema.disparar(fn() {
         process.sleep(espera_ms)
         // Isolado: a vaga volta mesmo se o processamento quebrar.
-        let _ =
+        let desfecho =
           tarefa_isolada.executar(
             fn() {
               processar_mensagem(msg, portas)
@@ -261,6 +261,22 @@ fn adiar_midia(
             tempo_maximo_adiada_ms,
           )
         sistema.liberar_vaga(vagas_adiadas)
+        case desfecho {
+          tarefa_isolada.Terminou -> Nil
+          // Não dá para saber se a mídia já chegou à fila de mídia, então o
+          // arquivo temporário fica para a varredura de órfãos (1 h).
+          tarefa_isolada.Quebrou | tarefa_isolada.Estourou -> {
+            logging.log(
+              logging.Error,
+              "["
+                <> extrair_trace_id(msg)
+                <> "] Mídia adiada não foi processada para "
+                <> privacidade.mascarar(msg.chat_id),
+            )
+            avisar(msg.chat_id, fila_midia.aviso_falha_midia, portas)
+            |> sistema.registrar_falha("Falha ao avisar mídia adiada perdida")
+          }
+        }
       })
       case avisar_usuario {
         True -> avisar(msg.chat_id, core_anti_spam.aviso_midias_adiadas, portas)

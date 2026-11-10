@@ -145,10 +145,16 @@ fn descartar_resto(
   list.each(resto, fn(item) {
     case item.1 {
       Some(transacao.Transacao(id: Some(id), ..)) -> {
-        let _ =
-          transacoes.atualizar_erro(id, "parte anterior não foi entregue", 0)
-        let _ = transacoes.atualizar_status(id, transacao.Descartada)
-        Nil
+        transacoes.atualizar_erro(id, "parte anterior não foi entregue", 0)
+        |> sistema.registrar_falha(
+          "EntregaAuditada: falha ao registrar erro da parte descartada",
+        )
+        // Se falhar, a parte segue pendente e a fila pode enviá-la sem a
+        // anterior: o log é o que permite diagnosticar o buraco.
+        transacoes.atualizar_status(id, transacao.Descartada)
+        |> sistema.registrar_falha(
+          "EntregaAuditada: falha ao descartar parte seguinte",
+        )
       }
       _ -> Nil
     }

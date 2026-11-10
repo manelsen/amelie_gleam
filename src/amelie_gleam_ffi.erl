@@ -321,11 +321,20 @@ vagas_ref(Nome) ->
         Ref -> Ref
     end.
 
+%% Compara e troca: só incrementa se ainda couber, para uma tentativa sem
+%% vaga não ocupar uma vaga por um instante e recusar outra que caberia.
 reservar_vaga(Nome, Max) ->
-    Ref = vagas_ref(Nome),
-    case atomics:add_get(Ref, 1, 1) of
-        N when N =< Max -> true;
-        _ -> atomics:sub(Ref, 1, 1), false
+    reservar_vaga_cas(vagas_ref(Nome), Max).
+
+reservar_vaga_cas(Ref, Max) ->
+    Atual = atomics:get(Ref, 1),
+    case Atual < Max of
+        false -> false;
+        true ->
+            case atomics:compare_exchange(Ref, 1, Atual, Atual + 1) of
+                ok -> true;
+                _Outro -> reservar_vaga_cas(Ref, Max)
+            end
     end.
 
 liberar_vaga(Nome) ->
