@@ -25,7 +25,7 @@ func (b *Bridge) requestPairingCode(phone string) (string, error) {
 }
 
 func (b *Bridge) pairLocked(phone string, renewals int) (string, error) {
-	if b.client.IsLoggedIn() {
+	if b.wa().IsLoggedIn() {
 		return "", fmt.Errorf("já autenticado")
 	}
 
@@ -40,12 +40,14 @@ func (b *Bridge) pairLocked(phone string, renewals int) (string, error) {
 	// Cliente novo a cada código: o canal de QR do anterior derrubaria a
 	// conexão deste ao expirar.
 	b.deleteSessionStore()
+	// O cliente acabou de ser trocado: daqui em diante, só o novo.
+	c := b.wa()
 
-	qrChan, err := b.client.GetQRChannel(context.Background())
+	qrChan, err := c.GetQRChannel(context.Background())
 	if err != nil {
 		return "", fmt.Errorf("abrir canal de pareamento: %w", err)
 	}
-	if err := b.client.Connect(); err != nil {
+	if err := c.Connect(); err != nil {
 		return "", fmt.Errorf("conectar websocket: %w", err)
 	}
 
@@ -60,7 +62,7 @@ func (b *Bridge) pairLocked(phone string, renewals int) (string, error) {
 	case <-time.After(5 * time.Second):
 	}
 
-	code, err := b.client.PairPhone(context.Background(), phone, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
+	code, err := c.PairPhone(context.Background(), phone, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
 	if err != nil {
 		return "", err
 	}

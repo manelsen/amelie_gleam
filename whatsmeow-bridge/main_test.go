@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -635,5 +636,52 @@ func TestDeleteSessionStoreRecreatesDevice(t *testing.T) {
 	}
 	if bridge.client.Store.ID != nil {
 		t.Fatalf("store ID should be nil")
+	}
+}
+
+// O reset de sessão troca o cliente enquanto handlers e eventos o leem em
+// outras goroutines. Com -race, a troca sem lock era acusada aqui.
+func TestDeleteSessionStoreConcorrenteComLeitores(t *testing.T) {
+	dbLog := waLog.Stdout("Database", "WARN", true)
+	container, err := sqlstore.New(context.Background(), "sqlite3", "file:corrida?mode=memory&cache=shared&_pragma=foreign_keys(1)", dbLog)
+	if err != nil {
+		t.Fatalf("new container: %v", err)
+	}
+	defer container.Close()
+	device, err := container.GetFirstDevice(context.Background())
+	if err != nil {
+		t.Fatalf("first device: %v", err)
+	}
+	clientLog := waLog.Stdout("Client", "ERROR", true)
+	bridge := &Bridge{
+		container: container,
+		clientLog: clientLog,
+		client:    whatsmeow.NewClient(device, clientLog),
+	}
+
+	parar := make(chan struct{})
+	var leitores sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		leitores.Add(1)
+		go func() {
+			defer leitores.Done()
+			for {
+				select {
+				case <-parar:
+					return
+				default:
+					_ = bridge.availabilityError()
+				}
+			}
+		}()
+	}
+	for i := 0; i < 3; i++ {
+		bridge.deleteSessionStore()
+	}
+	close(parar)
+	leitores.Wait()
+
+	if c := bridge.wa(); c == nil || c.Store == nil {
+		t.Fatal("cliente ausente depois dos resets")
 	}
 }

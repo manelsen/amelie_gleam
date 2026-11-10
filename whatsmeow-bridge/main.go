@@ -219,10 +219,13 @@ var httpClient = &http.Client{
 }
 
 type Bridge struct {
-	cfg                 Config
-	container           *sqlstore.Container
-	clientLog           waLog.Logger
+	cfg       Config
+	container *sqlstore.Container
+	clientLog waLog.Logger
+	// client é trocado no reset de sessão enquanto handlers HTTP e eventos o
+	// leem em outras goroutines: leitura só por wa(), troca só sob clientMu.
 	client              *whatsmeow.Client
+	clientMu            sync.RWMutex
 	connectionMu        sync.RWMutex
 	lastConnectionError *APIError
 	retryMu             sync.Mutex
@@ -278,16 +281,16 @@ func NewBridge(cfg Config) (*Bridge, error) {
 }
 
 func (b *Bridge) Start() error {
-	b.client.AddEventHandler(b.handleEvent)
+	b.wa().AddEventHandler(b.handleEvent)
 	b.startQueueWorker()
 
 	phone := cleanPhoneNumber(b.cfg.BotPhone)
-	if phone != "" && b.client.Store.ID != nil && !samePhoneNumber(b.client.Store.ID.User, phone) {
-		log.Printf("[WhatsApp] MOBILE_NUMBER (%s) difere da sessão salva (%s). Limpando sessão anterior para novo pareamento.", maskID(phone), maskID(b.client.Store.ID.User))
+	if id := b.wa().Store.ID; phone != "" && id != nil && !samePhoneNumber(id.User, phone) {
+		log.Printf("[WhatsApp] MOBILE_NUMBER (%s) difere da sessão salva (%s). Limpando sessão anterior para novo pareamento.", maskID(phone), maskID(id.User))
 		b.deleteSessionStore()
 	}
 
-	if b.client.Store.ID == nil {
+	if b.wa().Store.ID == nil {
 		// Não autenticado — QR ou Pairing Code
 		if phone != "" {
 			return b.loginPairingCode()
@@ -295,12 +298,13 @@ func (b *Bridge) Start() error {
 		return b.loginQR()
 	}
 
-	return b.client.Connect()
+	return b.wa().Connect()
 }
 
 func (b *Bridge) loginQR() error {
-	qrChan, _ := b.client.GetQRChannel(context.Background())
-	if err := b.client.Connect(); err != nil {
+	c := b.wa()
+	qrChan, _ := c.GetQRChannel(context.Background())
+	if err := c.Connect(); err != nil {
 		return err
 	}
 	for evt := range qrChan {
@@ -328,7 +332,7 @@ func (b *Bridge) loginPairingCode() error {
 }
 
 func (b *Bridge) Stop() {
-	b.client.Disconnect()
+	b.wa().Disconnect()
 	if b.queueDB != nil {
 		b.queueDB.Close()
 	}
@@ -367,8 +371,8 @@ func (b *Bridge) handleEvent(rawEvt interface{}) {
 			),
 		)
 		phone := b.cfg.BotPhone
-		if phone == "" && b.client.Store.ID != nil {
-			phone = b.client.Store.ID.User
+		if id := b.wa().Store.ID; phone == "" && id != nil {
+			phone = id.User
 		}
 		b.deleteSessionStore()
 
@@ -480,25 +484,26 @@ func (b *Bridge) availabilityError() *APIError {
 	if connectionError := b.currentConnectionError(); connectionError != nil {
 		return connectionError
 	}
-	if b.client == nil || b.client.Store == nil {
+	c := b.wa()
+	if c == nil || c.Store == nil {
 		return &APIError{
 			Code:    "whatsapp_client_unavailable",
 			Message: "cliente whatsmeow não inicializado",
 		}
 	}
-	if b.client.Store.ID == nil {
+	if c.Store.ID == nil {
 		return &APIError{
 			Code:    "whatsapp_session_missing",
 			Message: "sessão WhatsApp ausente; novo pareamento necessário",
 		}
 	}
-	if !b.client.IsConnected() {
+	if !c.IsConnected() {
 		return &APIError{
 			Code:    "whatsapp_disconnected",
 			Message: "cliente WhatsApp desconectado ou ainda não autenticado",
 		}
 	}
-	if !b.client.IsLoggedIn() {
+	if !c.IsLoggedIn() {
 		return &APIError{
 			Code:    "whatsapp_unauthenticated",
 			Message: "cliente WhatsApp conectado mas não autenticado",
@@ -511,7 +516,7 @@ func (b *Bridge) availabilityError() *APIError {
 // grupo a cada groupLeaveRetry. Não loga o JID: grupos antigos carregam o
 // telefone de quem os criou no identificador.
 func (b *Bridge) leaveGroup(group types.JID) {
-	if b.client == nil || b.groupLeaves == nil {
+	if b.wa() == nil || b.groupLeaves == nil {
 		return
 	}
 	if !b.groupLeaves.shouldAttempt(group.String(), time.Now()) {
@@ -520,7 +525,7 @@ func (b *Bridge) leaveGroup(group types.JID) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := b.client.LeaveGroup(ctx, group); err != nil {
+		if err := b.wa().LeaveGroup(ctx, group); err != nil {
 			log.Printf("[Grupos] Falha ao sair de um grupo (nova tentativa em até %s): %v", groupLeaveRetry, err)
 			return
 		}
@@ -557,14 +562,14 @@ func (b *Bridge) processMessage(evt *events.Message) {
 	timestamp := evt.Info.Timestamp.Unix()
 
 	// Se o remetente for um LID (identificador mascarado), tenta resolver o número real via LIDStore do whatsmeow
-	if b.client != nil && b.client.Store != nil && b.client.Store.LIDs != nil {
+	if c := b.wa(); c != nil && c.Store != nil && c.Store.LIDs != nil {
 		if evt.Info.Sender.Server == types.HiddenUserServer {
-			if pn, err := b.client.Store.LIDs.GetPNForLID(context.Background(), evt.Info.Sender.ToNonAD()); err == nil && !pn.IsEmpty() {
+			if pn, err := c.Store.LIDs.GetPNForLID(context.Background(), evt.Info.Sender.ToNonAD()); err == nil && !pn.IsEmpty() {
 				from = pn.String()
 			}
 		}
 		if !inGroup && evt.Info.Chat.Server == types.HiddenUserServer {
-			if pn, err := b.client.Store.LIDs.GetPNForLID(context.Background(), evt.Info.Chat.ToNonAD()); err == nil && !pn.IsEmpty() {
+			if pn, err := c.Store.LIDs.GetPNForLID(context.Background(), evt.Info.Chat.ToNonAD()); err == nil && !pn.IsEmpty() {
 				chatID = pn.String()
 			}
 		}
@@ -764,7 +769,7 @@ func (b *Bridge) downloadMediaBytes(
 		ctx, cancel := context.WithTimeout(context.Background(), mediaDownloadTimeout(kind, declaredMediaBytes(msg)))
 		defer cancel()
 		data, err := downloadIntoLimitedFile(func(f *limitedFile) error {
-			return b.client.DownloadToFile(ctx, msg, f)
+			return b.wa().DownloadToFile(ctx, msg, f)
 		})
 		return resultado{data, err}
 	})
@@ -820,7 +825,7 @@ func (b *Bridge) downloadStickerBytes(
 			ctx, cancel := context.WithTimeout(context.Background(), mediaDownloadTimeout("figurinha", sticker.GetFileLength()))
 			defer cancel()
 			data, err := downloadIntoLimitedFile(func(f *limitedFile) error {
-				return b.client.DownloadMediaWithPathToFile(
+				return b.wa().DownloadMediaWithPathToFile(
 					ctx,
 					sticker.GetDirectPath(),
 					sticker.GetFileEncSHA256(),
@@ -912,7 +917,7 @@ func (b *Bridge) requestMediaRetry(
 	}
 	b.retryMu.Unlock()
 
-	if err := b.client.SendMediaRetryReceipt(context.Background(), &evt.Info, mediaKey); err != nil {
+	if err := b.wa().SendMediaRetryReceipt(context.Background(), &evt.Info, mediaKey); err != nil {
 		b.clearMediaRetryState(evt.Info.Chat, evt.Info.ID)
 		return err
 	}
@@ -1822,7 +1827,7 @@ func (b *Bridge) sendMessageWithRetry(jid types.JID, msg *waProto.Message) (any,
 		if attempt > 0 {
 			time.Sleep(time.Duration(attempt*100) * time.Millisecond)
 		}
-		result, err := b.client.SendMessage(context.Background(), jid, msg)
+		result, err := b.wa().SendMessage(context.Background(), jid, msg)
 		if err == nil {
 			return result, nil
 		}
@@ -1967,7 +1972,7 @@ func (b *Bridge) handlePairPhone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if b.client != nil && b.client.IsConnected() && b.client.IsLoggedIn() {
+	if c := b.wa(); c != nil && c.IsConnected() && c.IsLoggedIn() {
 		writeJSON(w, http.StatusConflict, PairPhoneResponse{
 			OK:    false,
 			Error: "WhatsApp já está conectado e autenticado nesta sessão",
@@ -2025,14 +2030,14 @@ func (b *Bridge) handleResetSession(w http.ResponseWriter, r *http.Request) {
 	if phone == "" {
 		phone = b.cfg.BotPhone
 	}
-	if phone == "" && b.client != nil && b.client.Store != nil && b.client.Store.ID != nil {
-		phone = b.client.Store.ID.User
+	if c := b.wa(); phone == "" && c != nil && c.Store != nil && c.Store.ID != nil {
+		phone = c.Store.ID.User
 	}
 	phone = cleanPhoneNumber(phone)
 
 	log.Printf("[WhatsApp] Reset de sessão solicitado. Desconectando e limpando dados...")
-	if b.client != nil && b.client.IsConnected() {
-		b.client.Disconnect()
+	if c := b.wa(); c != nil && c.IsConnected() {
+		c.Disconnect()
 	}
 	b.setConnectionError("session_reset", "sessão reiniciada manualmente pelo administrador")
 	b.deleteSessionStore()
@@ -2062,21 +2067,32 @@ func (b *Bridge) handleResetSession(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// wa devolve o cliente atual do WhatsApp. Quem usa o cliente várias vezes
+// seguidas guarda o retorno numa variável, para não misturar o antigo e o
+// novo se um reset acontecer no meio.
+func (b *Bridge) wa() *whatsmeow.Client {
+	b.clientMu.RLock()
+	defer b.clientMu.RUnlock()
+	return b.client
+}
+
 func (b *Bridge) deleteSessionStore() {
-	if b.client != nil {
-		if b.client.IsConnected() {
-			b.client.Disconnect()
+	if old := b.wa(); old != nil {
+		if old.IsConnected() {
+			old.Disconnect()
 		}
-		if b.client.Store != nil && b.client.Store.Container != nil {
-			_ = b.client.Store.Delete(context.Background())
+		if old.Store != nil && old.Store.Container != nil {
+			_ = old.Store.Delete(context.Background())
 		}
 	}
 	if b.container != nil {
-		newDevice := b.container.NewDevice()
-		b.client = whatsmeow.NewClient(newDevice, b.clientLog)
-		b.client.AddEventHandler(b.handleEvent)
-	} else if b.client != nil && b.client.Store != nil {
-		b.client.Store.ID = nil
+		novo := whatsmeow.NewClient(b.container.NewDevice(), b.clientLog)
+		novo.AddEventHandler(b.handleEvent)
+		b.clientMu.Lock()
+		b.client = novo
+		b.clientMu.Unlock()
+	} else if c := b.wa(); c != nil && c.Store != nil {
+		c.Store.ID = nil
 	}
 }
 

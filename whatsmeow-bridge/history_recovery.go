@@ -49,7 +49,8 @@ func pendingHistoryMessages(msgs []*events.Message, now time.Time) []*events.Mes
 }
 
 func (b *Bridge) handleHistorySync(evt *events.HistorySync) {
-	if evt.Data == nil || b.client == nil {
+	c := b.wa()
+	if evt.Data == nil || c == nil {
 		return
 	}
 
@@ -62,7 +63,7 @@ func (b *Bridge) handleHistorySync(evt *events.HistorySync) {
 		}
 		parsed := make([]*events.Message, 0, len(conv.GetMessages()))
 		for _, historyMsg := range conv.GetMessages() {
-			msg, err := b.client.ParseWebMessage(chat, historyMsg.GetMessage())
+			msg, err := c.ParseWebMessage(chat, historyMsg.GetMessage())
 			if err != nil {
 				continue
 			}
