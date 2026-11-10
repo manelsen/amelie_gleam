@@ -8,6 +8,7 @@ import gleeunit/should
 import helpers/fixtures
 import helpers/portas_fake
 import portas/telegram_porta
+import shell/anti_spam
 import shell/fila_atrasadas
 import shell/fila_midia
 import shell/metricas
@@ -243,4 +244,43 @@ pub fn update_no_horario_nao_passa_pela_fila_test() {
   process.receive(ref_acoes, 2000)
   |> should.equal(Ok(telegram_porta.EnviandoFoto))
   process.receive(fila, 50) |> should.be_error
+}
+
+// ---------------------------------------------------------------------------
+// Quarentena antes do download
+// ---------------------------------------------------------------------------
+
+pub fn chat_em_quarentena_nao_baixa_a_midia_test() {
+  let ref_acoes = process.new_subject()
+  let portas = portas_capturando(process.new_subject())
+  // Esgota o balde até cair na pausa do strike 1.
+  esgotar(portas, 20)
+  anti_spam.em_quarentena(portas.anti_spam, fixtures.id("tg:887766"), False)
+  |> should.be_true
+
+  receptor_telegram.despachar_evento(
+    telegram_porta.EventoFotoParaBaixar(7003, base_telegram(), "foto_3"),
+    portas_fake.telegram_api(Ok(<<255, 216, 255>>), ref_acoes),
+    portas,
+    atrasadas(),
+  )
+
+  // Sem download, não há "enviando foto" nem reação.
+  process.receive(ref_acoes, 300) |> should.be_error
+}
+
+fn esgotar(portas: Portas, n: Int) -> Nil {
+  case n {
+    0 -> Nil
+    _ -> {
+      let _ =
+        anti_spam.verificar(
+          portas.anti_spam,
+          fixtures.id("tg:887766"),
+          fixtures.id("tg:887766"),
+          mensagem.Texto("oi"),
+        )
+      esgotar(portas, n - 1)
+    }
+  }
 }

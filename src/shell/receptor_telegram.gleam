@@ -15,6 +15,7 @@ import portas/telegram_porta.{
   type AcaoChat, type TelegramPorta, FalhaPolling, NovosUpdates, OutraInstancia,
   WebhookAtivo,
 }
+import shell/anti_spam
 import shell/arquivos_temporarios
 import shell/fila_atrasadas.{type FilaAtrasadas}
 import shell/sistema
@@ -100,7 +101,7 @@ pub fn despachar_evento(
     Nil
   }
 
-  case tarefa_do_evento(evento, api, portas, processar), atrasada {
+  case tarefa_do_evento(evento, api, portas, processar, atrasada), atrasada {
     None, _ -> Nil
     Some(tarefa), True -> fila_atrasadas.enfileirar(atrasadas, tarefa)
     Some(tarefa), False -> sistema.disparar(tarefa)
@@ -125,9 +126,32 @@ fn tarefa_do_evento(
   api: TelegramPorta,
   portas: Portas,
   processar: fn(Mensagem) -> Nil,
+  atrasada: Bool,
 ) -> Option(fn() -> Nil) {
   let processar_com = fn(base: Mensagem, corpo: Conteudo) {
     processar(Mensagem(..base, corpo: corpo))
+  }
+  let baixar_ou_avisar = fn(
+    api,
+    portas,
+    base,
+    file_id,
+    acao,
+    nome_midia,
+    aviso_falha,
+    continuar,
+  ) {
+    use <- sem_download_em_quarentena(base, portas, atrasada, processar)
+    baixar_ou_avisar(
+      api,
+      portas,
+      base,
+      file_id,
+      acao,
+      nome_midia,
+      aviso_falha,
+      continuar,
+    )
   }
   case evento {
     telegram_porta.EventoMensagemPronta(_, msg) ->
@@ -231,6 +255,32 @@ fn tarefa_do_evento(
         )
       })
     telegram_porta.EventoIgnorado(_) -> None
+  }
+}
+
+/// Aviso usado se a quarentena acabar entre a consulta e o anti-spam do
+/// tratador: a mídia não foi baixada, então não há o que descrever.
+pub const aviso_midia_nao_recebida = "Não consegui receber esta mídia. Tente enviar novamente."
+
+/// Quem está em quarentena teria a mídia descartada depois do download: até
+/// 20 MB baixados e a reação 🤔 para nada. A mensagem segue sem a mídia,
+/// para o anti-spam do tratador contar a reincidência como sempre.
+fn sem_download_em_quarentena(
+  base: Mensagem,
+  portas: Portas,
+  atrasada: Bool,
+  processar: fn(Mensagem) -> Nil,
+  baixar: fn() -> Nil,
+) -> Nil {
+  case anti_spam.em_quarentena(portas.anti_spam, base.chat_id, atrasada) {
+    True ->
+      processar(
+        Mensagem(
+          ..base,
+          corpo: mensagem.MidiaIndisponivel(aviso_midia_nao_recebida),
+        ),
+      )
+    False -> baixar()
   }
 }
 

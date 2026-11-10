@@ -37,6 +37,12 @@ pub type MensagemAntiSpam {
   )
   Desbloquear(alvo: String, resposta: Subject(Bool))
   ContarSilenciados(agora_ms: Int, resposta: Subject(Int))
+  EmQuarentena(
+    chat_id: IdChat,
+    atrasada: Bool,
+    agora_ms: Int,
+    resposta: Subject(Bool),
+  )
   LimpezaPeriodica(agora_ms: Int)
 }
 
@@ -137,6 +143,14 @@ fn tratar(
       actor.continue(estado)
     }
 
+    EmQuarentena(chat_id, atrasada, agora_ms, resposta) -> {
+      process.send(
+        resposta,
+        anti_spam.em_quarentena(estado.dados, chat_id, atrasada, agora_ms),
+      )
+      actor.continue(estado)
+    }
+
     LimpezaPeriodica(agora_ms) -> {
       let novos_dados =
         anti_spam.limpar_inativos(estado.dados, agora_ms, ttl_inatividade_ms)
@@ -177,6 +191,14 @@ pub fn verificar_atrasada(
 
 pub fn desbloquear(actor: AntiSpam, alvo: String) -> Bool {
   process.call(actor, 1000, fn(resposta) { Desbloquear(alvo, resposta) })
+}
+
+/// Ver `anti_spam.em_quarentena`. Não muda o estado.
+pub fn em_quarentena(actor: AntiSpam, chat_id: IdChat, atrasada: Bool) -> Bool {
+  let agora = sistema.agora_ms()
+  process.call(actor, 1000, fn(resposta) {
+    EmQuarentena(chat_id, atrasada, agora, resposta)
+  })
 }
 
 pub fn contar_silenciados(actor: AntiSpam) -> Int {
