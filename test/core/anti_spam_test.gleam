@@ -2,11 +2,12 @@
 // Testes unitários puros para a lógica de rate limiting e anti-spam.
 
 import core/anti_spam.{
-  AvisoLimite, Permitido, Silenciado, avaliar, contar_silenciados, desbloquear,
-  extrair_telefone, formatar_identificador, formatar_numero_telefone,
-  limpar_inativos, novo_estado, peso_mensagem,
+  AvisoLimite, Descartado, Permitido, RegistroChat, Silenciado, avaliar,
+  contar_silenciados, desbloquear, extrair_telefone, formatar_identificador,
+  formatar_numero_telefone, limpar_inativos, novo_estado, peso_mensagem,
 }
-import dominio/mensagem.{Audio, Imagem, Texto, Video}
+import dominio/mensagem.{Audio, Comando, Imagem, MidiaIndisponivel, Texto, Video}
+import gleam/dict
 import gleam/list
 import gleam/option.{None, Some}
 import gleeunit/should
@@ -94,60 +95,16 @@ pub fn burst_natural_4_mensagens_permitido_test() {
 }
 
 pub fn strike1_acionado_ao_esgotar_tokens_test() {
-  let estado = novo_estado()
+  let id = fixtures.id("user_1@c.us")
   let t0 = 1_000_000
-
-  // Consome os 4 tokens iniciais espaçando para não disparar flood volumétrico (<= 4 msgs em 3s)
-  let #(e1, _) =
-    avaliar(
-      estado,
-      fixtures.id("user_1@c.us"),
-      fixtures.id("user_1@c.us"),
-      None,
-      1.0,
-      t0,
-    )
-  let #(e2, _) =
-    avaliar(
-      e1,
-      fixtures.id("user_1@c.us"),
-      fixtures.id("user_1@c.us"),
-      None,
-      1.0,
-      t0 + 1200,
-    )
-  let #(e3, _) =
-    avaliar(
-      e2,
-      fixtures.id("user_1@c.us"),
-      fixtures.id("user_1@c.us"),
-      None,
-      1.0,
-      t0 + 2400,
-    )
-  let #(e4, _) =
-    avaliar(
-      e3,
-      fixtures.id("user_1@c.us"),
-      fixtures.id("user_1@c.us"),
-      None,
-      1.0,
-      t0 + 3600,
-    )
-
-  // 5ª msg rápida em 4.0s -> balde vazio (< 1 token disponível) -> Strike 1 (cooldown de 30s)
-  let #(_e5, d5) =
-    avaliar(
-      e4,
-      fixtures.id("user_1@c.us"),
-      fixtures.id("user_1@c.us"),
-      None,
-      1.0,
-      t0 + 4000,
-    )
-  case d5 {
-    AvisoLimite(motivo) -> {
+  // Gasta o balde inteiro e manda mais uma mensagem logo depois.
+  let #(e1, d1) = avaliar(novo_estado(), id, id, None, anti_spam.max_tokens, t0)
+  d1 |> should.equal(Permitido)
+  let #(_e2, d2) = avaliar(e1, id, id, None, 1.0, t0 + 1000)
+  case d2 {
+    AvisoLimite(motivo, nivel) -> {
       motivo |> should.not_equal("")
+      nivel |> should.equal(1)
     }
     _ -> panic as "esperava AvisoLimite no Strike 1"
   }
@@ -164,7 +121,7 @@ pub fn recuperacao_apos_aguardar_cooldown_test() {
       fixtures.id("user_1@c.us"),
       fixtures.id("user_1@c.us"),
       None,
-      4.0,
+      anti_spam.max_tokens,
       t0,
     )
   let #(e2, d2) =
@@ -177,7 +134,7 @@ pub fn recuperacao_apos_aguardar_cooldown_test() {
       t0 + 100,
     )
   case d2 {
-    AvisoLimite(_) -> Nil
+    AvisoLimite(_, _) -> Nil
     _ -> panic as "esperava AvisoLimite"
   }
 
@@ -206,7 +163,7 @@ pub fn reincidencia_durante_cooldown_escala_para_strike2_test() {
       fixtures.id("user_1@c.us"),
       fixtures.id("user_1@c.us"),
       None,
-      4.0,
+      anti_spam.max_tokens,
       t0,
     )
   let #(e2, _) =
@@ -230,9 +187,10 @@ pub fn reincidencia_durante_cooldown_escala_para_strike2_test() {
       t0 + 5000,
     )
   case d3 {
-    AvisoLimite(motivo) -> {
+    AvisoLimite(motivo, nivel) -> {
       // Aviso de Strike 2 (pausa de 5 minutos)
       motivo |> should.not_equal("")
+      nivel |> should.equal(2)
     }
     _ -> panic as "esperava AvisoLimite de Strike 2"
   }
@@ -270,106 +228,62 @@ pub fn reincidencia_durante_cooldown_escala_para_strike2_test() {
   }
 }
 
+/// Manda `limite_msgs_flood` textos, 100 ms um do outro, e devolve o estado
+/// e a última decisão.
+fn rajada_de_texto(estado, id, t0) {
+  list.fold(
+    de_1_a(anti_spam.limite_msgs_flood),
+    #(estado, Permitido),
+    fn(acc, i) { avaliar(acc.0, id, id, None, 0.5, t0 + i * 100) },
+  )
+}
+
 pub fn flood_volumetrico_aciona_strike3_imediatamente_test() {
-  let estado = novo_estado()
-  let t0 = 1_000_000
-
-  // 5 mensagens em menos de 2 segundos (claramente script/bot)
-  let #(e1, _) =
-    avaliar(
-      estado,
-      fixtures.id("bot_spammer@c.us"),
-      fixtures.id("bot_spammer@c.us"),
-      None,
-      0.5,
-      t0,
-    )
-  let #(e2, _) =
-    avaliar(
-      e1,
-      fixtures.id("bot_spammer@c.us"),
-      fixtures.id("bot_spammer@c.us"),
-      None,
-      0.5,
-      t0 + 200,
-    )
-  let #(e3, _) =
-    avaliar(
-      e2,
-      fixtures.id("bot_spammer@c.us"),
-      fixtures.id("bot_spammer@c.us"),
-      None,
-      0.5,
-      t0 + 400,
-    )
-  let #(e4, _) =
-    avaliar(
-      e3,
-      fixtures.id("bot_spammer@c.us"),
-      fixtures.id("bot_spammer@c.us"),
-      None,
-      0.5,
-      t0 + 600,
-    )
-
-  // 5ª mensagem dentro dos 3 segundos -> detecção volumétrica direta!
-  let #(_e5, d5) =
-    avaliar(
-      e4,
-      fixtures.id("bot_spammer@c.us"),
-      fixtures.id("bot_spammer@c.us"),
-      None,
-      0.5,
-      t0 + 800,
-    )
-  case d5 {
-    Silenciado(Some(alerta)) -> {
-      alerta |> should.not_equal("")
-    }
+  let id = fixtures.id("bot_spammer@c.us")
+  let #(_, ultima) = rajada_de_texto(novo_estado(), id, 1_000_000)
+  case ultima {
+    Silenciado(Some(alerta)) -> alerta |> should.not_equal("")
     _ -> panic as "esperava Silenciado imediato por flood volumétrico"
   }
+}
+
+pub fn texto_picado_abaixo_do_limite_nao_e_flood_test() {
+  let id = fixtures.id("picado@c.us")
+  let t0 = 1_000_000
+  let #(_, ultima) =
+    list.fold(
+      de_1_a(anti_spam.limite_msgs_flood - 1),
+      #(novo_estado(), Permitido),
+      fn(acc, i) { avaliar(acc.0, id, id, None, 1.0, t0 + i * 100) },
+    )
+  ultima |> should.equal(Permitido)
 }
 
 pub fn peso_midia_consome_mais_tokens_test() {
   peso_mensagem(Video(caminho_temp: "/tmp/v.mp4", mime: "video/mp4"))
   |> should.equal(3.0)
-
+  // Foto e áudio são o uso principal e pesam como texto.
   peso_mensagem(Audio(dados: <<>>, mime: "audio/ogg"))
-  |> should.equal(2.0)
-
+  |> should.equal(1.0)
   peso_mensagem(Imagem(dados: <<>>, mime: "image/jpeg"))
-  |> should.equal(2.0)
-
+  |> should.equal(1.0)
   peso_mensagem(Texto("olá"))
   |> should.equal(1.0)
 
-  // Um vídeo custa 3 tokens de um total de 4
-  let estado = novo_estado()
+  // Três vídeos seguidos cabem no balde de 10; o quarto não.
+  let id = fixtures.id("user_v@c.us")
   let t0 = 1_000_000
-  let #(e1, d1) =
-    avaliar(
-      estado,
-      fixtures.id("user_v@c.us"),
-      fixtures.id("user_v@c.us"),
-      None,
-      3.0,
-      t0,
-    )
-  d1 |> should.equal(Permitido)
-
-  // O segundo vídeo imediato necessitaria de 3.0 tokens, mas resta apenas 1.0 -> Strike 1
-  let #(_e2, d2) =
-    avaliar(
-      e1,
-      fixtures.id("user_v@c.us"),
-      fixtures.id("user_v@c.us"),
-      None,
-      3.0,
-      t0 + 500,
-    )
-  case d2 {
-    AvisoLimite(_) -> Nil
-    _ -> panic as "esperava AvisoLimite para segundo vídeo imediato"
+  let video = fn(estado, t) {
+    anti_spam.avaliar_carga(estado, id, id, None, 3.0, False, t)
+  }
+  let #(e1, d1) = video(novo_estado(), t0)
+  let #(e2, d2) = video(e1, t0 + 100)
+  let #(e3, d3) = video(e2, t0 + 200)
+  let #(_e4, d4) = video(e3, t0 + 300)
+  [d1, d2, d3] |> should.equal([Permitido, Permitido, Permitido])
+  case d4 {
+    AvisoLimite(_, _) -> Nil
+    _ -> panic as "esperava AvisoLimite no quarto vídeo seguido"
   }
 }
 
@@ -384,7 +298,7 @@ pub fn desbloquear_chat_limpa_estado_test() {
       fixtures.id("user_bloqueado@c.us"),
       fixtures.id("user_bloqueado@c.us"),
       None,
-      4.0,
+      anti_spam.max_tokens,
       t0,
     )
   let #(e2, _) =
@@ -415,73 +329,20 @@ pub fn desbloquear_chat_limpa_estado_test() {
 }
 
 pub fn contar_silenciados_e_limpar_inativos_test() {
-  let estado = novo_estado()
   let t0 = 1_000_000
-
-  // Insere um chat normal e um chat em quarentena (Strike 3)
-  let #(e1, _) =
-    avaliar(
-      estado,
-      fixtures.id("normal@c.us"),
-      fixtures.id("normal@c.us"),
-      None,
-      1.0,
-      t0,
-    )
+  let normal = fixtures.id("normal@c.us")
+  let #(e1, _) = avaliar(novo_estado(), normal, normal, None, 1.0, t0)
 
   // Spammer aciona strike 3 por flood
-  let #(e2, _) =
-    avaliar(
-      e1,
-      fixtures.id("spammer@c.us"),
-      fixtures.id("spammer@c.us"),
-      None,
-      0.5,
-      t0,
-    )
-  let #(e3, _) =
-    avaliar(
-      e2,
-      fixtures.id("spammer@c.us"),
-      fixtures.id("spammer@c.us"),
-      None,
-      0.5,
-      t0 + 100,
-    )
-  let #(e4, _) =
-    avaliar(
-      e3,
-      fixtures.id("spammer@c.us"),
-      fixtures.id("spammer@c.us"),
-      None,
-      0.5,
-      t0 + 200,
-    )
-  let #(e5, _) =
-    avaliar(
-      e4,
-      fixtures.id("spammer@c.us"),
-      fixtures.id("spammer@c.us"),
-      None,
-      0.5,
-      t0 + 300,
-    )
-  let #(e6, _) =
-    avaliar(
-      e5,
-      fixtures.id("spammer@c.us"),
-      fixtures.id("spammer@c.us"),
-      None,
-      0.5,
-      t0 + 400,
-    )
+  let #(e2, _) = rajada_de_texto(e1, fixtures.id("spammer@c.us"), t0)
+  let fim = t0 + anti_spam.limite_msgs_flood * 100
 
-  contar_silenciados(e6, t0 + 500)
+  contar_silenciados(e2, fim + 100)
   |> should.equal(1)
 
-  // Limpeza de inativos enquanto a quarentena está ativa (ex: 10s após) preserva o registro
-  let e_limpo = limpar_inativos(e6, t0 + 10_000, 3_600_000)
-  contar_silenciados(e_limpo, t0 + 10_000)
+  // Limpeza de inativos enquanto a quarentena está ativa preserva o registro
+  let e_limpo = limpar_inativos(e2, fim + 10_000, 3_600_000)
+  contar_silenciados(e_limpo, fim + 10_000)
   |> should.equal(1)
 }
 
@@ -582,12 +443,9 @@ pub fn atrasada_de_chat_em_quarentena_segue_silenciada_test() {
   let t0 = 1_000_000
 
   // Flood no horário: strike 3, quarentena de 30 min.
-  let estado =
-    list.fold([0, 1, 2, 3, 4], novo_estado(), fn(estado, i) {
-      avaliar(estado, chat, chat, None, 1.0, t0 + i * 100).0
-    })
+  let #(estado, _) = rajada_de_texto(novo_estado(), chat, t0)
 
-  anti_spam.avaliar_atrasada(estado, chat, chat, None, t0 + 1000).1
+  anti_spam.avaliar_atrasada(estado, chat, chat, None, t0 + 2000).1
   |> should.equal(Silenciado(None))
 }
 
@@ -606,7 +464,7 @@ pub fn atrasadas_respeitam_teto_diario_test() {
 
   let #(estado, decisao) =
     anti_spam.avaliar_atrasada(estado, chat, chat, None, agora)
-  decisao |> should.equal(AvisoLimite(anti_spam.aviso_limite_diario))
+  decisao |> should.equal(AvisoLimite(anti_spam.aviso_limite_diario, 1))
   anti_spam.avaliar_atrasada(estado, chat, chat, None, agora).1
   |> should.equal(Silenciado(None))
 }
@@ -615,4 +473,113 @@ pub fn atrasada_do_admin_e_permitida_test() {
   let admin = fixtures.id("tg:12345")
   anti_spam.avaliar_atrasada(novo_estado(), admin, admin, Some(admin), 0).1
   |> should.equal(Permitido)
+}
+
+pub fn album_de_fotos_nao_escala_strike_test() {
+  let id = fixtures.id("album@c.us")
+  let t0 = 1_000_000
+  let foto = fn(estado, i) {
+    anti_spam.avaliar_carga(estado, id, id, None, 1.0, False, t0 + i * 100)
+  }
+  // Um álbum de 12 fotos chegando em rajada.
+  let #(estado, decisoes) =
+    list.fold(de_1_a(12), #(novo_estado(), []), fn(acc, i) {
+      let #(e, d) = foto(acc.0, i)
+      #(e, [d, ..acc.1])
+    })
+  let decisoes = list.reverse(decisoes)
+
+  // As 10 primeiras cabem no balde.
+  list.take(decisoes, 10)
+  |> list.all(fn(d) { d == Permitido })
+  |> should.be_true
+  // A 11ª dá um único aviso de 30 s.
+  case list.drop(decisoes, 10) {
+    [AvisoLimite(_, _), d12] ->
+      // A 12ª já estava a caminho: descartada sem escalar, sem alertar o
+      // admin e sem virar incidente de spam.
+      d12 |> should.equal(Descartado)
+    _ -> panic as "esperava aviso na 11ª foto"
+  }
+  let assert Ok(reg) = dict.get(estado, id)
+  reg.strikes |> should.equal(1)
+}
+
+pub fn reincidente_no_strike2_vai_para_quarentena_de_30_min_test() {
+  let id = fixtures.id("reincidente@c.us")
+  let t0 = 10_000_000
+  // Já cumpriu a pausa de 5 min do strike 2 e voltou sem esperar o perdão.
+  let estado =
+    dict.from_list([
+      #(
+        id,
+        RegistroChat(
+          tokens: 0.0,
+          ultimo_ts_ms: t0 - 1000,
+          strikes: 2,
+          quarentena_ate_ms: t0 - 1000,
+          recentes_ts: [],
+          dia: t0 / anti_spam.dia_ms,
+          mensagens_no_dia: 10,
+        ),
+      ),
+    ])
+
+  let #(e1, d1) = avaliar(estado, id, id, None, 1.0, t0)
+
+  case d1 {
+    Silenciado(Some(_)) -> Nil
+    _ -> panic as "esperava quarentena com alerta ao admin"
+  }
+  let assert Ok(reg) = dict.get(e1, id)
+  reg.strikes |> should.equal(3)
+  reg.quarentena_ate_ms |> should.equal(t0 + anti_spam.quarentena_strike3_ms)
+}
+
+pub fn flood_de_texto_continua_detectado_e_midia_nao_conta_test() {
+  let id = fixtures.id("misto@c.us")
+  let t0 = 1_000_000
+  // Textos e uma foto no meio: a foto não completa a contagem do flood.
+  let #(estado, _) =
+    list.fold(
+      de_1_a(anti_spam.limite_msgs_flood - 1),
+      #(novo_estado(), Permitido),
+      fn(acc, i) { avaliar(acc.0, id, id, None, 0.5, t0 + i * 100) },
+    )
+  let #(_, d) =
+    anti_spam.avaliar_carga(estado, id, id, None, 1.0, False, t0 + 950)
+  d |> should.equal(Permitido)
+}
+
+pub fn midia_indisponivel_nao_conta_para_flood_test() {
+  // Álbum cuja leitura falhou chega como rajada de mídias indisponíveis.
+  anti_spam.conta_para_flood(MidiaIndisponivel("falha ao ler"))
+  |> should.be_false
+  anti_spam.conta_para_flood(Texto("oi")) |> should.be_true
+  anti_spam.conta_para_flood(Comando("ajuda", "")) |> should.be_true
+}
+
+pub fn insistir_na_quarentena_nao_esvazia_o_balde_na_saida_test() {
+  let id = fixtures.id("insistente@c.us")
+  let t0 = 1_000_000
+  let #(estado, _) = rajada_de_texto(novo_estado(), id, t0)
+  let assert Ok(reg) = dict.get(estado, id)
+  let fim = reg.quarentena_ate_ms
+
+  // Uma mensagem por minuto durante toda a quarentena: todas descartadas.
+  let #(estado, _) =
+    list.fold(de_1_a({ fim - t0 } / 60_000), #(estado, Permitido), fn(acc, i) {
+      let #(e, d) = avaliar(acc.0, id, id, None, 1.0, t0 + i * 60_000)
+      d |> should.equal(Silenciado(None))
+      #(e, d)
+    })
+
+  // Logo depois da quarentena, a recarga do período conta: a foto passa.
+  let #(_, d) = avaliar(estado, id, id, None, 1.0, fim + 1000)
+  d |> should.equal(Permitido)
+}
+
+/// [1, 2, ..., n]
+fn de_1_a(n: Int) -> List(Int) {
+  list.index_map(list.repeat(Nil, n), fn(_, i) { i + 1 })
 }

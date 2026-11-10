@@ -11,8 +11,9 @@ pub type TransacaoPorta {
     obter_por_chat: fn(IdChat) -> Result(List(Transacao), Erro),
     marcar_entregue: fn(Int) -> Result(Nil, Erro),
     limpar_antigas: fn() -> Result(Nil, Erro),
-    // Rastreia mensagens recebidas para deduplicar (history sync).
-    foi_recebida: fn(String) -> Result(Bool, Erro),
-    marcar_recebida: fn(String) -> Result(Nil, Erro),
+    // Rastreia mensagens recebidas para deduplicar (history sync). O
+    // message_id só é único dentro do chat no Telegram, por isso vai o par.
+    foi_recebida: fn(IdChat, String) -> Result(Bool, Erro),
+    marcar_recebida: fn(IdChat, String) -> Result(Nil, Erro),
   )
 }

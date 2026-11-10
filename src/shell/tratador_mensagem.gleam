@@ -61,10 +61,6 @@ const aviso_restrito = "⛔ Comando restrito ao administrador."
 
 const aviso_erro_generico = "⚠️ Desculpe, ocorreu um erro ao processar sua mensagem. Tente novamente."
 
-const aviso_video_expirado = "👋 O período de dúvidas sobre o vídeo anterior expirou (30 min). Por favor, envie uma nova mídia (áudio, foto, vídeo ou documento) para continuar!"
-
-const aviso_video_encerrado = "👋 Já encerramos as dúvidas sobre este vídeo. Para continuar, envie uma nova mídia (áudio, foto, vídeo ou documento)!"
-
 const prompt_resumo = "Resuma esta conversa de forma concisa e acessível, destacando os pontos principais, decisões e tópicos discutidos:\n\n"
 
 pub type Portas {
@@ -172,10 +168,10 @@ fn ja_processada(msg: Mensagem, portas: Portas) -> Bool {
   case msg.message_id {
     option.None -> False
     option.Some(msg_id) ->
-      case portas.transacoes.foi_recebida(msg_id) {
+      case portas.transacoes.foi_recebida(msg.chat_id, msg_id) {
         Ok(True) -> True
         Ok(False) -> {
-          portas.transacoes.marcar_recebida(msg_id)
+          portas.transacoes.marcar_recebida(msg.chat_id, msg_id)
           |> sistema.registrar_falha("Falha ao marcar mensagem como recebida")
           False
         }
@@ -202,7 +198,12 @@ fn processar_mensagem_com_anti_spam(
   }
   case decisao {
     core_anti_spam.Permitido -> processar_mensagem(msg, portas)
-    core_anti_spam.AvisoLimite(motivo) -> avisar_limite(motivo, msg, portas)
+    core_anti_spam.AvisoLimite(motivo, nivel) ->
+      avisar_limite(motivo, nivel, msg, portas)
+    core_anti_spam.Descartado -> {
+      limpar_midia_se_descartada(msg)
+      Ok(Nil)
+    }
     core_anti_spam.Silenciado(notificar_admin) ->
       descartar_silenciado(notificar_admin, msg, portas)
   }
@@ -210,15 +211,12 @@ fn processar_mensagem_com_anti_spam(
 
 fn avisar_limite(
   motivo: String,
+  nivel: Int,
   msg: Mensagem,
   portas: Portas,
 ) -> Result(Nil, Erro) {
   let tel = core_anti_spam.extrair_telefone(msg.remetente)
-  let strike = case string.contains(motivo, "5 minutos") {
-    True -> 2
-    False -> 1
-  }
-  portas.spammers.registrar(msg.chat_id, msg.remetente, tel, motivo, strike)
+  portas.spammers.registrar(msg.chat_id, msg.remetente, tel, motivo, nivel)
   |> sistema.registrar_falha("Falha ao registrar incidente de spam")
   logging.log(
     logging.Warning,
@@ -420,7 +418,7 @@ fn gerar_e_enviar(
 ) -> Result(Nil, Erro) {
   case portas.video_contexto.obter(para) {
     Ok(option.Some(ctx)) ->
-      responder_sobre_video(para, ctx, msg, cfg, hist, portas)
+      responder_sobre_video(para, ctx, prompt, msg, cfg, hist, portas)
     _ -> {
       logging.log(
         logging.Info,
@@ -477,22 +475,21 @@ fn responder_com_ia(
 
 /// Pergunta de acompanhamento sobre o último vídeo do chat: responde com o
 /// arquivo do vídeo enquanto houver cota e o contexto não tiver expirado.
+/// Fora disso, ou se a IA não conseguir usar o vídeo, o contexto é encerrado
+/// e a mensagem segue como conversa normal: ela nunca fica sem resposta.
 fn responder_sobre_video(
   para: IdChat,
   ctx: VideoContexto,
+  prompt: String,
   msg: Mensagem,
   cfg: Config,
   hist: List(Turno),
   portas: Portas,
 ) -> Result(Nil, Erro) {
   let expirado = sistema.agora_s() - ctx.criado_em >= validade_contexto_video_s
-  use <- bool.lazy_guard(expirado, fn() {
+  use <- bool.lazy_guard(expirado || ctx.perguntas_restantes <= 0, fn() {
     encerrar_contexto_video(para, ctx.uri, cfg, portas)
-    entregar(para, RespostaTexto, aviso_video_expirado, msg, portas)
-  })
-  use <- bool.lazy_guard(ctx.perguntas_restantes <= 0, fn() {
-    encerrar_contexto_video(para, ctx.uri, cfg, portas)
-    entregar(para, RespostaTexto, aviso_video_encerrado, msg, portas)
+    responder_com_ia(para, prompt, msg, cfg, hist, portas)
   })
 
   let texto_usuario = extrair_texto_usuario(msg)
@@ -506,13 +503,26 @@ fn responder_sobre_video(
       <> int.to_string(ctx.perguntas_restantes)
       <> " pergunta(s) restante(s))",
   )
-  use resposta <- result.try(despachante_ia.processar_video(
-    portas.despachante_ia,
-    ctx.uri,
-    montador.montar_followup_video(cfg, hist, texto_usuario),
-    cfg.provedor,
-    cfg.modelo,
-  ))
+  let resposta_video =
+    despachante_ia.processar_video(
+      portas.despachante_ia,
+      ctx.uri,
+      montador.montar_followup_video(cfg, hist, texto_usuario),
+      cfg.provedor,
+      cfg.modelo,
+    )
+  use resposta <- ou_entao(resposta_video, fn(e) {
+    logging.log(
+      logging.Warning,
+      "["
+        <> extrair_trace_id(msg)
+        <> "] Vídeo indisponível para follow-up ("
+        <> erro.descricao(e)
+        <> "); respondendo sem ele",
+    )
+    encerrar_contexto_video(para, ctx.uri, cfg, portas)
+    responder_com_ia(para, prompt, msg, cfg, hist, portas)
+  })
   use resposta_limpa <- result.try(entregar_resposta_ia(
     para,
     resposta,
@@ -529,6 +539,17 @@ fn responder_sobre_video(
   use <- bool.guard(restantes > 0, Ok(Nil))
   encerrar_contexto_video(para, ctx.uri, cfg, portas)
   Ok(Nil)
+}
+
+fn ou_entao(
+  resultado: Result(String, Erro),
+  se_falhar: fn(Erro) -> Result(Nil, Erro),
+  continuar: fn(String) -> Result(Nil, Erro),
+) -> Result(Nil, Erro) {
+  case resultado {
+    Ok(resposta) -> continuar(resposta)
+    Error(e) -> se_falhar(e)
+  }
 }
 
 /// Entrega a resposta da IA ao usuário e grava a pergunta no histórico.

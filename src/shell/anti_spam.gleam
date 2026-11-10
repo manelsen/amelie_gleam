@@ -25,6 +25,7 @@ pub type MensagemAntiSpam {
     chat_id: IdChat,
     remetente: IdChat,
     peso: Float,
+    conta_flood: Bool,
     agora_ms: Int,
     resposta: Subject(anti_spam.DecisaoAntiSpam),
   )
@@ -89,7 +90,7 @@ fn tratar(
   msg: MensagemAntiSpam,
 ) -> actor.Next(Estado, MensagemAntiSpam) {
   case msg {
-    Verificar(chat_id, remetente, peso, agora_ms, resposta) -> {
+    Verificar(chat_id, remetente, peso, conta_flood, agora_ms, resposta) -> {
       // Poda proativa se o dicionário exceder limite de capacidade
       let dados_atuais = case dict.size(estado.dados) >= max_chats_em_memoria {
         True ->
@@ -98,12 +99,13 @@ fn tratar(
       }
 
       let #(novos_dados, decisao) =
-        anti_spam.avaliar(
+        anti_spam.avaliar_carga(
           dados_atuais,
           chat_id,
           remetente,
           estado.admin_chat_id,
           peso,
+          conta_flood,
           agora_ms,
         )
       process.send(resposta, decisao)
@@ -154,9 +156,10 @@ pub fn verificar(
   corpo: Conteudo,
 ) -> anti_spam.DecisaoAntiSpam {
   let peso = anti_spam.peso_mensagem(corpo)
+  let conta_flood = anti_spam.conta_para_flood(corpo)
   let agora = sistema.agora_ms()
   process.call(actor, 1000, fn(resposta) {
-    Verificar(chat_id, remetente, peso, agora, resposta)
+    Verificar(chat_id, remetente, peso, conta_flood, agora, resposta)
   })
 }
 

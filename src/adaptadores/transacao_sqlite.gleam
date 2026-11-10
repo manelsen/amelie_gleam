@@ -47,8 +47,12 @@ pub fn criar(conn: sqlight.Connection) -> transacao_porta.TransacaoPorta {
     obter_por_chat: fn(chat_id) { obter_por_chat(conn, chat_id) },
     marcar_entregue: fn(id) { marcar_entregue(conn, id) },
     limpar_antigas: fn() { limpar_antigas(conn) },
-    foi_recebida: fn(msg_id) { foi_recebida(conn, msg_id) },
-    marcar_recebida: fn(msg_id) { marcar_recebida(conn, msg_id) },
+    foi_recebida: fn(chat_id, msg_id) {
+      foi_recebida(conn, chave_recebida(chat_id, msg_id))
+    },
+    marcar_recebida: fn(chat_id, msg_id) {
+      marcar_recebida(conn, chave_recebida(chat_id, msg_id))
+    },
   )
 }
 
@@ -247,6 +251,16 @@ fn transacao_decoder() -> decode.Decoder(t.Transacao) {
     tentativas: tentativas,
     erro: erro,
   ))
+}
+
+/// Chave da deduplicação. O ID do WhatsApp é único globalmente e fica puro,
+/// como sempre foi gravado. O do Telegram é um contador por chat (a mensagem
+/// 42 existe em todo chat), então leva o chat junto.
+fn chave_recebida(chat_id: IdChat, message_id: String) -> String {
+  case id_chat.canal(chat_id) {
+    id_chat.CanalWhatsapp -> message_id
+    id_chat.CanalTelegram -> id_chat.para_texto(chat_id) <> "/" <> message_id
+  }
 }
 
 // Verifica se uma mensagem já foi processada (deduplicação para history sync).

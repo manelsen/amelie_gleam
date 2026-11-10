@@ -235,6 +235,7 @@ type Bridge struct {
 	pairingMu           sync.Mutex
 	pairingGen          uint64
 	pairingStop         chan struct{}
+	dispatch            chatDispatcher
 }
 
 type mediaRetryPending struct {
@@ -340,7 +341,7 @@ func (b *Bridge) Stop() {
 func (b *Bridge) handleEvent(rawEvt interface{}) {
 	switch evt := rawEvt.(type) {
 	case *events.Message:
-		b.processMessage(evt)
+		b.dispatchMessage(evt)
 	case *events.JoinedGroup:
 		// Sai assim que é adicionada, sem esperar a primeira mensagem.
 		b.leaveGroup(evt.JID)
@@ -525,6 +526,15 @@ func (b *Bridge) leaveGroup(group types.JID) {
 		}
 		log.Printf("[Grupos] A Amélie foi adicionada a um grupo e saiu, como manda a política")
 	}()
+}
+
+// dispatchMessage tira o processamento da mensagem do handler de eventos.
+// Ver chatDispatcher.
+func (b *Bridge) dispatchMessage(evt *events.Message) {
+	chat := evt.Info.Chat.String()
+	if !b.dispatch.submit(chat, string(evt.Info.ID), func() { b.processMessage(evt) }) {
+		log.Printf("[Despacho] Fila do chat %s cheia; mensagem %s descartada", maskID(chat), evt.Info.ID)
+	}
 }
 
 func (b *Bridge) processMessage(evt *events.Message) {
@@ -740,18 +750,25 @@ func (b *Bridge) downloadMediaBytes(
 	msg whatsmeow.DownloadableMessage,
 	applyDirectPath func(string),
 ) ([]byte, bool) {
-	// Fail fast para domínios fantasmas do WhatsApp que causam delays de 15s
-	ctx, cancel := context.WithTimeout(context.Background(), mediaDownloadTimeout(kind))
-	defer cancel()
-
 	// O tamanho declarado pode mentir; o limitedFile é que limita de fato.
 	if declaredMediaTooLarge(msg) {
 		log.Printf("%s recusado antes do download: tamanho declarado acima de 50 MiB", kind)
 		return nil, false
 	}
-	data, err := downloadIntoLimitedFile(func(f *limitedFile) error {
-		return b.client.DownloadToFile(ctx, msg, f)
+	type resultado struct {
+		data []byte
+		err  error
+	}
+	r := withMediaDownloadSlot(func() resultado {
+		// Fail fast para domínios fantasmas do WhatsApp que causam delays de 15s
+		ctx, cancel := context.WithTimeout(context.Background(), mediaDownloadTimeout(kind, declaredMediaBytes(msg)))
+		defer cancel()
+		data, err := downloadIntoLimitedFile(func(f *limitedFile) error {
+			return b.client.DownloadToFile(ctx, msg, f)
+		})
+		return resultado{data, err}
 	})
+	data, err := r.data, r.err
 	if errors.Is(err, errMediaTooLarge) {
 		log.Printf("%s descartado: download passou de 50 MiB", kind)
 		return nil, false
@@ -791,26 +808,33 @@ func (b *Bridge) downloadStickerBytes(
 	applyDirectPath func(string),
 ) ([]byte, bool) {
 	if sticker.GetDirectPath() != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), mediaDownloadTimeout("figurinha"))
-		defer cancel()
-
 		if declaredMediaTooLarge(sticker) {
 			log.Printf("figurinha recusada antes do download: tamanho declarado acima de 50 MiB")
 			return nil, false
 		}
-		data, err := downloadIntoLimitedFile(func(f *limitedFile) error {
-			return b.client.DownloadMediaWithPathToFile(
-				ctx,
-				sticker.GetDirectPath(),
-				sticker.GetFileEncSHA256(),
-				sticker.GetFileSHA256(),
-				sticker.GetMediaKey(),
-				whatsmeow.MediaImage,
-				"sticker",
-				false,
-				f,
-			)
+		type resultado struct {
+			data []byte
+			err  error
+		}
+		r := withMediaDownloadSlot(func() resultado {
+			ctx, cancel := context.WithTimeout(context.Background(), mediaDownloadTimeout("figurinha", sticker.GetFileLength()))
+			defer cancel()
+			data, err := downloadIntoLimitedFile(func(f *limitedFile) error {
+				return b.client.DownloadMediaWithPathToFile(
+					ctx,
+					sticker.GetDirectPath(),
+					sticker.GetFileEncSHA256(),
+					sticker.GetFileSHA256(),
+					sticker.GetMediaKey(),
+					whatsmeow.MediaImage,
+					"sticker",
+					false,
+					f,
+				)
+			})
+			return resultado{data, err}
 		})
+		data, err := r.data, r.err
 		if errors.Is(err, errMediaTooLarge) {
 			log.Printf("figurinha descartada: download passou de 50 MiB")
 			return nil, false
@@ -829,11 +853,37 @@ func (b *Bridge) downloadStickerBytes(
 	return b.downloadMediaBytes(evt, "figurinha", mime, "", sticker, applyDirectPath)
 }
 
-func mediaDownloadTimeout(kind string) time.Duration {
-	if kind == "figurinha" {
-		return 8 * time.Second
+// Prazo do download inteiro. Curto o bastante para desistir logo de um host
+// de mídia que não responde (o pedido de reenvio traz outro caminho), mas
+// proporcional ao tamanho declarado: com 2 s fixos, vídeos e PDFs grandes
+// nunca terminavam e eram descartados.
+const (
+	mediaTimeoutBase   = 5 * time.Second
+	mediaTimeoutPorMiB = 1 * time.Second
+	mediaTimeoutMax    = 2 * time.Minute
+	stickerTimeoutMin  = 8 * time.Second
+)
+
+// Espera entre o reset da sessão e o novo pairing code. Variável para os
+// testes poderem adiá-lo para além do fim da suíte.
+var resetPairingDelay = 2 * time.Second
+
+func mediaDownloadTimeout(kind string, declaredBytes uint64) time.Duration {
+	d := mediaTimeoutBase + time.Duration(declaredBytes/(1<<20))*mediaTimeoutPorMiB
+	if kind == "figurinha" && d < stickerTimeoutMin {
+		d = stickerTimeoutMin
 	}
-	return 2 * time.Second
+	if d > mediaTimeoutMax {
+		d = mediaTimeoutMax
+	}
+	return d
+}
+
+func declaredMediaBytes(msg any) uint64 {
+	if sized, ok := msg.(sizedMedia); ok {
+		return sized.GetFileLength()
+	}
+	return 0
 }
 
 func (b *Bridge) requestMediaRetry(
@@ -906,7 +956,7 @@ func (b *Bridge) handleMediaRetry(evt *events.MediaRetry) {
 	}
 
 	pending.applyDirectPath(directPath)
-	b.processMessage(pending.event)
+	b.dispatchMessage(pending.event)
 }
 
 func mediaRetryKey(chat types.JID, messageID types.MessageID) string {
@@ -1898,8 +1948,10 @@ func (b *Bridge) handleResetSession(w http.ResponseWriter, r *http.Request) {
 	b.deleteSessionStore()
 
 	if phone != "" {
+		// Lido aqui, não na goroutine: os testes trocam o valor entre rodadas.
+		delay := resetPairingDelay
 		go func(targetPhone string) {
-			time.Sleep(2 * time.Second)
+			time.Sleep(delay)
 			log.Printf("[WhatsApp] Gerando novo pairing code pós-reset para %s...\n", maskID(targetPhone))
 			_, err := b.requestPairingCode(targetPhone)
 			if err != nil {

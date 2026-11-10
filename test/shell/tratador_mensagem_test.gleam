@@ -4,11 +4,14 @@ import dominio/mensagem.{Mensagem}
 import dominio/video_contexto.{VideoContexto}
 import gleam/erlang/process
 import gleam/int
+import gleam/list
 import gleam/option.{Some}
 import gleam/string
 import gleeunit/should
 import helpers/fixtures
 import helpers/portas_fake
+import portas/ia_porta
+import shell/despachante_ia
 import shell/fila_midia
 import shell/metricas
 import shell/tratador_mensagem
@@ -279,19 +282,8 @@ pub fn tratar_com_rate_limit_envia_aviso_ao_usuario_test() {
       ponte: portas_fake.ponte_inacessivel(),
     )
 
-  let img1 =
-    Mensagem(..fixtures.mensagem_imagem(), message_id: option.Some("IMG_1"))
-  let img2 =
-    Mensagem(..fixtures.mensagem_imagem(), message_id: option.Some("IMG_2"))
-  let img3 =
-    Mensagem(..fixtures.mensagem_imagem(), message_id: option.Some("IMG_3"))
-
-  // Envia 2 imagens consecutivas (2 tokens cada, esgotando os 4 tokens)
-  let _ = tratador_mensagem.tratar(img1, portas)
-  let _ = tratador_mensagem.tratar(img2, portas)
-
-  // 3ª imagem imediata não tem tokens suficientes (quer 2.0, tem 0.0) -> AvisoLimite
-  let _ = tratador_mensagem.tratar(img3, portas)
+  // Um álbum maior que o balde: a foto seguinte às que cabem recebe o aviso.
+  enviar_fotos(portas, 11)
 
   // Aguarda e busca a mensagem que contém o aviso de rate limit
   let aviso = buscar_aviso(ref)
@@ -403,16 +395,8 @@ pub fn tratar_com_rate_limit_registra_incidente_spammer_test() {
       ponte: portas_fake.ponte_inacessivel(),
     )
 
-  let img1 =
-    Mensagem(..fixtures.mensagem_imagem(), message_id: option.Some("IMG_1"))
-  let img2 =
-    Mensagem(..fixtures.mensagem_imagem(), message_id: option.Some("IMG_2"))
-  let img3 =
-    Mensagem(..fixtures.mensagem_imagem(), message_id: option.Some("IMG_3"))
-
-  let _ = tratador_mensagem.tratar(img1, portas)
-  let _ = tratador_mensagem.tratar(img2, portas)
-  let _ = tratador_mensagem.tratar(img3, portas)
+  // Um álbum maior que o balde: a foto seguinte às que cabem recebe o aviso.
+  enviar_fotos(portas, 11)
 
   let assert Ok(evento) = process.receive(ref_spam, 1000)
   case evento {
@@ -470,7 +454,7 @@ pub fn tratar_followup_video_ativo_responde_e_decrementa_test() {
     process.receive(ref_video, 1000)
 }
 
-pub fn tratar_followup_video_expirado_limpa_e_avisa_usuario_test() {
+pub fn tratar_followup_video_expirado_limpa_e_responde_normalmente_test() {
   let ref_envio = process.new_subject()
   let ref_video = process.new_subject()
   let agora_s = now_ms() / 1000
@@ -484,7 +468,7 @@ pub fn tratar_followup_video_expirado_limpa_e_avisa_usuario_test() {
   let portas =
     tratador_mensagem.Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
-      despachante_ia: portas_fake.despachante_ia_ok("nao deveria chamar"),
+      despachante_ia: portas_fake.despachante_ia_ok("resposta normal"),
       config: portas_fake.config_ok(fixtures.config_padrao()),
       historico: portas_fake.historico_com_midia(),
       fila: fila_midia.iniciar_todas() |> should.be_ok,
@@ -505,13 +489,14 @@ pub fn tratar_followup_video_expirado_limpa_e_avisa_usuario_test() {
   result |> should.be_ok
 
   let assert Ok(#(_chat_id, texto)) = process.receive(ref_envio, 1000)
-  should.be_true(string.contains(texto, "expirou (30 min)"))
+  // A pergunta segue como conversa normal em vez de virar só um aviso.
+  texto |> should.equal("resposta normal")
 
   let assert Ok(portas_fake.VideoObtido(_)) = process.receive(ref_video, 1000)
   let assert Ok(portas_fake.VideoRemovido(_)) = process.receive(ref_video, 1000)
 }
 
-pub fn tratar_followup_video_esgotado_limpa_e_avisa_usuario_test() {
+pub fn tratar_followup_video_esgotado_limpa_e_responde_normalmente_test() {
   let ref_envio = process.new_subject()
   let ref_video = process.new_subject()
   let agora_s = now_ms() / 1000
@@ -525,7 +510,7 @@ pub fn tratar_followup_video_esgotado_limpa_e_avisa_usuario_test() {
   let portas =
     tratador_mensagem.Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
-      despachante_ia: portas_fake.despachante_ia_ok("nao deveria chamar"),
+      despachante_ia: portas_fake.despachante_ia_ok("resposta normal"),
       config: portas_fake.config_ok(fixtures.config_padrao()),
       historico: portas_fake.historico_com_midia(),
       fila: fila_midia.iniciar_todas() |> should.be_ok,
@@ -546,7 +531,8 @@ pub fn tratar_followup_video_esgotado_limpa_e_avisa_usuario_test() {
   result |> should.be_ok
 
   let assert Ok(#(_chat_id, texto)) = process.receive(ref_envio, 1000)
-  should.be_true(string.contains(texto, "encerramos as dúvidas"))
+  // A pergunta segue como conversa normal em vez de virar só um aviso.
+  texto |> should.equal("resposta normal")
 
   let assert Ok(portas_fake.VideoObtido(_)) = process.receive(ref_video, 1000)
   let assert Ok(portas_fake.VideoRemovido(_)) = process.receive(ref_video, 1000)
@@ -595,4 +581,89 @@ pub fn tratar_followup_video_zera_perguntas_remove_arquivo_test() {
   let assert Ok(portas_fake.VideoPerguntasDecrementadas(_)) =
     process.receive(ref_video, 1000)
   let assert Ok(portas_fake.VideoRemovido(_)) = process.receive(ref_video, 1000)
+}
+
+fn portas_com_video(
+  ref,
+  despachante,
+  video_contexto,
+) -> tratador_mensagem.Portas {
+  let assert Ok(fila) = fila_midia.iniciar_todas()
+  tratador_mensagem.Portas(
+    mensageiro: portas_fake.mensageiro_capturar(ref),
+    despachante_ia: despachante,
+    config: portas_fake.config_ok(fixtures.config_padrao()),
+    historico: portas_fake.historico_com_midia(),
+    fila: fila,
+    prompts: portas_fake.prompt_noop(),
+    metricas: met(),
+    usuarios: portas_fake.usuario_noop(),
+    grupos: portas_fake.grupo_noop(),
+    transacoes: portas_fake.transacao_noop(),
+    provedores_config: portas_fake.provedores_config_ok(),
+    anti_spam: spam(),
+    spammers: portas_fake.spammer_noop(),
+    video_contexto: video_contexto,
+    ponte: portas_fake.ponte_inacessivel(),
+  )
+}
+
+pub fn falha_no_video_encerra_contexto_e_responde_sem_ele_test() {
+  let ref = process.new_subject()
+  let eventos = process.new_subject()
+  let ctx =
+    VideoContexto(
+      chat_id: fixtures.chat_id(),
+      uri: "https://files.google.com/v",
+      perguntas_restantes: 2,
+      criado_em: now_ms() / 1000,
+    )
+  let ia_sem_video =
+    ia_porta.IAPorta(
+      ..portas_fake.ia_ok("resposta sem vídeo"),
+      processar_video: fn(_, _, _) { Error(erro.ErroIA("arquivo sumiu")) },
+    )
+  let portas =
+    portas_com_video(
+      ref,
+      despachante_ia.DespachanteIA(
+        gemini: ia_sem_video,
+        openrouter: ia_sem_video,
+      ),
+      portas_fake.video_contexto_capturar(Some(ctx), eventos),
+    )
+
+  tratador_mensagem.tratar(fixtures.mensagem_texto("e o final?"), portas)
+  |> should.be_ok
+
+  process.receive(ref, 1000)
+  |> should.equal(Ok(#(fixtures.chat_id(), "resposta sem vídeo")))
+  // O contexto quebrado foi removido: a próxima mensagem não falha de novo.
+  receber_ate(eventos, portas_fake.VideoRemovido(fixtures.chat_id()))
+  |> should.be_true
+}
+
+fn receber_ate(sub, alvo) -> Bool {
+  case process.receive(sub, 500) {
+    Ok(ev) if ev == alvo -> True
+    Ok(_) -> receber_ate(sub, alvo)
+    Error(_) -> False
+  }
+}
+
+fn enviar_fotos(portas: tratador_mensagem.Portas, n: Int) -> Nil {
+  list.each(de_1_a(n), fn(i) {
+    let foto =
+      Mensagem(
+        ..fixtures.mensagem_imagem(),
+        message_id: option.Some("IMG_" <> int.to_string(i)),
+      )
+    let _ = tratador_mensagem.tratar(foto, portas)
+    Nil
+  })
+}
+
+/// [1, 2, ..., n]
+fn de_1_a(n: Int) -> List(Int) {
+  list.index_map(list.repeat(Nil, n), fn(_, i) { i + 1 })
 }

@@ -4,6 +4,7 @@
 
 import dominio/id_chat.{type IdChat}
 import dominio/mensagem.{type Conteudo}
+import gleam/bool
 import gleam/dict.{type Dict}
 import gleam/float
 import gleam/int
@@ -15,17 +16,22 @@ import gleam/string
 // Constantes de calibração
 // ---------------------------------------------------------------------------
 
-/// Capacidade máxima do balde de tokens (margem de rajada para conversação natural).
-pub const max_tokens: Float = 4.0
+// O custo é limitado pelo teto diário. O balde só reparte a vez nas filas de
+// mídia, que são compartilhadas entre todos os chats, e não deve atrapalhar o
+// uso normal: um álbum de até 10 fotos ou uma conversa por áudio passam sem aviso.
 
-/// Taxa de recarga: 1 token a cada 12 segundos (~0.0833 tokens/s).
-pub const recarga_por_segundo: Float = 0.08333333333333333
+/// Capacidade máxima do balde de tokens: cabe um álbum de 10 fotos.
+pub const max_tokens: Float = 10.0
 
-/// Janela para detecção de rajada de flood: 5 mensagens em até 3 segundos.
-pub const janela_flood_ms: Int = 3000
+/// Taxa de recarga: 1 token a cada 6 segundos (10 por minuto).
+pub const recarga_por_segundo: Float = 0.16666666666666666
 
-/// Quantidade de mensagens dentro da janela que caracteriza flood automatizado.
-pub const limite_msgs_flood: Int = 5
+/// Janela para detecção de rajada de flood de texto: 8 mensagens em até 5 s.
+pub const janela_flood_ms: Int = 5000
+
+/// Mensagens de texto dentro da janela que caracterizam flood automatizado.
+/// Acima do ritmo de quem manda frases picadas ("oi", "tudo bem", "queria...").
+pub const limite_msgs_flood: Int = 8
 
 /// Cooldown do Strike 1: 30 segundos de pausa após esgotar tokens normais.
 pub const cooldown_strike1_ms: Int = 30_000
@@ -35,6 +41,11 @@ pub const cooldown_strike2_ms: Int = 300_000
 
 /// Quarentena do Strike 3: 30 minutos de silenciamento total (blackhole).
 pub const quarentena_strike3_ms: Int = 1_800_000
+
+/// Carência após um aviso: mensagens que chegam nesse intervalo já estavam a
+/// caminho (um álbum chega como várias mensagens em milissegundos) e o usuário
+/// ainda não viu o aviso. São descartadas sem escalar o strike.
+pub const carencia_reincidencia_ms: Int = 3000
 
 /// Tempo de inatividade após o qual os strikes de um usuário são perdoados (10 min).
 pub const perdao_strikes_inatividade_ms: Int = 600_000
@@ -57,7 +68,12 @@ pub type DecisaoAntiSpam {
   /// Mensagem aceita para processamento.
   Permitido
   /// Limite de taxa atingido. Deve responder ao usuário com o aviso explicativo.
-  AvisoLimite(motivo: String)
+  /// `nivel` é o strike que vai para o registro de incidentes (o teto diário
+  /// conta como 1).
+  AvisoLimite(motivo: String, nivel: Int)
+  /// Mensagem que já estava a caminho quando o aviso saiu (carência). Descarta
+  /// sem registrar incidente: não é reincidência.
+  Descartado
   /// Usuário em quarentena/jail. Deve descartar silenciosamente (blackhole).
   /// Se `Some(alerta)`, Amélie deve encaminhar o alerta ao administrador.
   Silenciado(notificar_admin: Option(String))
@@ -88,14 +104,13 @@ pub fn novo_estado() -> EstadoAntiSpam {
 // Cálculo de peso por tipo de mídia
 // ---------------------------------------------------------------------------
 
-/// Atribui peso maior para mídias pesadas (vídeo, áudio) para proteger CPU/IA.
+/// Peso de cada mensagem no balde. Foto e áudio são o uso principal (para quem
+/// é cego, a nota de voz é o "texto") e pesam como texto; documento e vídeo
+/// ocupam a fila por mais tempo.
 pub fn peso_mensagem(corpo: Conteudo) -> Float {
   case corpo {
     mensagem.Video(..) -> 3.0
-    mensagem.Audio(..) -> 2.0
-    mensagem.Imagem(..) -> 2.0
     mensagem.Documento(..) -> 2.0
-    mensagem.Sticker(..) -> 1.5
     _ -> 1.0
   }
 }
@@ -104,12 +119,36 @@ pub fn peso_mensagem(corpo: Conteudo) -> Float {
 // Avaliação principal (Pura)
 // ---------------------------------------------------------------------------
 
+/// Avalia uma mensagem como texto: conta para o flood. Atalho de
+/// `avaliar_carga` para quem só tem o peso.
 pub fn avaliar(
   estado: EstadoAntiSpam,
   chat_id: IdChat,
   remetente: IdChat,
   admin: Option(IdChat),
   peso: Float,
+  agora_ms: Int,
+) -> #(EstadoAntiSpam, DecisaoAntiSpam) {
+  avaliar_carga(estado, chat_id, remetente, admin, peso, True, agora_ms)
+}
+
+/// Só texto conta para o flood: um álbum chega como uma rajada de mídia e já
+/// é limitado pelo balde. Mídia indisponível também fica de fora: um álbum
+/// cuja leitura falhou chega como uma rajada delas, sem culpa do usuário.
+pub fn conta_para_flood(corpo: Conteudo) -> Bool {
+  case corpo {
+    mensagem.Texto(_) | mensagem.Comando(..) -> True
+    _ -> False
+  }
+}
+
+pub fn avaliar_carga(
+  estado: EstadoAntiSpam,
+  chat_id: IdChat,
+  remetente: IdChat,
+  admin: Option(IdChat),
+  peso: Float,
+  conta_flood: Bool,
   agora_ms: Int,
 ) -> #(EstadoAntiSpam, DecisaoAntiSpam) {
   // 1. Isenção total para o administrador do bot
@@ -135,7 +174,16 @@ pub fn avaliar(
       // 2. Verificar se o chat está sob cooldown/quarentena ativa
       case agora_ms < reg.quarentena_ate_ms {
         True -> avaliar_em_quarentena(estado, chat_id, remetente, reg, agora_ms)
-        False -> avaliar_livre(estado, chat_id, remetente, reg, peso, agora_ms)
+        False ->
+          avaliar_livre(
+            estado,
+            chat_id,
+            remetente,
+            reg,
+            peso,
+            conta_flood,
+            agora_ms,
+          )
       }
     }
   }
@@ -181,7 +229,7 @@ pub fn avaliar_atrasada(
       }
       let decisao = case contagem {
         c if c < limite_diario_mensagens -> Permitido
-        c if c == limite_diario_mensagens -> AvisoLimite(aviso_limite_diario)
+        c if c == limite_diario_mensagens -> AvisoLimite(aviso_limite_diario, 1)
         _ -> Silenciado(None)
       }
       let novo_reg =
@@ -195,6 +243,20 @@ pub fn avaliar_atrasada(
   }
 }
 
+/// Tokens do balde depois da recarga desde `ultimo_ts_ms`.
+fn recarregar(reg: RegistroChat, agora_ms: Int) -> Float {
+  let delta_s =
+    float.max(0.0, int.to_float(agora_ms - reg.ultimo_ts_ms) /. 1000.0)
+  float.min(max_tokens, reg.tokens +. delta_s *. recarga_por_segundo)
+}
+
+/// Avança `ultimo_ts_ms` (que conta para o perdão de strikes) sem perder a
+/// recarga do intervalo: senão quem insiste durante a pausa sai dela com o
+/// balde vazio e volta direto para a quarentena.
+fn tocar(reg: RegistroChat, agora_ms: Int) -> RegistroChat {
+  RegistroChat(..reg, tokens: recarregar(reg, agora_ms), ultimo_ts_ms: agora_ms)
+}
+
 fn avaliar_em_quarentena(
   estado: EstadoAntiSpam,
   chat_id: IdChat,
@@ -202,11 +264,20 @@ fn avaliar_em_quarentena(
   reg: RegistroChat,
   agora_ms: Int,
 ) -> #(EstadoAntiSpam, DecisaoAntiSpam) {
+  let inicio_pausa = case reg.strikes {
+    1 -> reg.quarentena_ate_ms - cooldown_strike1_ms
+    _ -> reg.quarentena_ate_ms - cooldown_strike2_ms
+  }
+  let em_carencia =
+    reg.strikes < 3 && agora_ms - inicio_pausa < carencia_reincidencia_ms
+  use <- bool.guard(em_carencia, #(
+    dict.insert(estado, chat_id, tocar(reg, agora_ms)),
+    Descartado,
+  ))
   case reg.strikes >= 3 {
     // Já está no Strike 3 (Quarentena/Blackhole): descarte silencioso sem notificar de novo.
     True -> {
-      let novo_reg = RegistroChat(..reg, ultimo_ts_ms: agora_ms)
-      #(dict.insert(estado, chat_id, novo_reg), Silenciado(None))
+      #(dict.insert(estado, chat_id, tocar(reg, agora_ms)), Silenciado(None))
     }
     // Reincidência durante Strike 2 (timeout de 5 min) -> escala para Strike 3 (Jail 30m)
     False ->
@@ -224,10 +295,9 @@ fn avaliar_em_quarentena(
             <> "• Ação: Quarentena ativada."
           let novo_reg =
             RegistroChat(
-              ..reg,
+              ..tocar(reg, agora_ms),
               strikes: 3,
               quarentena_ate_ms: agora_ms + quarentena_strike3_ms,
-              ultimo_ts_ms: agora_ms,
             )
           #(dict.insert(estado, chat_id, novo_reg), Silenciado(Some(alerta)))
         }
@@ -237,12 +307,11 @@ fn avaliar_em_quarentena(
             "⚠️ Muitas mensagens durante o tempo de espera. Seu chat foi pausado por 5 minutos."
           let novo_reg =
             RegistroChat(
-              ..reg,
+              ..tocar(reg, agora_ms),
               strikes: 2,
               quarentena_ate_ms: agora_ms + cooldown_strike2_ms,
-              ultimo_ts_ms: agora_ms,
             )
-          #(dict.insert(estado, chat_id, novo_reg), AvisoLimite(aviso))
+          #(dict.insert(estado, chat_id, novo_reg), AvisoLimite(aviso, 2))
         }
       }
   }
@@ -254,6 +323,7 @@ fn avaliar_livre(
   remetente: IdChat,
   reg: RegistroChat,
   peso: Float,
+  conta_flood: Bool,
   agora_ms: Int,
 ) -> #(EstadoAntiSpam, DecisaoAntiSpam) {
   // Perdão de strikes após período longo de bom comportamento
@@ -264,10 +334,13 @@ fn avaliar_livre(
     False -> reg.strikes
   }
 
-  // 3. Detecção de rajada de flood volumétrico (> 5 msgs em 3s)
+  // 3. Detecção de rajada de flood volumétrico (8 textos em 5 s)
   let recentes_filtrados =
     list.filter(reg.recentes_ts, fn(ts) { agora_ms - ts <= janela_flood_ms })
-  let novos_recentes = [agora_ms, ..recentes_filtrados]
+  let novos_recentes = case conta_flood {
+    True -> [agora_ms, ..recentes_filtrados]
+    False -> recentes_filtrados
+  }
 
   case list.length(novos_recentes) >= limite_msgs_flood {
     True -> {
@@ -281,7 +354,7 @@ fn avaliar_livre(
         <> "• Chat: `"
         <> id_chat.para_texto(chat_id)
         <> "`\n"
-        <> "• Motivo: Mais de 5 mensagens em 3 segundos."
+        <> "• Motivo: 8 ou mais mensagens de texto em 5 segundos."
       let novo_reg =
         RegistroChat(
           tokens: 0.0,
@@ -297,10 +370,7 @@ fn avaliar_livre(
 
     False -> {
       // 4. Token Bucket convencional
-      let delta_s =
-        float.max(0.0, int.to_float(agora_ms - reg.ultimo_ts_ms) /. 1000.0)
-      let tokens_recarregados =
-        float.min(max_tokens, reg.tokens +. delta_s *. recarga_por_segundo)
+      let tokens_recarregados = recarregar(reg, agora_ms)
 
       case tokens_recarregados >=. peso {
         True -> {
@@ -312,7 +382,7 @@ fn avaliar_livre(
           let decisao = case contagem {
             c if c < limite_diario_mensagens -> Permitido
             c if c == limite_diario_mensagens ->
-              AvisoLimite(aviso_limite_diario)
+              AvisoLimite(aviso_limite_diario, 1)
             _ -> Silenciado(None)
           }
           // Acima do teto não consome token nem soma strike: só descarta.
@@ -337,24 +407,64 @@ fn avaliar_livre(
         }
 
         False -> {
-          // Esgotou tokens -> Aplica Strike 1 com cooldown de 30s
-          let aviso = case peso >=. 3.0 {
-            True ->
-              "⏳ Calma lá! Mídias pesadas demandam mais tempo para processar. Por favor, aguarde 30 segundos antes de enviar outra."
-            False ->
-              "⏳ Calma lá! Muitas mensagens seguidas. Por favor, aguarde 30 segundos antes de enviar outra."
-          }
-          let novo_reg =
+          // Esgotou tokens: o strike sobe e a pausa segue o novo nível, para
+          // quem já reincidiu não voltar à pausa leve de 30 s.
+          let novo_strike = int.max(1, strikes_atuais + 1)
+          let base =
             RegistroChat(
               tokens: 0.0,
               ultimo_ts_ms: agora_ms,
-              strikes: int.max(1, strikes_atuais + 1),
-              quarentena_ate_ms: agora_ms + cooldown_strike1_ms,
+              strikes: novo_strike,
+              quarentena_ate_ms: 0,
               recentes_ts: novos_recentes,
               dia: reg.dia,
               mensagens_no_dia: reg.mensagens_no_dia,
             )
-          #(dict.insert(estado, chat_id, novo_reg), AvisoLimite(aviso))
+          let #(novo_reg, decisao) = case novo_strike {
+            1 -> {
+              let aviso = case peso >=. 3.0 {
+                True ->
+                  "⏳ Calma lá! Mídias pesadas demandam mais tempo para processar. Por favor, aguarde 30 segundos antes de enviar outra."
+                False ->
+                  "⏳ Calma lá! Muitas mensagens seguidas. Por favor, aguarde 30 segundos antes de enviar outra."
+              }
+              #(
+                RegistroChat(
+                  ..base,
+                  quarentena_ate_ms: agora_ms + cooldown_strike1_ms,
+                ),
+                AvisoLimite(aviso, 1),
+              )
+            }
+            2 -> #(
+              RegistroChat(
+                ..base,
+                quarentena_ate_ms: agora_ms + cooldown_strike2_ms,
+              ),
+              AvisoLimite(
+                "⚠️ Muitas mensagens seguidas de novo. Seu chat foi pausado por 5 minutos.",
+                2,
+              ),
+            )
+            _ -> #(
+              RegistroChat(
+                ..base,
+                strikes: 3,
+                quarentena_ate_ms: agora_ms + quarentena_strike3_ms,
+              ),
+              Silenciado(Some(
+                "🚨 *[Anti-Spam] Chat silenciado por 30m por reincidência*\n"
+                <> "• Telefone: `"
+                <> extrair_telefone(remetente)
+                <> "`\n"
+                <> "• Chat: `"
+                <> id_chat.para_texto(chat_id)
+                <> "`\n"
+                <> "• Ação: Quarentena ativada.",
+              )),
+            )
+          }
+          #(dict.insert(estado, chat_id, novo_reg), decisao)
         }
       }
     }

@@ -43,10 +43,44 @@ pub fn parsear_comando_sem_ponto(
     Error(_) -> #(body, "")
   }
   let nome = normalizar_nome_comando(primeira)
-  case list.contains(comandos_conhecidos, nome) {
+  case
+    list.contains(comandos_conhecidos, nome)
+    && argumento_sem_ponto_valido(nome, resto)
+  {
     True -> Ok(#(nome, resto))
     False -> Error(erro.ErroValidacao("body", "não é um comando"))
   }
+}
+
+/// Sem ponto, só a mensagem inteira vira comando: o nome sozinho ou o nome
+/// com um argumento que ele aceita. "Reset minha conversa" ou "imagem bonita"
+/// são frases para a IA, não comandos.
+fn argumento_sem_ponto_valido(nome: String, args: String) -> Bool {
+  let um_token = args != "" && !string.contains(args, " ")
+  case nome, string.lowercase(args) {
+    _, "" -> True
+    "audio", "on" | "audio", "off" -> True
+    "imagem", "on" | "imagem", "off" -> True
+    "video", "on" | "video", "off" -> True
+    "doc", "on" | "doc", "off" -> True
+    "modelo", a -> um_token && string.contains(a, "/")
+    "parear", a | "reset_whatsapp", a -> e_telefone(a)
+    "unban", a | "desbloquear", a -> um_token || e_telefone(a)
+    _, _ -> False
+  }
+}
+
+/// Telefone como as pessoas digitam: "55 31 99999-0000", "+55 (31) 99999-0000".
+fn e_telefone(args: String) -> Bool {
+  let caracteres = string.to_graphemes(args)
+  list.any(caracteres, e_digito)
+  && list.all(caracteres, fn(c) {
+    e_digito(c) || list.contains([" ", "+", "-", "(", ")"], c)
+  })
+}
+
+fn e_digito(c: String) -> Bool {
+  list.contains(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], c)
 }
 
 pub fn normalizar_nome_comando(nome: String) -> String {
