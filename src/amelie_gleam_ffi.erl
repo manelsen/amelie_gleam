@@ -315,9 +315,17 @@ vagas_ref(Nome) ->
     Chave = {amelie_vagas, Nome},
     case persistent_term:get(Chave, undefined) of
         undefined ->
-            Ref = atomics:new(1, []),
-            persistent_term:put(Chave, Ref),
-            Ref;
+            %% Criação sob lock: duas primeiras reservas simultâneas não
+            %% podem publicar contadores diferentes para o mesmo nome.
+            global:trans({Chave, self()}, fun() ->
+                case persistent_term:get(Chave, undefined) of
+                    undefined ->
+                        Ref = atomics:new(1, []),
+                        persistent_term:put(Chave, Ref),
+                        Ref;
+                    Ref -> Ref
+                end
+            end, [node()]);
         Ref -> Ref
     end.
 
