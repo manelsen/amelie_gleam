@@ -203,13 +203,20 @@ fn descrever(
 }
 
 /// Aviso enviado quando a IA não consegue descrever a mídia; sem ele o
-/// usuário só veria o ⌛ parado. Falha de entrega não passa por aqui: a fila
-/// offline reenvia a resposta.
+/// usuário só veria o ⌛ parado. Vai pela entrega auditada: se a sessão
+/// estiver fora, a fila offline o entrega depois. Falha de entrega da
+/// descrição não passa por aqui: a fila offline reenvia a própria resposta.
 pub const aviso_falha_midia = "⚠️ Não consegui processar sua mídia. Tente enviar novamente."
 
 fn avisar_falha(chat_id: IdChat, msg: Mensagem, ctx: Contexto, e: Erro) -> Erro {
   reagir(msg, "⚠️", ctx.mensageiro)
-  ctx.mensageiro.enviar(chat_id, aviso_falha_midia)
+  entrega_auditada.enviar(
+    chat_id,
+    transacao.RespostaTexto,
+    aviso_falha_midia,
+    ctx.mensageiro,
+    ctx.transacoes,
+  )
   |> sistema.registrar_falha("Falha ao avisar erro de mídia")
   e
 }

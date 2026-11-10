@@ -184,6 +184,32 @@ pub fn video_com_falha_na_ia_apaga_upload_e_so_avisa_test() {
   process.receive(eventos, 100) |> should.equal(Error(Nil))
 }
 
+pub fn aviso_de_falha_fica_auditado_para_reenvio_test() {
+  // Com a sessão fora, o aviso fica na fila offline em vez de se perder.
+  let eventos = process.new_subject()
+  let assert Ok(filas) = fila_midia.iniciar_todas()
+  let msg = fixtures.mensagem_imagem()
+  let ctx =
+    fila_midia.Contexto(
+      ..contexto(
+        portas_fake.ia_erro(erro.ErroIA("bloqueado")),
+        portas_fake.mensageiro_erro(erro.ErroComunicacao("offline")),
+        portas_fake.historico_vazio(),
+        portas_fake.video_contexto_noop(),
+      ),
+      transacoes: portas_fake.transacao_capturar(eventos),
+    )
+
+  fila_midia.enfileirar(filas, msg.chat_id, msg, MidiaImagem, ctx)
+  |> should.be_ok
+
+  let assert Ok(portas_fake.Registrada(tx)) =
+    process.receive(eventos, espera_ms)
+  tx.conteudo |> should.equal(fila_midia.aviso_falha_midia)
+  let assert Ok(portas_fake.ErroAtualizado(1, _, 1)) =
+    process.receive(eventos, espera_ms)
+}
+
 pub fn falha_da_ia_avisa_usuario_e_nao_grava_historico_test() {
   let envios = process.new_subject()
   let turnos = process.new_subject()
