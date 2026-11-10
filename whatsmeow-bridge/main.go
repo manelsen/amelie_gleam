@@ -1668,9 +1668,9 @@ type gleamOutcome int
 
 const (
 	gleamDelivered   gleamOutcome = iota
-	gleamUnavailable              // transporte, auth, 408/429: parar sem contar tentativa
-	gleamServerError              // 5xx: parar e contar tentativa
-	gleamRejected                 // 4xx do payload, ou 5xx insistente: descartar e seguir
+	gleamUnavailable              // transporte, 4xx do caminho, 502/503/504: parar sem contar tentativa
+	gleamServerError              // outros 5xx: parar e contar tentativa
+	gleamRejected                 // 400/413/422, ou 5xx insistente: descartar e seguir
 )
 
 // Depois de tantos 5xx seguidos, a mensagem é tratada como a causa (derruba
@@ -1695,11 +1695,15 @@ func classifyGleamFailure(err error, attempts int) gleamOutcome {
 		return gleamUnavailable
 	}
 	switch {
-	case se.status == http.StatusUnauthorized, se.status == http.StatusForbidden,
-		se.status == http.StatusRequestTimeout, se.status == http.StatusTooManyRequests:
-		return gleamUnavailable
-	case se.status >= 400 && se.status < 500:
+	// Só estes apontam para o payload. Os outros 4xx (401, 404 de URL
+	// errada, 429...) e 502/503/504 de proxy ou deploy são do caminho até o
+	// Gleam: descartar ali perderia mensagens boas.
+	case se.status == http.StatusBadRequest, se.status == http.StatusRequestEntityTooLarge,
+		se.status == http.StatusUnprocessableEntity:
 		return gleamRejected
+	case se.status < 500, se.status == http.StatusBadGateway,
+		se.status == http.StatusServiceUnavailable, se.status == http.StatusGatewayTimeout:
+		return gleamUnavailable
 	case attempts >= maxGleamServerErrors:
 		return gleamRejected
 	default:

@@ -197,11 +197,16 @@ func TestClassifyGleamFailure(t *testing.T) {
 		{nil, 1, gleamDelivered},
 		{errors.New("connection refused"), 1, gleamUnavailable},
 		{&gleamStatusError{status: 401}, 1, gleamUnavailable},
+		{&gleamStatusError{status: 404}, 1, gleamUnavailable},
 		{&gleamStatusError{status: 429}, 1, gleamUnavailable},
 		{&gleamStatusError{status: 400}, 1, gleamRejected},
 		{&gleamStatusError{status: 413}, 1, gleamRejected},
+		{&gleamStatusError{status: 422}, 1, gleamRejected},
 		{&gleamStatusError{status: 500}, 1, gleamServerError},
-		{&gleamStatusError{status: 503}, maxGleamServerErrors, gleamRejected},
+		{&gleamStatusError{status: 500}, maxGleamServerErrors, gleamRejected},
+		{&gleamStatusError{status: 503}, maxGleamServerErrors, gleamUnavailable},
+		{&gleamStatusError{status: 502}, 1, gleamUnavailable},
+		{&gleamStatusError{status: 504}, 1, gleamUnavailable},
 	}
 	for _, c := range casos {
 		if got := classifyGleamFailure(c.err, c.attempts); got != c.want {
