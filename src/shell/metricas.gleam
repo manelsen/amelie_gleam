@@ -5,13 +5,13 @@ import dominio/acao.{
   type TipoMidia, MidiaAudio, MidiaDocumento, MidiaImagem, MidiaSticker,
   MidiaVideo,
 }
-import gleam/dynamic.{type Dynamic}
 import gleam/erlang/process.{type Subject}
 import gleam/int
 import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
 import gleam/otp/supervision
 import gleam/result
+import shell/ator_vivo
 
 pub type Metricas =
   Subject(MensagemMetrica)
@@ -91,21 +91,9 @@ pub fn supervisionado(
 /// a mensagem vai ao processo encontrado: se ele morrer nesse meio-tempo, o
 /// envio a um processo morto não falha. Sem dono, a contagem se perde.
 pub fn registrar(metricas: Metricas, tipo: TipoContador) -> Nil {
-  case process.subject_name(metricas) {
-    Error(Nil) -> process.send(metricas, Incrementar(tipo))
-    Ok(nome) ->
-      case process.named(nome) {
-        // Mesmo formato que process.send usa para um nome: {Nome, Msg}.
-        Ok(pid) ->
-          process.unsafely_create_subject(pid, nome_para_dynamic(nome))
-          |> process.send(Incrementar(tipo))
-        Error(Nil) -> Nil
-      }
-  }
+  let _ = ator_vivo.enviar(metricas, Incrementar(tipo))
+  Nil
 }
-
-@external(erlang, "gleam_erlang_ffi", "identity")
-fn nome_para_dynamic(nome: process.Name(a)) -> Dynamic
 
 pub fn consultar(metricas: Metricas) -> Estado {
   let resposta = process.new_subject()

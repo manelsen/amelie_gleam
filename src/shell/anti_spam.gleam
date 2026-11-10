@@ -12,6 +12,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
 import gleam/otp/supervision
 import gleam/result
+import shell/ator_vivo
 import shell/sistema
 
 const max_chats_em_memoria = 500
@@ -200,16 +201,13 @@ pub fn desbloquear(actor: AntiSpam, alvo: String) -> Bool {
 /// decide como sempre. Um process.call aqui geraria panic e a mensagem se
 /// perderia sem aviso.
 pub fn em_quarentena(actor: AntiSpam, chat_id: IdChat, atrasada: Bool) -> Bool {
-  let vivo = case process.subject_name(actor) {
-    Ok(nome) -> result.is_ok(process.named(nome))
-    Error(Nil) -> True
-  }
-  use <- bool.guard(!vivo, False)
   let resposta = process.new_subject()
-  process.send(
-    actor,
-    EmQuarentena(chat_id, atrasada, sistema.agora_ms(), resposta),
-  )
+  let enviado =
+    ator_vivo.enviar(
+      actor,
+      EmQuarentena(chat_id, atrasada, sistema.agora_ms(), resposta),
+    )
+  use <- bool.guard(!enviado, False)
   process.receive(resposta, 1000) |> result.unwrap(False)
 }
 

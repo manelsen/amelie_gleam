@@ -2033,16 +2033,18 @@ func (b *Bridge) handleResetSession(w http.ResponseWriter, r *http.Request) {
 	if phone == "" {
 		phone = b.cfg.BotPhone
 	}
-	if c := b.wa(); phone == "" && c != nil && c.Store != nil && c.Store.ID != nil {
-		phone = c.Store.ID.User
-	}
-	phone = cleanPhoneNumber(phone)
 
 	log.Printf("[WhatsApp] Reset de sessão solicitado. Desconectando e limpando dados...")
 	// Sob pairingMu: um pareamento em andamento usa o cliente atual do começo
 	// ao fim, e o reset não pode trocá-lo no meio. Mesma ordem de locks de
-	// pairLocked (pairingMu, depois resetMu em deleteSessionStore).
+	// pairLocked (pairingMu, depois resetMu em deleteSessionStore). O
+	// telefone da sessão também é lido aqui dentro, já com o estado final de
+	// um pareamento que terminou antes.
 	b.pairingMu.Lock()
+	if c := b.wa(); phone == "" && c != nil && c.Store != nil && c.Store.ID != nil {
+		phone = c.Store.ID.User
+	}
+	phone = cleanPhoneNumber(phone)
 	if c := b.wa(); c != nil && c.IsConnected() {
 		c.Disconnect()
 	}
