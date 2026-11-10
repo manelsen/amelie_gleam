@@ -224,8 +224,11 @@ type Bridge struct {
 	clientLog waLog.Logger
 	// client é trocado no reset de sessão enquanto handlers HTTP e eventos o
 	// leem em outras goroutines: leitura só por wa(), troca só sob clientMu.
-	client              *whatsmeow.Client
-	clientMu            sync.RWMutex
+	client   *whatsmeow.Client
+	clientMu sync.RWMutex
+	// resetMu serializa deleteSessionStore inteiro: dois resets juntos
+	// (LoggedOut e /reset) apagariam o mesmo dispositivo e criariam dois.
+	resetMu             sync.Mutex
 	connectionMu        sync.RWMutex
 	lastConnectionError *APIError
 	retryMu             sync.Mutex
@@ -2077,6 +2080,8 @@ func (b *Bridge) wa() *whatsmeow.Client {
 }
 
 func (b *Bridge) deleteSessionStore() {
+	b.resetMu.Lock()
+	defer b.resetMu.Unlock()
 	if old := b.wa(); old != nil {
 		if old.IsConnected() {
 			old.Disconnect()

@@ -1,0 +1,44 @@
+import gleam/erlang/process
+import gleeunit/should
+import shell/tarefa_isolada
+
+pub fn tarefa_normal_termina_test() {
+  tarefa_isolada.executar(fn() { Nil }, 1000)
+  |> should.equal(tarefa_isolada.Terminou)
+}
+
+pub fn tarefa_que_quebra_nao_derruba_quem_chama_test() {
+  tarefa_isolada.executar(fn() { panic as "falha simulada" }, 1000)
+  |> should.equal(tarefa_isolada.Quebrou)
+}
+
+pub fn tarefa_travada_estoura_e_morre_test() {
+  let ref = process.new_subject()
+  tarefa_isolada.executar(
+    fn() {
+      process.sleep(200)
+      process.send(ref, Nil)
+    },
+    20,
+  )
+  |> should.equal(tarefa_isolada.Estourou)
+  process.receive(ref, 400) |> should.be_error
+}
+
+pub fn tarefa_morre_junto_com_quem_chama_test() {
+  // Um ator reiniciado não pode ter o job antigo correndo junto com o novo.
+  let ref = process.new_subject()
+  let chamador =
+    process.spawn_unlinked(fn() {
+      tarefa_isolada.executar(
+        fn() {
+          process.sleep(200)
+          process.send(ref, Nil)
+        },
+        10_000,
+      )
+    })
+  process.sleep(20)
+  process.kill(chamador)
+  process.receive(ref, 400) |> should.be_error
+}

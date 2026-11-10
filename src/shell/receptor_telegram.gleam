@@ -131,7 +131,7 @@ fn tarefa_do_evento(
   let processar_com = fn(base: Mensagem, corpo: Conteudo) {
     processar(Mensagem(..base, corpo: corpo))
   }
-  let baixar_ou_avisar = fn(
+  let baixar_sem_quarentena = fn(
     api,
     portas,
     base,
@@ -161,7 +161,7 @@ fn tarefa_do_evento(
       })
     telegram_porta.EventoFotoParaBaixar(_, base, file_id) ->
       Some(fn() {
-        use bytes <- baixar_ou_avisar(
+        use bytes <- baixar_sem_quarentena(
           api,
           portas,
           base,
@@ -174,7 +174,7 @@ fn tarefa_do_evento(
       })
     telegram_porta.EventoAudioParaBaixar(_, base, file_id, mime) ->
       Some(fn() {
-        use bytes <- baixar_ou_avisar(
+        use bytes <- baixar_sem_quarentena(
           api,
           portas,
           base,
@@ -187,7 +187,7 @@ fn tarefa_do_evento(
       })
     telegram_porta.EventoVideoParaBaixar(_, base, file_id, mime) ->
       Some(fn() {
-        use bytes <- baixar_ou_avisar(
+        use bytes <- baixar_sem_quarentena(
           api,
           portas,
           base,
@@ -217,7 +217,7 @@ fn tarefa_do_evento(
       })
     telegram_porta.EventoDocumentoParaBaixar(_, base, file_id, mime, file_name) ->
       Some(fn() {
-        use bytes <- baixar_ou_avisar(
+        use bytes <- baixar_sem_quarentena(
           api,
           portas,
           base,
@@ -233,7 +233,7 @@ fn tarefa_do_evento(
       })
     telegram_porta.EventoStickerParaBaixar(_, base, file_id, mime) ->
       Some(fn() {
-        use bytes <- baixar_ou_avisar(
+        use bytes <- baixar_sem_quarentena(
           api,
           portas,
           base,

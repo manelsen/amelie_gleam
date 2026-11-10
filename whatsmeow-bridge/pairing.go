@@ -25,7 +25,7 @@ func (b *Bridge) requestPairingCode(phone string) (string, error) {
 }
 
 func (b *Bridge) pairLocked(phone string, renewals int) (string, error) {
-	if b.wa().IsLoggedIn() {
+	if c := b.wa(); c != nil && c.IsLoggedIn() {
 		return "", fmt.Errorf("já autenticado")
 	}
 
