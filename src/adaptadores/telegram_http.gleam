@@ -208,19 +208,37 @@ fn enviar_em_partes(
   dividir_texto(texto, limite_mensagem)
   |> enviar_partes(
     fn(parte, i) {
-      let extras = case i {
-        0 -> extras_primeira
-        _ -> []
-      }
-      enviar_texto(bot_token, [
-        #("chat_id", json.string(target_id)),
-        #("text", json.string(parte)),
-        ..extras
-      ])
+      enviar_texto(
+        bot_token,
+        campos_parte(target_id, parte, i, extras_primeira),
+      )
     },
     process.sleep,
   )
 }
+
+/// Campos de `sendMessage` da parte `i`; só a primeira leva os extras
+/// (a citação da mensagem original).
+pub fn campos_parte(
+  target_id: String,
+  parte: String,
+  i: Int,
+  extras_primeira: List(#(String, json.Json)),
+) -> List(#(String, json.Json)) {
+  let extras = case i {
+    0 -> extras_primeira
+    _ -> []
+  }
+  [
+    #("chat_id", json.string(target_id)),
+    #("text", json.string(parte)),
+    ..extras
+  ]
+}
+
+/// Enviado quando parte da resposta já chegou e o restante não passou: sem
+/// ele o usuário ficaria com a resposta cortada sem saber.
+pub const aviso_envio_parcial = "⚠️ Não consegui enviar o restante desta resposta."
 
 /// Esperas entre as tentativas de uma parte que não é a primeira.
 const esperas_parte_ms = [1000, 2000]
@@ -228,8 +246,9 @@ const esperas_parte_ms = [1000, 2000]
 /// Envia as partes em ordem. A primeira tenta uma vez: se falhar, nada
 /// chegou, e a fila offline pode reenviar o texto inteiro. Depois que uma
 /// parte chegou, reenviar o texto inteiro repetiria o começo para o usuário;
-/// por isso as seguintes tentam de novo aqui, e se ainda falharem o erro sai
-/// como "envio parcial", que a fila offline trata como definitivo.
+/// por isso as seguintes tentam de novo aqui. Se ainda falharem, uma última
+/// tentativa leva `aviso_envio_parcial`, e o erro sai como "envio parcial",
+/// que a fila offline trata como definitivo.
 pub fn enviar_partes(
   partes: List(String),
   enviar_parte: fn(String, Int) -> Result(Nil, Erro),
@@ -248,6 +267,7 @@ pub fn enviar_partes(
           esperar,
         )
         |> result.map_error(fn(e) {
+          let _ = enviar_parte(aviso_envio_parcial, total)
           erro.ErroComunicacao(
             "envio parcial: parte "
             <> int.to_string(i + 1)
@@ -282,7 +302,9 @@ pub const limite_mensagem = 4000
 
 /// Divide o texto em partes de até `limite` unidades UTF-16 (a medida da Bot
 /// API), cortando de preferência entre parágrafos, depois entre linhas e
-/// depois entre palavras. Texto dentro do limite volta inteiro.
+/// depois entre palavras. Texto dentro do limite volta inteiro. O corte não
+/// conhece o Markdown: se cair dentro de um `*negrito*`, o Telegram recusa a
+/// formatação e aquela parte vai sem ela, pelo reenvio sem `parse_mode`.
 pub fn dividir_texto(texto: String, limite: Int) -> List(String) {
   case unidades_utf16(texto) <= limite {
     True -> [texto]

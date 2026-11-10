@@ -5,6 +5,7 @@ import dominio/acao.{
   type TipoMidia, MidiaAudio, MidiaDocumento, MidiaImagem, MidiaSticker,
   MidiaVideo,
 }
+import gleam/dynamic.{type Dynamic}
 import gleam/erlang/process.{type Subject}
 import gleam/int
 import gleam/option.{type Option, None, Some}
@@ -86,17 +87,25 @@ pub fn supervisionado(
 
 /// Contar é acessório: com o ator reiniciando, o nome fica sem dono por um
 /// instante, e `process.send` a um nome sem dono gera panic, que derrubaria
-/// quem conta (a fila de mídia, o tratador). Nesse caso a contagem se perde.
+/// quem conta (a fila de mídia, o tratador). O nome é resolvido uma vez só e
+/// a mensagem vai ao processo encontrado: se ele morrer nesse meio-tempo, o
+/// envio a um processo morto não falha. Sem dono, a contagem se perde.
 pub fn registrar(metricas: Metricas, tipo: TipoContador) -> Nil {
-  let vivo = case process.subject_name(metricas) {
-    Ok(nome) -> result.is_ok(process.named(nome))
-    Error(Nil) -> True
-  }
-  case vivo {
-    True -> process.send(metricas, Incrementar(tipo))
-    False -> Nil
+  case process.subject_name(metricas) {
+    Error(Nil) -> process.send(metricas, Incrementar(tipo))
+    Ok(nome) ->
+      case process.named(nome) {
+        // Mesmo formato que process.send usa para um nome: {Nome, Msg}.
+        Ok(pid) ->
+          process.unsafely_create_subject(pid, nome_para_dynamic(nome))
+          |> process.send(Incrementar(tipo))
+        Error(Nil) -> Nil
+      }
   }
 }
+
+@external(erlang, "gleam_erlang_ffi", "identity")
+fn nome_para_dynamic(nome: process.Name(a)) -> Dynamic
 
 pub fn consultar(metricas: Metricas) -> Estado {
   let resposta = process.new_subject()

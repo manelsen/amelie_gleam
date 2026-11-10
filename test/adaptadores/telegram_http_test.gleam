@@ -92,7 +92,7 @@ pub fn emoji_conta_como_duas_unidades_test() {
   |> should.equal(["😀😀", "😀"])
 }
 
-pub fn nenhuma_parte_passa_do_limite_real_test() {
+pub fn texto_ascii_longo_nenhuma_parte_passa_do_limite_test() {
   let texto = string.repeat("palavra ", 1500)
   let partes = telegram_http.dividir_texto(texto, telegram_http.limite_mensagem)
   list.length(partes) |> should.equal(3)
@@ -143,10 +143,12 @@ pub fn parte_seguinte_retenta_e_passa_test() {
 
 pub fn parte_seguinte_que_nao_passa_vira_envio_parcial_definitivo_test() {
   let esperas = process.new_subject()
+  let textos = process.new_subject()
   let assert Error(e) =
     telegram_http.enviar_partes(
       ["a", "b", "c"],
-      fn(_, i) {
+      fn(texto, i) {
+        process.send(textos, texto)
         case i {
           0 -> Ok(Nil)
           _ -> Error(erro.ErroComunicacao("telegram status 502"))
@@ -160,4 +162,27 @@ pub fn parte_seguinte_que_nao_passa_vira_envio_parcial_definitivo_test() {
   fila_offline.e_erro_definitivo(e) |> should.be_true
   process.receive(esperas, 10) |> should.equal(Ok(1000))
   process.receive(esperas, 10) |> should.equal(Ok(2000))
+  // a, b três vezes e, por fim, o aviso de que o resto não chegou.
+  list.map([1, 2, 3, 4, 5], fn(_) { process.receive(textos, 10) })
+  |> should.equal([
+    Ok("a"),
+    Ok("b"),
+    Ok("b"),
+    Ok("b"),
+    Ok(telegram_http.aviso_envio_parcial),
+  ])
+}
+
+pub fn so_a_primeira_parte_cita_a_mensagem_test() {
+  let citacao = [#("reply_to_message_id", json.int(7))]
+  telegram_http.campos_parte("1", "a", 0, citacao)
+  |> json.object
+  |> json.to_string
+  |> should.equal(
+    "{\"chat_id\":\"1\",\"text\":\"a\",\"reply_to_message_id\":7}",
+  )
+  telegram_http.campos_parte("1", "b", 1, citacao)
+  |> json.object
+  |> json.to_string
+  |> should.equal("{\"chat_id\":\"1\",\"text\":\"b\"}")
 }

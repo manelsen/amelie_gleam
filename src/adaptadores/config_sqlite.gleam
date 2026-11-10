@@ -74,8 +74,10 @@ fn migrar_uma_vez(conn: sqlight.Connection, nome: String, sql: String) -> Nil {
             expecting: decode.dynamic,
           )
         }
-        case aplicada {
-          Ok(_) -> sqlight.exec("COMMIT", conn)
+        // Também se o COMMIT falhar (banco ocupado): a transação aberta
+        // engoliria as escritas seguintes nesta conexão.
+        case result.try(aplicada, fn(_) { sqlight.exec("COMMIT", conn) }) {
+          Ok(_) -> Ok(Nil)
           Error(e) -> {
             let _ = sqlight.exec("ROLLBACK", conn)
             Error(e)
