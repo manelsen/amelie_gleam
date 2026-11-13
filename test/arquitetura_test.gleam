@@ -8,6 +8,9 @@ import simplifile
 
 const camadas = ["dominio", "portas", "core", "adaptadores", "shell"]
 
+/// Único módulo fora das camadas: monta adaptadores e portas.
+const ponto_de_entrada = "amelie_gleam"
+
 /// Bibliotecas que falam com o mundo de fora (banco, servidor e cliente HTTP).
 /// Só os adaptadores e o ponto de entrada podem importá-las.
 const infraestrutura = ["sqlight", "mist", "gleam/httpc"]
@@ -20,7 +23,9 @@ fn camadas_permitidas(camada: String) -> List(String) {
     "adaptadores" -> ["adaptadores", "dominio", "portas"]
     "shell" -> ["shell", "core", "dominio", "portas"]
     // O ponto de entrada monta tudo.
-    _ -> camadas
+    c if c == ponto_de_entrada -> camadas
+    // Módulo solto fora das camadas: não pode depender de nenhuma.
+    _ -> []
   }
 }
 
@@ -66,7 +71,7 @@ pub fn violacoes(arquivo: String, fonte: String) -> List(String) {
     |> string.replace("src/", "")
     |> string.replace(".gleam", "")
   let camada = camada_de(modulo)
-  let e_entrada = !list.contains(camadas, camada)
+  let e_entrada = modulo == ponto_de_entrada
   let permitidas = camadas_permitidas(camada)
   imports(fonte)
   |> list.filter(fn(importado) {
@@ -110,4 +115,15 @@ pub fn guarda_acusa_infraestrutura_fora_dos_adaptadores_test() {
     == ["src/shell/x.gleam: sqlight"]
   assert violacoes("src/adaptadores/x.gleam", "import sqlight\n") == []
   assert violacoes("src/amelie_gleam.gleam", "import adaptadores/x\n") == []
+}
+
+pub fn guarda_so_libera_o_ponto_de_entrada_real_test() {
+  assert violacoes(
+      "src/utilitarios.gleam",
+      "import sqlight\nimport adaptadores/x\nimport gleam/list\n",
+    )
+    == [
+      "src/utilitarios.gleam: sqlight",
+      "src/utilitarios.gleam: adaptadores/x",
+    ]
 }
