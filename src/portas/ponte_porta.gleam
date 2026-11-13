@@ -2,6 +2,8 @@
 // estado da sessão, pareamento, reset e busca de páginas com DNS fixado.
 
 import dominio/erro.{type Erro}
+import dominio/mensagem.{type Mensagem}
+import gleam/option.{type Option}
 
 /// Cabeçalho com o segredo compartilhado (BRIDGE_TOKEN), nos dois sentidos:
 /// Gleam → ponte e ponte → webhooks do Gleam.
@@ -20,4 +22,17 @@ pub type PontePorta {
     resetar_sessao: fn(String) -> Result(Nil, String),
     buscar_pagina: fn(String) -> Result(String, Erro),
   )
+}
+
+/// Mensagem recebida da ponte. `arquivo` aponta para a mídia que a ponte
+/// gravou no spool e que ainda precisa ser lida para preencher `msg.corpo`.
+pub type Webhook {
+  Webhook(msg: Mensagem, arquivo: Option(String))
+}
+
+/// Mudança de estado da conexão do WhatsApp, avisada pela ponte.
+pub type EventoPonte {
+  CodigoPareamentoGerado(telefone: String, codigo: String)
+  WhatsappCaiu(motivo: String)
+  WhatsappVoltou
 }
