@@ -19,8 +19,10 @@ pub type Desfecho {
 /// ter o job antigo correndo em paralelo com o novo.
 pub fn executar(tarefa: fn() -> Nil, tempo_maximo_ms: Int) -> Desfecho {
   let chamador = process.self()
-  let pid = process.spawn_unlinked(fn() { guardar(chamador, tarefa) })
-  let monitor = process.monitor(pid)
+  // Criar e monitorar num passo só: com spawn e depois monitor, uma tarefa
+  // instantânea termina antes do monitor existir, e o DOWN chega com
+  // `noproc`, lido como Quebrou.
+  let #(pid, monitor) = criar_e_monitorar(fn() { guardar(chamador, tarefa) })
   let terminou =
     process.new_selector()
     |> process.select_specific_monitor(monitor, fn(down) {
@@ -40,14 +42,22 @@ pub fn executar(tarefa: fn() -> Nil, tempo_maximo_ms: Int) -> Desfecho {
   }
 }
 
+@external(erlang, "amelie_gleam_ffi", "criar_e_monitorar")
+fn criar_e_monitorar(processo: fn() -> Nil) -> #(process.Pid, process.Monitor)
+
+@external(erlang, "amelie_gleam_ffi", "criar_ligado_e_monitorar")
+fn criar_ligado_e_monitorar(
+  processo: fn() -> Nil,
+) -> #(process.Pid, process.Monitor)
+
 /// Processo intermediário entre quem chama e a tarefa. A tarefa é ligada a
 /// ele (morre se ele for encerrado no tempo máximo); ele vigia quem chama e
 /// encerra a tarefa se quem chama morrer. Não há vínculo com quem chama: uma
 /// falha da tarefa não o derruba, só aparece no monitor dele.
 fn guardar(chamador: process.Pid, tarefa: fn() -> Nil) -> Nil {
   let do_chamador = process.monitor(chamador)
-  let trabalho = process.spawn(tarefa)
-  let do_trabalho = process.monitor(trabalho)
+  // Ligada e monitorada num passo só, pelo mesmo motivo de `executar`.
+  let #(trabalho, do_trabalho) = criar_ligado_e_monitorar(tarefa)
   let fim =
     process.new_selector()
     |> process.select_specific_monitor(do_trabalho, fn(down) {
