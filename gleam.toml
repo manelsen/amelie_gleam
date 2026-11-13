@@ -7,7 +7,10 @@ description = "Amélie WhatsApp bot — Gleam/BEAM"
 gleam_stdlib   = ">= 0.50.0 and < 1.0.0"
 gleam_otp      = ">= 1.0.0 and < 2.0.0"
 gleam_erlang   = ">= 1.0.0 and < 2.0.0"
-gleam_http     = ">= 4.0.0 and < 5.0.0"
+# < 4.4.0: o 4.4 marcou http.Header como obsoleto, e mist 6.0.3 e gramps 6.0.1
+# (as versões mais novas) ainda o usam, o que enche o build de avisos.
+# Soltar quando o mist parar de usar Header.
+gleam_http     = ">= 4.0.0 and < 4.4.0"
 gleam_httpc    = ">= 5.0.0 and < 6.0.0"
 gleam_json     = ">= 3.0.0 and < 4.0.0"
 mist           = ">= 6.0.0 and < 7.0.0"
