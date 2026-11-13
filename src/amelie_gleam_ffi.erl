@@ -7,7 +7,8 @@
          constant_time_equal/2, validate_bridge_media/1, read_bridge_media/1,
          cache_key/3, write_private_media/1, limpar_midias_antigas/1,
          delete_file/1, ensure_applications_started/0, safe_mime/1,
-         reservar_vaga/2, liberar_vaga/1]).
+         reservar_vaga/2, liberar_vaga/1, criar_e_monitorar/1,
+         criar_ligado_e_monitorar/1]).
 
 %% Lê arquivo do disco.
 %% Retorna {ok, Binary} | {error, Binary} — Result(BitArray, String) no Gleam.
@@ -348,3 +349,12 @@ reservar_vaga_cas(Ref, Max) ->
 liberar_vaga(Nome) ->
     atomics:sub(vagas_ref(Nome), 1, 1),
     nil.
+
+%% Cria o processo já monitorado, de forma atômica. Devolve {Pid, Ref}:
+%% #(Pid, Monitor) no Gleam, pois o Monitor do gleam_erlang é a referência.
+criar_e_monitorar(Fun) ->
+    erlang:spawn_monitor(Fun).
+
+%% Como criar_e_monitorar, mas também ligado a quem cria.
+criar_ligado_e_monitorar(Fun) ->
+    erlang:spawn_opt(Fun, [link, monitor]).

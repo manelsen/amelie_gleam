@@ -1,10 +1,21 @@
 import gleam/erlang/process
+import gleam/list
 import gleeunit/should
 import shell/tarefa_isolada
 
 pub fn tarefa_normal_termina_test() {
   tarefa_isolada.executar(fn() { Nil }, 1000)
   |> should.equal(tarefa_isolada.Terminou)
+}
+
+pub fn tarefa_instantanea_nunca_parece_quebrada_test() {
+  // A tarefa pode terminar antes de quem chama passar a vigiá-la; isso não
+  // pode virar Quebrou.
+  list.repeat(Nil, 2000)
+  |> list.each(fn(_) {
+    tarefa_isolada.executar(fn() { Nil }, 1000)
+    |> should.equal(tarefa_isolada.Terminou)
+  })
 }
 
 pub fn tarefa_que_quebra_nao_derruba_quem_chama_test() {
