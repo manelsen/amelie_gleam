@@ -42,18 +42,41 @@ fn e_infraestrutura(importado: String) -> Bool {
   })
 }
 
+/// Linhas `import` de código, ignorando as que estão dentro de uma string de
+/// várias linhas.
 fn imports(fonte: String) -> List(String) {
-  string.split(fonte, "\n")
-  |> list.filter_map(fn(linha) {
-    case linha {
-      "import " <> resto ->
-        case string.split_once(resto, " ") {
-          Ok(#(modulo, _)) -> Ok(trim_import(modulo))
-          Error(_) -> Ok(trim_import(resto))
-        }
-      _ -> Error(Nil)
-    }
-  })
+  let #(achados, _) =
+    string.split(fonte, "\n")
+    |> list.fold(#([], False), fn(estado, linha) {
+      let #(achados, em_string) = estado
+      let achados = case em_string, linha {
+        False, "import " <> resto -> [modulo_importado(resto), ..achados]
+        _, _ -> achados
+      }
+      #(achados, termina_em_string(string.to_graphemes(linha), em_string))
+    })
+  list.reverse(achados)
+}
+
+fn modulo_importado(resto: String) -> String {
+  case string.split_once(resto, " ") {
+    Ok(#(modulo, _)) -> trim_import(modulo)
+    Error(_) -> trim_import(resto)
+  }
+}
+
+/// Diz se a linha termina dentro de uma string, dado se começou dentro de uma.
+/// Fora de string, `//` encerra a linha; dentro, `\` escapa o próximo caractere.
+fn termina_em_string(caracteres: List(String), em_string: Bool) -> Bool {
+  case em_string, caracteres {
+    _, [] -> em_string
+    False, ["/", "/", ..] -> False
+    False, ["\"", ..resto] -> termina_em_string(resto, True)
+    False, [_, ..resto] -> termina_em_string(resto, False)
+    True, ["\\", _, ..resto] -> termina_em_string(resto, True)
+    True, ["\"", ..resto] -> termina_em_string(resto, False)
+    True, [_, ..resto] -> termina_em_string(resto, True)
+  }
 }
 
 // `import a/b.{type X}` → `a/b`
@@ -136,4 +159,11 @@ pub fn guarda_acusa_porta_importando_porta_test() {
 pub fn guarda_acusa_camada_importando_o_ponto_de_entrada_test() {
   assert violacoes("src/core/x.gleam", "import amelie_gleam\n")
     == ["src/core/x.gleam: amelie_gleam"]
+}
+
+pub fn guarda_ignora_import_dentro_de_string_test() {
+  let fonte =
+    "import dominio/a\npub const exemplo = \"\nimport sqlight\n\\\" ainda\n\"\n// \"\nimport sqlight\n"
+  assert violacoes("src/dominio/x.gleam", fonte)
+    == ["src/dominio/x.gleam: sqlight"]
 }
