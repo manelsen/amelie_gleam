@@ -22,8 +22,6 @@ fn camadas_permitidas(camada: String) -> List(String) {
     "core" -> ["core", "dominio"]
     "adaptadores" -> ["adaptadores", "dominio", "portas"]
     "shell" -> ["shell", "core", "dominio", "portas"]
-    // O ponto de entrada monta tudo.
-    c if c == ponto_de_entrada -> camadas
     // Módulo solto fora das camadas: não pode depender de nenhuma.
     _ -> []
   }
@@ -96,7 +94,11 @@ pub fn violacoes(arquivo: String, fonte: String) -> List(String) {
     |> string.replace(".gleam", "")
   let camada = camada_de(modulo)
   let e_entrada = modulo == ponto_de_entrada
-  let permitidas = camadas_permitidas(camada)
+  // Só o módulo `amelie_gleam` em si monta tudo; um `amelie_gleam/x` não.
+  let permitidas = case e_entrada {
+    True -> camadas
+    False -> camadas_permitidas(camada)
+  }
   imports(fonte)
   |> list.filter(fn(importado) {
     let alvo = camada_de(importado)
@@ -177,4 +179,12 @@ pub fn guarda_acusa_import_recuado_test() {
 pub fn guarda_acusa_import_com_espacos_extras_test() {
   assert violacoes("src/shell/x.gleam", "import  adaptadores/telegram_http\n")
     == ["src/shell/x.gleam: adaptadores/telegram_http"]
+}
+
+pub fn guarda_nao_estende_a_excecao_a_submodulos_da_entrada_test() {
+  assert violacoes(
+      "src/amelie_gleam/utilitarios.gleam",
+      "import adaptadores/x\n",
+    )
+    == ["src/amelie_gleam/utilitarios.gleam: adaptadores/x"]
 }
