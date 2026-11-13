@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
+	"log"
 	"sync"
 	"time"
+
+	"go.mau.fi/whatsmeow/types"
 )
 
 // A Amélie só atende conversas privadas. Antes, a política "sem grupos"
@@ -64,4 +68,25 @@ func (a *leaveAttempts) shouldAttempt(group string, now time.Time) bool {
 	}
 	a.last[group] = now
 	return true
+}
+
+// leaveGroup sai do grupo em segundo plano, no máximo uma tentativa por
+// grupo a cada groupLeaveRetry. Não loga o JID: grupos antigos carregam o
+// telefone de quem os criou no identificador.
+func (b *Bridge) leaveGroup(group types.JID) {
+	if b.wa() == nil || b.groupLeaves == nil {
+		return
+	}
+	if !b.groupLeaves.shouldAttempt(group.String(), time.Now()) {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := b.wa().LeaveGroup(ctx, group); err != nil {
+			log.Printf("[Grupos] Falha ao sair de um grupo (nova tentativa em até %s): %v", groupLeaveRetry, err)
+			return
+		}
+		log.Printf("[Grupos] A Amélie foi adicionada a um grupo e saiu, como manda a política")
+	}()
 }
