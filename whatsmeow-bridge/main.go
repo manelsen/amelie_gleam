@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -242,6 +243,10 @@ type Bridge struct {
 	pairingGen          uint64
 	pairingStop         chan struct{}
 	dispatch            chatDispatcher
+	// avisoQuedaPendente fica verdadeiro quando o admin soube de uma queda
+	// (whatsapp_down ou código de pareamento) e ainda não soube da volta. A
+	// ponte nasce com ele ligado: subir o processo também é uma volta.
+	avisoQuedaPendente atomic.Bool
 }
 
 type mediaRetryPending struct {
@@ -275,6 +280,7 @@ func NewBridge(cfg Config) (*Bridge, error) {
 		mediaRetryAttempts:  make(map[string]int),
 		groupLeaves:         newLeaveAttempts(),
 	}
+	b.avisoQuedaPendente.Store(true)
 
 	if err := b.initQueueDB(); err != nil {
 		return nil, fmt.Errorf("inicializando fila de webhook: %w", err)
@@ -359,6 +365,7 @@ func (b *Bridge) handleEvent(rawEvt interface{}) {
 	case *events.Connected:
 		b.clearConnectionError()
 		log.Printf("[WhatsApp] Conectado e autenticado")
+		b.avisarVolta()
 	case *events.Disconnected:
 		b.setConnectionError(
 			"whatsapp_disconnected",
@@ -2108,7 +2115,21 @@ func (b *Bridge) deleteSessionStore() {
 	}
 }
 
+// avisarVolta manda whatsapp_up ao Gleam na primeira conexão depois de um
+// aviso de queda (ou do início do processo). Reconexões automáticas, que não
+// geraram aviso de queda, não geram aviso de volta.
+func (b *Bridge) avisarVolta() {
+	if !b.avisoQuedaPendente.CompareAndSwap(true, false) {
+		return
+	}
+	b.notifyGleamEvent(map[string]interface{}{"evento": "whatsapp_up"})
+}
+
 func (b *Bridge) notifyGleamEvent(payload map[string]interface{}) {
+	switch payload["evento"] {
+	case "whatsapp_down", "pairing_code":
+		b.avisoQuedaPendente.Store(true)
+	}
 	if b.cfg.GleamURL == "" {
 		return
 	}

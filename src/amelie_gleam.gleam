@@ -367,6 +367,7 @@ pub fn tratar_saude_publica(
 type EventoPonte {
   CodigoPareamentoGerado(telefone: String, codigo: String)
   WhatsappCaiu(motivo: String)
+  WhatsappVoltou
 }
 
 fn tratar_evento_ponte(
@@ -420,6 +421,18 @@ fn tratar_evento_ponte(
                     )
                   Nil
                 }
+                WhatsappVoltou -> {
+                  let texto =
+                    "✅ *A Amélie voltou!*\n\n"
+                    <> "O WhatsApp está conectado e atendendo de novo."
+                  let _ =
+                    telegram_http.enviar_mensagem(
+                      bot_token,
+                      admin_chat_id,
+                      texto,
+                    )
+                  Nil
+                }
               }
             }
           }
@@ -442,6 +455,7 @@ fn decodificar_evento_ponte(body: BitArray) -> Result(EventoPonte, Nil) {
     use motivo <- decode.optional_field("motivo", "Desconectado", decode.string)
     case evento {
       "pairing_code" -> decode.success(CodigoPareamentoGerado(phone, code))
+      "whatsapp_up" -> decode.success(WhatsappVoltou)
       _ -> decode.success(WhatsappCaiu(motivo))
     }
   }

@@ -574,6 +574,53 @@ func TestNotifyGleamEvent(t *testing.T) {
 	}
 }
 
+func TestAvisoDeVoltaSoDepoisDeQueda(t *testing.T) {
+	received := make(chan string, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		if evt, ok := payload["evento"].(string); ok {
+			received <- evt
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	bridge := &Bridge{cfg: Config{GleamURL: server.URL + "/webhook", Token: testBridgeToken}}
+	esperar := func(want string) {
+		t.Helper()
+		select {
+		case evt := <-received:
+			if evt != want {
+				t.Fatalf("evento = %q, want %q", evt, want)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timeout esperando %s", want)
+		}
+	}
+	nada := func() {
+		t.Helper()
+		select {
+		case evt := <-received:
+			t.Fatalf("evento inesperado %q", evt)
+		case <-time.After(300 * time.Millisecond):
+		}
+	}
+
+	// Reconexão sem aviso de queda: silêncio.
+	bridge.handleEvent(&events.Connected{})
+	nada()
+
+	bridge.notifyGleamEvent(map[string]interface{}{"evento": "whatsapp_down", "motivo": "x"})
+	esperar("whatsapp_down")
+	bridge.handleEvent(&events.Connected{})
+	esperar("whatsapp_up")
+
+	// Só uma vez por queda.
+	bridge.handleEvent(&events.Connected{})
+	nada()
+}
+
 func TestHandleResetSessionMethodNotAllowed(t *testing.T) {
 	bridge := &Bridge{}
 	recorder := httptest.NewRecorder()
