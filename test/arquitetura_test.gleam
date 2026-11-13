@@ -59,6 +59,7 @@ fn imports(fonte: String) -> List(String) {
 }
 
 fn modulo_importado(resto: String) -> String {
+  let resto = string.trim_start(resto)
   case string.split_once(resto, " ") {
     Ok(#(modulo, _)) -> trim_import(modulo)
     Error(_) -> trim_import(resto)
@@ -170,5 +171,10 @@ pub fn guarda_ignora_import_dentro_de_string_test() {
 
 pub fn guarda_acusa_import_recuado_test() {
   assert violacoes("src/shell/x.gleam", "  import adaptadores/telegram_http\n")
+    == ["src/shell/x.gleam: adaptadores/telegram_http"]
+}
+
+pub fn guarda_acusa_import_com_espacos_extras_test() {
+  assert violacoes("src/shell/x.gleam", "import  adaptadores/telegram_http\n")
     == ["src/shell/x.gleam: adaptadores/telegram_http"]
 }
