@@ -18,7 +18,7 @@ const infraestrutura = ["sqlight", "mist", "gleam/httpc"]
 fn camadas_permitidas(camada: String) -> List(String) {
   case camada {
     "dominio" -> ["dominio"]
-    "portas" -> ["portas", "dominio"]
+    "portas" -> ["dominio"]
     "core" -> ["core", "dominio"]
     "adaptadores" -> ["adaptadores", "dominio", "portas"]
     "shell" -> ["shell", "core", "dominio", "portas"]
@@ -76,7 +76,7 @@ pub fn violacoes(arquivo: String, fonte: String) -> List(String) {
   imports(fonte)
   |> list.filter(fn(importado) {
     let alvo = camada_de(importado)
-    case list.contains(camadas, alvo) {
+    case importado == ponto_de_entrada || list.contains(camadas, alvo) {
       True -> !list.contains(permitidas, alvo)
       False ->
         e_infraestrutura(importado) && !e_entrada && camada != "adaptadores"
@@ -126,4 +126,14 @@ pub fn guarda_so_libera_o_ponto_de_entrada_real_test() {
       "src/utilitarios.gleam: sqlight",
       "src/utilitarios.gleam: adaptadores/x",
     ]
+}
+
+pub fn guarda_acusa_porta_importando_porta_test() {
+  assert violacoes("src/portas/x.gleam", "import portas/y\nimport dominio/z\n")
+    == ["src/portas/x.gleam: portas/y"]
+}
+
+pub fn guarda_acusa_camada_importando_o_ponto_de_entrada_test() {
+  assert violacoes("src/core/x.gleam", "import amelie_gleam\n")
+    == ["src/core/x.gleam: amelie_gleam"]
 }
