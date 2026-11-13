@@ -247,8 +247,8 @@ type Bridge struct {
 	// (whatsapp_down ou código de pareamento) e ainda não soube da volta. A
 	// ponte nasce com ele ligado: subir o processo também é uma volta.
 	avisoQuedaPendente atomic.Bool
+	eventosMu          sync.Mutex
 	eventos            chan gleamEvent
-	eventosOnce        sync.Once
 }
 
 type mediaRetryPending struct {
@@ -2121,10 +2121,12 @@ func (b *Bridge) deleteSessionStore() {
 // aviso de queda (ou do início do processo). Reconexões automáticas, que não
 // geraram aviso de queda, não geram aviso de volta.
 func (b *Bridge) avisarVolta() {
+	b.eventosMu.Lock()
+	defer b.eventosMu.Unlock()
 	if !b.avisoQuedaPendente.CompareAndSwap(true, false) {
 		return
 	}
-	b.notifyGleamEvent(map[string]interface{}{"evento": "whatsapp_up"})
+	b.enfileirarEventoLocked(map[string]interface{}{"evento": "whatsapp_up"})
 }
 
 // Esperas entre tentativas de entregar um evento ao Gleam: somam cerca de
@@ -2135,6 +2137,9 @@ var notifyRetryDelays = []time.Duration{
 	15 * time.Second, 15 * time.Second,
 }
 
+// Espera até tentar de novo um aviso de volta que não chegou ao Gleam.
+var voltaRetryDelay = time.Minute
+
 type gleamEvent struct {
 	nome  interface{}
 	dados []byte
@@ -2144,10 +2149,18 @@ type gleamEvent struct {
 // ordem por um único worker: um aviso de queda em retentativa não pode chegar
 // ao admin depois do aviso de volta.
 func (b *Bridge) notifyGleamEvent(payload map[string]interface{}) {
+	// O indicador e a fila mudam juntos: um Connected no meio não pode
+	// enfileirar a volta antes desta queda.
+	b.eventosMu.Lock()
+	defer b.eventosMu.Unlock()
 	switch payload["evento"] {
 	case "whatsapp_down", "pairing_code":
 		b.avisoQuedaPendente.Store(true)
 	}
+	b.enfileirarEventoLocked(payload)
+}
+
+func (b *Bridge) enfileirarEventoLocked(payload map[string]interface{}) {
 	if b.cfg.GleamURL == "" {
 		return
 	}
@@ -2156,10 +2169,10 @@ func (b *Bridge) notifyGleamEvent(payload map[string]interface{}) {
 		log.Printf("[Bridge] Erro ao codificar evento para o Gleam: %v\n", err)
 		return
 	}
-	b.eventosOnce.Do(func() {
+	if b.eventos == nil {
 		b.eventos = make(chan gleamEvent, 64)
-		go b.entregarEventos()
-	})
+		go b.entregarEventos(b.eventos)
+	}
 	select {
 	case b.eventos <- gleamEvent{nome: payload["evento"], dados: data}:
 	default:
@@ -2170,16 +2183,24 @@ func (b *Bridge) notifyGleamEvent(payload map[string]interface{}) {
 	}
 }
 
-func (b *Bridge) entregarEventos() {
+func (b *Bridge) entregarEventos(eventos <-chan gleamEvent) {
 	eventURL := strings.Replace(b.cfg.GleamURL, "/webhook", "/webhook/bridge-event", 1)
-	for evt := range b.eventos {
-		if b.entregarEvento(eventURL, evt) {
+	for evt := range eventos {
+		if b.entregarEvento(eventURL, evt) || evt.nome != "whatsapp_up" {
 			continue
 		}
-		// O aviso de volta não chegou: a próxima conexão tenta de novo.
-		if evt.nome == "whatsapp_up" {
-			b.avisoQuedaPendente.Store(true)
-		}
+		// O aviso de volta não chegou: fica pendente, e uma nova tentativa
+		// sai daqui a pouco se a sessão continuar conectada.
+		b.eventosMu.Lock()
+		b.avisoQuedaPendente.Store(true)
+		b.eventosMu.Unlock()
+		time.AfterFunc(voltaRetryDelay, b.avisarVoltaSeConectado)
+	}
+}
+
+func (b *Bridge) avisarVoltaSeConectado() {
+	if c := b.wa(); c != nil && c.IsLoggedIn() {
+		b.avisarVolta()
 	}
 }
 
