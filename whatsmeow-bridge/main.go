@@ -243,12 +243,14 @@ type Bridge struct {
 	pairingGen          uint64
 	pairingStop         chan struct{}
 	dispatch            chatDispatcher
-	// avisoQuedaPendente fica verdadeiro quando o admin soube de uma queda
-	// (whatsapp_down ou código de pareamento) e ainda não soube da volta. A
-	// ponte nasce com ele ligado: subir o processo também é uma volta.
+	// avisoQuedaPendente fica verdadeiro quando um aviso de queda
+	// (whatsapp_down ou código de pareamento) entra na fila e a volta ainda
+	// não foi avisada. A ponte nasce com ele ligado: subir o processo também
+	// é uma volta. Se o aviso de queda se perder, a volta sai mesmo assim; um
+	// "voltou" a mais é melhor que nenhum.
 	avisoQuedaPendente atomic.Bool
 	eventosMu          sync.Mutex
-	eventos            chan gleamEvent
+	eventos            chan eventoGleam
 }
 
 type mediaRetryPending struct {
@@ -2140,7 +2142,7 @@ var notifyRetryDelays = []time.Duration{
 // Espera até tentar de novo um aviso de volta que não chegou ao Gleam.
 var voltaRetryDelay = time.Minute
 
-type gleamEvent struct {
+type eventoGleam struct {
 	nome  interface{}
 	dados []byte
 }
@@ -2170,11 +2172,11 @@ func (b *Bridge) enfileirarEventoLocked(payload map[string]interface{}) {
 		return
 	}
 	if b.eventos == nil {
-		b.eventos = make(chan gleamEvent, 64)
+		b.eventos = make(chan eventoGleam, 64)
 		go b.entregarEventos(b.eventos)
 	}
 	select {
-	case b.eventos <- gleamEvent{nome: payload["evento"], dados: data}:
+	case b.eventos <- eventoGleam{nome: payload["evento"], dados: data}:
 	default:
 		log.Printf("[Bridge] Fila de eventos para o Gleam cheia; evento '%v' descartado\n", payload["evento"])
 		if payload["evento"] == "whatsapp_up" {
@@ -2183,7 +2185,7 @@ func (b *Bridge) enfileirarEventoLocked(payload map[string]interface{}) {
 	}
 }
 
-func (b *Bridge) entregarEventos(eventos <-chan gleamEvent) {
+func (b *Bridge) entregarEventos(eventos <-chan eventoGleam) {
 	eventURL := strings.Replace(b.cfg.GleamURL, "/webhook", "/webhook/bridge-event", 1)
 	for evt := range eventos {
 		if b.entregarEvento(eventURL, evt) || evt.nome != "whatsapp_up" {
@@ -2204,7 +2206,7 @@ func (b *Bridge) avisarVoltaSeConectado() {
 	}
 }
 
-func (b *Bridge) entregarEvento(eventURL string, evt gleamEvent) bool {
+func (b *Bridge) entregarEvento(eventURL string, evt eventoGleam) bool {
 	total := len(notifyRetryDelays) + 1
 	for attempt := 1; attempt <= total; attempt++ {
 		resp, err := b.postAuthenticated(eventURL, evt.dados)
