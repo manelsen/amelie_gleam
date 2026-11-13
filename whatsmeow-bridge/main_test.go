@@ -667,6 +667,33 @@ func TestAvisoDeVoltaNaoEntregueFicaPendente(t *testing.T) {
 	}
 }
 
+func TestFalhaDeVoltaAntigaNaoReligaPendencia(t *testing.T) {
+	bridge := &Bridge{}
+	bridge.geracaoVolta = 2
+
+	// O aviso 1 desistiu depois de o aviso 2 já ter sido enfileirado.
+	bridge.voltaNaoEntregue(1)
+	if bridge.avisoQuedaPendente.Load() {
+		t.Fatal("falha de aviso antigo religou a pendência")
+	}
+
+	bridge.voltaNaoEntregue(2)
+	if !bridge.avisoQuedaPendente.Load() {
+		t.Fatal("falha do aviso atual não religou a pendência")
+	}
+}
+
+func TestVoltaDescartadaComFilaCheiaFicaPendente(t *testing.T) {
+	bridge := &Bridge{cfg: Config{GleamURL: "http://127.0.0.1:1/webhook"}}
+	bridge.eventos = make(chan eventoGleam) // sem leitor: toda inserção falha
+	bridge.avisoQuedaPendente.Store(true)
+
+	bridge.avisarVolta()
+	if !bridge.avisoQuedaPendente.Load() {
+		t.Fatal("aviso de volta descartado não ficou pendente")
+	}
+}
+
 func TestEventosChegamAoGleamEmOrdem(t *testing.T) {
 	antigos := notifyRetryDelays
 	notifyRetryDelays = []time.Duration{50 * time.Millisecond}

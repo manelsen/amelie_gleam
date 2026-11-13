@@ -250,7 +250,11 @@ type Bridge struct {
 	// "voltou" a mais é melhor que nenhum.
 	avisoQuedaPendente atomic.Bool
 	eventosMu          sync.Mutex
-	eventos            chan eventoGleam
+	// geracaoVolta numera cada whatsapp_up enfileirado (sob eventosMu). Só
+	// a falha do aviso mais recente religa a pendência: um aviso antigo que
+	// desiste depois de outro já ter saído geraria uma volta duplicada.
+	geracaoVolta uint64
+	eventos      chan eventoGleam
 }
 
 type mediaRetryPending struct {
@@ -2128,7 +2132,8 @@ func (b *Bridge) avisarVolta() {
 	if !b.avisoQuedaPendente.CompareAndSwap(true, false) {
 		return
 	}
-	b.enfileirarEventoLocked(map[string]interface{}{"evento": "whatsapp_up"})
+	b.geracaoVolta++
+	b.enfileirarEventoLocked(map[string]interface{}{"evento": "whatsapp_up"}, b.geracaoVolta)
 }
 
 // Esperas entre tentativas de entregar um evento ao Gleam: somam cerca de
@@ -2145,6 +2150,8 @@ var voltaRetryDelay = time.Minute
 type eventoGleam struct {
 	nome  interface{}
 	dados []byte
+	// geracao só vale para whatsapp_up; ver Bridge.geracaoVolta.
+	geracao uint64
 }
 
 // notifyGleamEvent enfileira o evento para o Gleam. Uma fila só, entregue em
@@ -2159,10 +2166,10 @@ func (b *Bridge) notifyGleamEvent(payload map[string]interface{}) {
 	case "whatsapp_down", "pairing_code":
 		b.avisoQuedaPendente.Store(true)
 	}
-	b.enfileirarEventoLocked(payload)
+	b.enfileirarEventoLocked(payload, 0)
 }
 
-func (b *Bridge) enfileirarEventoLocked(payload map[string]interface{}) {
+func (b *Bridge) enfileirarEventoLocked(payload map[string]interface{}, geracao uint64) {
 	if b.cfg.GleamURL == "" {
 		return
 	}
@@ -2176,11 +2183,11 @@ func (b *Bridge) enfileirarEventoLocked(payload map[string]interface{}) {
 		go b.entregarEventos(b.eventos)
 	}
 	select {
-	case b.eventos <- eventoGleam{nome: payload["evento"], dados: data}:
+	case b.eventos <- eventoGleam{nome: payload["evento"], dados: data, geracao: geracao}:
 	default:
 		log.Printf("[Bridge] Fila de eventos para o Gleam cheia; evento '%v' descartado\n", payload["evento"])
 		if payload["evento"] == "whatsapp_up" {
-			b.avisoQuedaPendente.Store(true)
+			b.religarVoltaLocked()
 		}
 	}
 }
@@ -2191,13 +2198,27 @@ func (b *Bridge) entregarEventos(eventos <-chan eventoGleam) {
 		if b.entregarEvento(eventURL, evt) || evt.nome != "whatsapp_up" {
 			continue
 		}
-		// O aviso de volta não chegou: fica pendente, e uma nova tentativa
-		// sai daqui a pouco se a sessão continuar conectada.
-		b.eventosMu.Lock()
-		b.avisoQuedaPendente.Store(true)
-		b.eventosMu.Unlock()
-		time.AfterFunc(voltaRetryDelay, b.avisarVoltaSeConectado)
+		b.voltaNaoEntregue(evt.geracao)
 	}
+}
+
+// voltaNaoEntregue trata um whatsapp_up que esgotou as tentativas. Se outro
+// aviso de volta já foi enfileirado depois dele, não faz nada: o mais novo
+// responde pela volta.
+func (b *Bridge) voltaNaoEntregue(geracao uint64) {
+	b.eventosMu.Lock()
+	defer b.eventosMu.Unlock()
+	if geracao != b.geracaoVolta {
+		return
+	}
+	b.religarVoltaLocked()
+}
+
+// religarVoltaLocked deixa o aviso de volta pendente e agenda uma nova
+// tentativa, que sai se a sessão continuar conectada.
+func (b *Bridge) religarVoltaLocked() {
+	b.avisoQuedaPendente.Store(true)
+	time.AfterFunc(voltaRetryDelay, b.avisarVoltaSeConectado)
 }
 
 func (b *Bridge) avisarVoltaSeConectado() {
