@@ -9,3 +9,7 @@ pub fn limpar_antigos(max_age_segundos: Int) -> Result(Int, String)
 /// Apaga arquivo de mídia específico do disco.
 @external(erlang, "amelie_gleam_ffi", "delete_file")
 pub fn deletar(caminho: String) -> Result(Nil, String)
+
+/// Lê a mídia que a ponte gravou no spool e apaga o arquivo.
+@external(erlang, "amelie_gleam_ffi", "read_bridge_media")
+pub fn ler_da_ponte(caminho: String) -> Result(BitArray, String)

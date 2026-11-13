@@ -1,3 +1,4 @@
+import adaptadores/armazenamento_sqlite
 import adaptadores/config_sqlite
 import adaptadores/gemini_http
 import adaptadores/grupo_sqlite
@@ -12,35 +13,34 @@ import adaptadores/transacao_sqlite
 import adaptadores/usuario_sqlite
 import adaptadores/video_contexto_sqlite
 import adaptadores/whatsmeow_http
-import core/privacidade
+import adaptadores/whatsmeow_webhook
 import dominio/id_chat.{type IdChat}
-import dominio/mensagem.{type Mensagem, Mensagem, Texto}
 import dominio/provedores_config
-import gleam/bit_array
 import gleam/bytes_tree
-import gleam/dynamic/decode
 import gleam/erlang/process
 import gleam/http/request.{type Request}
 import gleam/http/response
 import gleam/int
-import gleam/json
 import gleam/option.{type Option}
 import gleam/result
 import gleam/string
 import mist.{type Connection, type ResponseData}
+import portas/armazenamento_porta.{type ArmazenamentoPorta}
+import portas/mensageiro_porta.{type MensageiroPorta}
 import portas/ponte_porta
-import portas/telegram_porta
+import portas/telegram_porta.{type TelegramPorta}
 import shell/arvore_supervisao
+import shell/avisos_ponte
 import shell/despachante_ia
 import shell/fila_atrasadas.{type FilaAtrasadas}
 import shell/fila_offline
 import shell/ia_resiliente
-import shell/metricas
 import shell/receptor_telegram
+import shell/receptor_whatsapp
+import shell/saude
 import shell/seguranca_http
 import shell/sistema
 import shell/tratador/base.{type Portas, Portas}
-import shell/tratador_mensagem
 import simplifile
 import sqlight
 
@@ -51,20 +51,8 @@ import logging
 // FFI — variáveis de ambiente
 // ---------------------------------------------------------------------------
 
-@external(erlang, "amelie_gleam_ffi", "read_bridge_media")
-fn ler_midia_da_ponte(path: String) -> Result(BitArray, String)
-
-@external(erlang, "amelie_gleam_ffi", "validate_bridge_media")
-fn validar_arquivo(path: String) -> Result(String, String)
-
 @external(erlang, "amelie_gleam_ffi", "ensure_applications_started")
 fn garantir_aplicacoes_iniciadas() -> Nil
-
-/// Webhook decodificado. `arquivo` aponta para a mídia que o bridge gravou em
-/// disco e que ainda precisa ser lida para preencher `msg.corpo`.
-pub type Webhook {
-  Webhook(msg: Mensagem, arquivo: option.Option(String))
-}
 
 pub fn main() {
   dot_env.new()
@@ -175,29 +163,34 @@ pub fn main() {
       ponte: ponte,
     )
 
+  // Uma TelegramPorta só, para o long polling e para o webhook.
+  let telegram_api = telegram_http.criar_api(string.trim(telegram_bot_token))
   case string.trim(telegram_bot_token) {
     "" -> Nil
-    token ->
-      receptor_telegram.iniciar(
-        telegram_http.criar_api(token),
-        portas,
-        procs.fila_atrasadas,
-      )
+    _ -> receptor_telegram.iniciar(telegram_api, portas, procs.fila_atrasadas)
   }
 
+  // O admin recebe os avisos da ponte pelo Telegram; sem bot, não há a quem
+  // avisar e o evento é só aceito.
+  let admin_avisos = case telegram_bot_token {
+    "" -> option.None
+    _ -> telegram_admin_chat_id
+  }
+
+  let rotas =
+    Rotas(
+      portas: portas,
+      atrasadas: procs.fila_atrasadas,
+      armazenamento: armazenamento_sqlite.criar(conn),
+      telegram_secret: telegram_secret_token,
+      telegram_api: telegram_api,
+      telegram_ativo: telegram_bot_token != "",
+      admin_avisos: admin_avisos,
+      bridge_token: bridge_token,
+    )
+
   let assert Ok(_) =
-    mist.new(fn(req) {
-      tratar_requisicao(
-        req,
-        portas,
-        procs.fila_atrasadas,
-        conn,
-        telegram_secret_token,
-        telegram_bot_token,
-        telegram_admin_chat_id,
-        bridge_token,
-      )
-    })
+    mist.new(fn(req) { tratar_requisicao(req, rotas) })
     |> mist.port(port)
     |> mist.bind("0.0.0.0")
     |> mist.start
@@ -209,16 +202,34 @@ pub fn main() {
 // HTTP handlers
 // ---------------------------------------------------------------------------
 
+/// O que o roteador HTTP precisa, montado uma vez no `main`.
+type Rotas {
+  Rotas(
+    portas: Portas,
+    atrasadas: FilaAtrasadas,
+    armazenamento: ArmazenamentoPorta,
+    telegram_secret: String,
+    telegram_api: TelegramPorta,
+    telegram_ativo: Bool,
+    admin_avisos: Option(IdChat),
+    bridge_token: String,
+  )
+}
+
 fn tratar_requisicao(
   req: Request(Connection),
-  portas: Portas,
-  atrasadas: FilaAtrasadas,
-  conn: sqlight.Connection,
-  telegram_secret: String,
-  telegram_bot_token: String,
-  telegram_admin_chat_id: Option(IdChat),
-  bridge_token: String,
+  rotas: Rotas,
 ) -> response.Response(ResponseData) {
+  let Rotas(
+    portas:,
+    atrasadas:,
+    armazenamento:,
+    telegram_secret:,
+    telegram_api:,
+    telegram_ativo:,
+    admin_avisos:,
+    bridge_token:,
+  ) = rotas
   case req.path {
     "/webhook" ->
       proteger_webhook(req, ponte_porta.cabecalho_token, bridge_token, fn(req) {
@@ -230,23 +241,25 @@ fn tratar_requisicao(
         portas,
         atrasadas,
         telegram_secret,
-        telegram_bot_token,
+        telegram_api,
       )
     "/webhook/bridge-event" ->
       proteger_webhook(req, ponte_porta.cabecalho_token, bridge_token, fn(req) {
-        tratar_evento_ponte(req, telegram_bot_token, telegram_admin_chat_id)
+        tratar_evento_ponte(req, portas.mensageiro, admin_avisos)
       })
-    "/health" ->
-      case
+    "/health" -> {
+      let detalhada =
         seguranca_http.autorizado(
           req,
           ponte_porta.cabecalho_token,
           bridge_token,
         )
-      {
-        True -> tratar_saude(conn, portas.ponte, telegram_bot_token)
-        False -> tratar_saude_publica(conn, portas.ponte)
+      let #(codigo, corpo) = case detalhada {
+        True -> saude.detalhada(armazenamento, portas.ponte, telegram_ativo)
+        False -> saude.publica(armazenamento, portas.ponte)
       }
+      resposta_json(codigo, corpo)
+    }
     _ -> resposta_json(404, "{\"error\":\"not found\"}")
   }
 }
@@ -263,190 +276,26 @@ fn proteger_webhook(
   }
 }
 
-pub fn tratar_saude(
-  conn: sqlight.Connection,
-  ponte: ponte_porta.PontePorta,
-  telegram_bot_token: String,
-) -> response.Response(ResponseData) {
-  let #(sqlite_status, sqlite_ok) = case sqlight.exec("SELECT 1;", conn) {
-    Ok(_) -> #("ok", True)
-    Error(err) -> #(err.message, False)
-  }
-
-  let #(wa_status, wa_connected, wa_logged_in) = case ponte.checar_status() {
-    Ok(ponte_porta.StatusPonte(conectado, logado)) -> {
-      let st = case logado {
-        True -> "ok"
-        False -> "unauthenticated"
-      }
-      #(st, conectado, logado)
-    }
-    Error(_) -> #("unreachable", False, False)
-  }
-
-  let telegram_enabled = telegram_bot_token != ""
-  let mem_total = metricas.memoria_total_mb()
-  let mem_proc = metricas.memoria_processos_mb()
-  let proc_count = metricas.contagem_processos()
-
-  let overall_status = case sqlite_ok {
-    False -> "error"
-    True ->
-      case wa_logged_in {
-        True -> "ok"
-        False -> "degraded"
-      }
-  }
-
-  let http_code = case sqlite_ok {
-    True -> 200
-    False -> 503
-  }
-
-  let body =
-    json.object([
-      #("status", json.string(overall_status)),
-      #(
-        "sqlite",
-        json.object([
-          #("status", json.string(sqlite_status)),
-          #("ok", json.bool(sqlite_ok)),
-        ]),
-      ),
-      #(
-        "whatsapp_bridge",
-        json.object([
-          #("status", json.string(wa_status)),
-          #("connected", json.bool(wa_connected)),
-          #("logged_in", json.bool(wa_logged_in)),
-        ]),
-      ),
-      #(
-        "telegram",
-        json.object([
-          #("status", json.string("ok")),
-          #("enabled", json.bool(telegram_enabled)),
-        ]),
-      ),
-      #(
-        "beam",
-        json.object([
-          #("memoria_total_mb", json.int(mem_total)),
-          #("memoria_processos_mb", json.int(mem_proc)),
-          #("contagem_processos", json.int(proc_count)),
-        ]),
-      ),
-    ])
-    |> json.to_string
-
-  resposta_json(http_code, body)
-}
-
-/// Healthcheck sem autenticação: só o status agregado. O detalhe (estado do
-/// WhatsApp, métricas da BEAM, mensagem de erro do SQLite) exige o mesmo
-/// token da ponte, em `x-amelie-bridge-token`.
-pub fn tratar_saude_publica(
-  conn: sqlight.Connection,
-  ponte: ponte_porta.PontePorta,
-) -> response.Response(ResponseData) {
-  let sqlite_ok = case sqlight.exec("SELECT 1;", conn) {
-    Ok(_) -> True
-    Error(_) -> False
-  }
-  let wa_logado = case ponte.checar_status() {
-    Ok(ponte_porta.StatusPonte(_, logado)) -> logado
-    Error(_) -> False
-  }
-  let #(codigo, status) = case sqlite_ok, wa_logado {
-    False, _ -> #(503, "error")
-    True, True -> #(200, "ok")
-    True, False -> #(200, "degraded")
-  }
-  resposta_json(codigo, "{\"status\":\"" <> status <> "\"}")
-}
-
-type EventoPonte {
-  CodigoPareamentoGerado(telefone: String, codigo: String)
-  WhatsappCaiu(motivo: String)
-  WhatsappVoltou
-}
-
 fn tratar_evento_ponte(
   req: Request(Connection),
-  bot_token: String,
-  admin_chat_id: Option(IdChat),
+  mensageiro: MensageiroPorta,
+  admin: Option(IdChat),
 ) -> response.Response(ResponseData) {
   case mist.read_body(req, 1024 * 1024) {
     Error(_) -> resposta_json(400, "{\"error\":\"failed to read body\"}")
     Ok(req_with_body) -> {
-      case decodificar_evento_ponte(req_with_body.body) {
+      case whatsmeow_webhook.decodificar_evento(req_with_body.body) {
         Error(_) -> resposta_json(400, "{\"error\":\"invalid payload\"}")
         Ok(evt) ->
-          case bot_token, admin_chat_id {
-            "", _ | _, option.None -> resposta_json(200, "{\"ok\":true}")
-            _, option.Some(admin_chat_id) ->
-              // Falha no Telegram vira 502: a ponte tenta de novo.
-              case
-                telegram_http.enviar_mensagem(
-                  bot_token,
-                  admin_chat_id,
-                  texto_evento_ponte(evt),
-                )
-              {
-                Ok(Nil) -> resposta_json(200, "{\"ok\":true}")
-                Error(_) ->
-                  resposta_json(502, "{\"error\":\"telegram send failed\"}")
-              }
+          // Falha no envio vira 502: a ponte tenta de novo.
+          case avisos_ponte.avisar(evt, mensageiro, admin) {
+            Ok(Nil) -> resposta_json(200, "{\"ok\":true}")
+            Error(_) ->
+              resposta_json(502, "{\"error\":\"telegram send failed\"}")
           }
       }
     }
   }
-}
-
-fn texto_evento_ponte(evt: EventoPonte) -> String {
-  case evt {
-    CodigoPareamentoGerado(phone, code) ->
-      "⚠️ *Alerta: WhatsApp desconectado!*\n\n"
-      <> "📱 *Novo código de pareamento para* `+"
-      <> phone
-      <> "`:\n"
-      <> "`"
-      <> code
-      <> "`\n\n"
-      <> "👉 *No WhatsApp do seu celular:*\n"
-      <> "Aparelhos conectados > Conectar com número de telefone > Digite o código acima.\n\n"
-      <> "⏳ Vale por cerca de 2 minutos. Se expirar, mando outro, e os anteriores deixam de valer."
-    WhatsappCaiu(motivo) ->
-      "⚠️ *Alerta: A conexão do WhatsApp caiu!*\n\n"
-      <> "Motivo: "
-      <> motivo
-      <> "\n\n"
-      <> "Para gerar um novo código de pareamento, envie:\n"
-      <> "`/parear <seu_numero>`"
-    WhatsappVoltou ->
-      "✅ *A Amélie voltou!*\n\n"
-      <> "O WhatsApp está conectado e atendendo de novo."
-  }
-}
-
-fn decodificar_evento_ponte(body: BitArray) -> Result(EventoPonte, Nil) {
-  use s <- result.try(
-    bit_array.to_string(body)
-    |> result.map_error(fn(_) { Nil }),
-  )
-  let decoder = {
-    use evento <- decode.field("evento", decode.string)
-    use phone <- decode.optional_field("phone", "", decode.string)
-    use code <- decode.optional_field("code", "", decode.string)
-    use motivo <- decode.optional_field("motivo", "Desconectado", decode.string)
-    case evento {
-      "pairing_code" -> decode.success(CodigoPareamentoGerado(phone, code))
-      "whatsapp_up" -> decode.success(WhatsappVoltou)
-      _ -> decode.success(WhatsappCaiu(motivo))
-    }
-  }
-  json.parse(s, decoder)
-  |> result.map_error(fn(_) { Nil })
 }
 
 fn tratar_webhook_telegram(
@@ -454,13 +303,13 @@ fn tratar_webhook_telegram(
   portas: Portas,
   atrasadas: FilaAtrasadas,
   secret_token: String,
-  bot_token: String,
+  api: TelegramPorta,
 ) -> response.Response(ResponseData) {
   proteger_webhook(
     req,
     "x-telegram-bot-api-secret-token",
     secret_token,
-    fn(req) { processar_corpo_telegram(req, portas, atrasadas, bot_token) },
+    fn(req) { processar_corpo_telegram(req, portas, atrasadas, api) },
   )
 }
 
@@ -468,7 +317,7 @@ fn processar_corpo_telegram(
   req: Request(Connection),
   portas: Portas,
   atrasadas: FilaAtrasadas,
-  bot_token: String,
+  api: TelegramPorta,
 ) -> response.Response(ResponseData) {
   case mist.read_body(req, 1024 * 1024) {
     Error(_) -> resposta_json(400, "{\"error\":\"failed to read body\"}")
@@ -479,12 +328,7 @@ fn processar_corpo_telegram(
         Ok(telegram_porta.EventoIgnorado(_)) ->
           resposta_json(200, "{\"ok\":true,\"ignored\":true}")
         Ok(evento) -> {
-          receptor_telegram.despachar_evento(
-            evento,
-            telegram_http.criar_api(bot_token),
-            portas,
-            atrasadas,
-          )
+          receptor_telegram.despachar_evento(evento, api, portas, atrasadas)
           resposta_json(200, "{\"ok\":true}")
         }
       }
@@ -499,212 +343,13 @@ fn tratar_webhook(
   case mist.read_body(req, 20 * 1024 * 1024) {
     Error(_) -> resposta_json(400, "{\"error\":\"failed to read body\"}")
     Ok(req_with_body) ->
-      case decodificar_webhook(req_with_body.body) {
+      case whatsmeow_webhook.decodificar_webhook(req_with_body.body) {
         Error(_) -> resposta_json(400, "{\"error\":\"invalid payload\"}")
         Ok(webhook) -> {
-          despachar_webhook(webhook, portas, atrasadas)
+          receptor_whatsapp.despachar(webhook, portas, atrasadas)
           resposta_json(202, "{\"ok\":true}")
         }
       }
-  }
-}
-
-/// Processa em processo isolado — o webhook retorna imediatamente e não
-/// bloqueia o Mist durante chamadas à IA (2-10s). Mensagens enviadas enquanto
-/// a Amélie estava fora do ar vão para a fila serial, uma por vez.
-fn despachar_webhook(
-  webhook: Webhook,
-  portas: Portas,
-  atrasadas: FilaAtrasadas,
-) -> Nil {
-  case fila_atrasadas.e_atrasada(webhook.msg.timestamp, sistema.agora_s()) {
-    False ->
-      sistema.disparar(fn() {
-        tratador_mensagem.tratar(carregar_midia(webhook), portas)
-      })
-    True -> {
-      logging.log(
-        logging.Info,
-        "["
-          <> base.extrair_trace_id(webhook.msg)
-          <> "] Mensagem atrasada "
-          <> int.to_string(sistema.agora_s() - webhook.msg.timestamp)
-          <> "s, enviada à fila serial: "
-          <> privacidade.mascarar(webhook.msg.chat_id),
-      )
-      // A mídia sai do spool já, e não quando chegar a vez na fila.
-      let msg = carregar_midia(webhook)
-      fila_atrasadas.enfileirar(atrasadas, fn() {
-        let _ = tratador_mensagem.tratar_atrasada(msg, portas)
-        Nil
-      })
-    }
-  }
-}
-
-pub fn decodificar_webhook(body: BitArray) -> Result(Webhook, Nil) {
-  case bit_array.to_string(body) {
-    Error(_) -> Error(Nil)
-    Ok(s) ->
-      json.parse(s, mensagem_decoder())
-      |> result.map_error(fn(_) { Nil })
-      |> result.try(validar_webhook)
-  }
-}
-
-fn validar_webhook(webhook: Webhook) -> Result(Webhook, Nil) {
-  let arquivo = case webhook.msg.corpo {
-    mensagem.Video(caminho_temp: caminho, ..) -> option.Some(caminho)
-    _ -> webhook.arquivo
-  }
-  case arquivo {
-    option.None -> Ok(webhook)
-    option.Some(caminho) ->
-      validar_arquivo(caminho)
-      |> result.map(fn(_) { webhook })
-      |> result.map_error(fn(_) { Nil })
-  }
-}
-
-fn mensagem_decoder() -> decode.Decoder(Webhook) {
-  use chat_id <- decode.field("chat_id", jid_decoder())
-  use from <- decode.field("from", jid_decoder())
-  use message_id <- decode.optional_field(
-    "message_id",
-    option.None,
-    decode.string |> decode.map(option.Some),
-  )
-  use text <- decode.optional_field("text", "", decode.string)
-  use ts <- decode.field("ts", decode.int)
-  use em_grupo <- decode.field("em_grupo", decode.bool)
-  use nome_grupo <- decode.optional_field(
-    "nome_grupo",
-    option.None,
-    decode.string |> decode.map(option.Some),
-  )
-  use menciona <- decode.optional_field("menciona_bot", False, decode.bool)
-  use caption <- decode.optional_field(
-    "legenda",
-    option.None,
-    decode.string |> decode.map(option.Some),
-  )
-
-  use tipo <- decode.optional_field("tipo", "texto", decode.string)
-  use mime <- decode.optional_field("mime", "", decode.string)
-  use dados <- decode.optional_field("dados", "", decode.string)
-  use caminho <- decode.optional_field("caminho_temp", "", decode.string)
-
-  let #(corpo, arquivo) = parsear_corpo(tipo, text, mime, dados, caminho)
-  let msg =
-    Mensagem(
-      chat_id: chat_id,
-      remetente: from,
-      message_id: message_id,
-      corpo: corpo,
-      timestamp: ts,
-      em_grupo: em_grupo,
-      nome_grupo: nome_grupo,
-      menciona_bot: menciona,
-      legenda: caption,
-    )
-  decode.success(Webhook(msg: msg, arquivo: arquivo))
-}
-
-/// A ponte só entrega mensagens do WhatsApp: um `tg:` aqui é forjado.
-fn jid_decoder() -> decode.Decoder(IdChat) {
-  use texto <- decode.then(decode.string)
-  case id_chat.whatsapp(texto) {
-    Ok(id) -> decode.success(id)
-    Error(Nil) -> decode.failure(id_chat.telegram(0), "JID do WhatsApp")
-  }
-}
-
-fn parsear_corpo(
-  tipo: String,
-  text: String,
-  mime: String,
-  dados: String,
-  caminho_temp: String,
-) -> #(mensagem.Conteudo, option.Option(String)) {
-  // Mídia chega por arquivo (`caminho_temp`); `dados` em base64 só aparece em
-  // payloads antigos que ainda estejam na fila do bridge.
-  let #(bytes, arquivo) = case caminho_temp {
-    "" -> #(
-      bit_array.base64_decode(dados) |> result.unwrap(or: <<>>),
-      option.None,
-    )
-    _ -> #(<<>>, option.Some(caminho_temp))
-  }
-  case tipo {
-    "imagem" -> #(mensagem.Imagem(mime: mime, dados: bytes), arquivo)
-    "audio" -> #(mensagem.Audio(mime: mime, dados: bytes), arquivo)
-    "documento" -> #(
-      mensagem.Documento(mime: mime, dados: bytes, nome: text),
-      arquivo,
-    )
-    "sticker" -> #(mensagem.Sticker(mime: mime, dados: bytes), arquivo)
-    // Vídeo segue em disco até o upload para a IA; fila_midia apaga o arquivo.
-    "video" -> #(
-      mensagem.Video(caminho_temp: caminho_temp, mime: mime),
-      option.None,
-    )
-    "midia_indisponivel" -> #(
-      mensagem.MidiaIndisponivel(mensagem: text),
-      option.None,
-    )
-    _ -> {
-      let corpo = case string.trim(text) {
-        "." <> rest -> {
-          case string.split_once(rest, " ") {
-            Ok(#(nome, args)) ->
-              mensagem.Comando(string.lowercase(nome), string.trim(args))
-            Error(_) -> mensagem.Comando(string.lowercase(rest), "")
-          }
-        }
-        _ -> Texto(text)
-      }
-      #(corpo, option.None)
-    }
-  }
-}
-
-/// Lê do disco a mídia gravada pelo bridge e apaga o arquivo. Se a leitura
-/// falhar, responde ao usuário em vez de processar mídia vazia.
-fn carregar_midia(webhook: Webhook) -> Mensagem {
-  case webhook.arquivo {
-    option.None -> webhook.msg
-    option.Some(caminho) -> {
-      let corpo = case ler_midia_da_ponte(caminho) {
-        Ok(bytes) -> com_bytes(webhook.msg.corpo, bytes)
-        Error(motivo) -> {
-          logging.log(
-            logging.Warning,
-            "Falha ao ler mídia temporária "
-              <> caminho
-              <> " de "
-              <> privacidade.mascarar(webhook.msg.chat_id)
-              <> ": "
-              <> motivo,
-          )
-          mensagem.MidiaIndisponivel(
-            mensagem: "Não consegui ler a mídia que você enviou. Pode reenviar?",
-          )
-        }
-      }
-      Mensagem(..webhook.msg, corpo: corpo)
-    }
-  }
-}
-
-fn com_bytes(corpo: mensagem.Conteudo, bytes: BitArray) -> mensagem.Conteudo {
-  case corpo {
-    mensagem.Imagem(mime: mime, ..) -> mensagem.Imagem(mime: mime, dados: bytes)
-    mensagem.Audio(mime: mime, ..) -> mensagem.Audio(mime: mime, dados: bytes)
-    mensagem.Documento(mime: mime, nome: nome, ..) ->
-      mensagem.Documento(mime: mime, dados: bytes, nome: nome)
-    mensagem.Sticker(mime: mime, ..) ->
-      mensagem.Sticker(mime: mime, dados: bytes)
-    outro -> outro
   }
 }
 

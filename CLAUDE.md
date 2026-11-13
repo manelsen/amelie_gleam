@@ -84,13 +84,13 @@ core/          — Pure business logic. Deterministic. Receives data, returns Li
 portas/        — Port interfaces (abstract types as records of functions).
 adaptadores/   — Concrete implementations of ports (HTTP clients, SQLite).
 shell/         — Effectful orchestration layer. Executes Acao values and OTP actors.
-amelie_gleam.gleam — Entry point: wires adapters → ports → Mist HTTP server.
+amelie_gleam.gleam — Entry point: wires adapters → ports, plus a thin Mist router (auth, body read, HTTP status). No business logic.
 ```
 
 ### Data Flow
 
-1. `POST /webhook` (WhatsApp) or `POST /webhook/telegram` (Telegram) → `amelie_gleam.gleam` decodes payload into `Webhook(msg, arquivo)`.
-2. Large incoming media from WhatsApp is offloaded to `MEDIA_TEMP_DIR/amelie_midia_*` by the bridge. `amelie_gleam.gleam` reads the file via Erlang FFI into `BitArray`, then deletes the temporary file. Telegram media is fetched asynchronously via `getFile`.
+1. `POST /webhook` (WhatsApp) → `adaptadores/whatsmeow_webhook` decodes the payload into `ponte_porta.Webhook(msg, arquivo)` and `shell/receptor_whatsapp` dispatches it. `POST /webhook/telegram` → `adaptadores/telegram_webhook` → `shell/receptor_telegram`. `POST /webhook/bridge-event` (connection down/up, pairing code) → `whatsmeow_webhook.decodificar_evento` → `shell/avisos_ponte`, which tells the admin through `MensageiroPorta`. `GET /health` → `shell/saude`.
+2. Large incoming media from WhatsApp is offloaded to `MEDIA_TEMP_DIR/amelie_midia_*` by the bridge. `shell/receptor_whatsapp` reads the file via Erlang FFI (`arquivos_temporarios.ler_da_ponte`) into `BitArray`, then deletes the temporary file. Telegram media is fetched asynchronously via `getFile`.
    Messages sent while Amélie was offline, on either channel (timestamp more than `fila_atrasadas.limiar_atraso_s` behind arrival), go to `shell/fila_atrasadas`, a serial queue, and through `tratador_mensagem.tratar_atrasada`, which skips the rate limit (token bucket and flood) but keeps strike-3 quarantine and the daily cap. After a re-pairing, the bridge recovers them from the history sync (`history_recovery.go`): per private chat, user messages after Amélie's last reply, up to 48 h old.
 3. `shell/tratador_mensagem.tratar` fetches `Config` + `Historico` from ports, calls `core/processador.processar`.
 4. `core/processador` (pure) returns `List(Acao)` — never performs IO.
@@ -114,7 +114,7 @@ A Amélie só atende conversas privadas, nos dois canais. No WhatsApp, a ponte d
 - `dominio/config.Config` — per-chat configuration (provedor, modelo default `gemini-3.5-flash-lite`, historico_max, media toggles, modo_descricao).
 - `dominio/provedor.Provedor` — `Gemini | OpenRouter`. Text names exist only at the edges (`providers.yaml`, SQLite, `.modelo`); `provedores_config.validar_modelo` returns the typed provider, and an unknown name read from SQLite falls back to `Gemini`.
 - `dominio/transacao.TipoEntrega` — `RespostaTexto | RespostaIA | DescricaoMidia(TipoMidia)`, stored as text in `transacoes.tipo`; keep `tipo_entrega_para_string` values stable.
-- `shell/tratador_mensagem.Portas` — record bundling all active port implementations.
+- `shell/tratador/base.Portas` — record bundling all active port implementations.
 
 ### Ports (Abstract interfaces as record-of-functions)
 
@@ -129,13 +129,15 @@ A Amélie só atende conversas privadas, nos dois canais. No WhatsApp, a ponte d
 - `portas/usuario_porta.UsuarioPorta` — user registration and listing.
 - `portas/grupo_porta.GrupoPorta` — group registration and listing.
 - `portas/prompt_porta.PromptPorta` — custom system prompts persistence.
-- `portas/ponte_porta.PontePorta` — whatsmeow bridge operations other than messaging: status, pairing code, session reset, page fetch (`/fetch`).
+- `portas/ponte_porta.PontePorta` — whatsmeow bridge operations other than messaging: status, pairing code, session reset, page fetch (`/fetch`). Also holds what the bridge sends in: `Webhook(msg, arquivo)` and `EventoPonte`.
+- `portas/armazenamento_porta.ArmazenamentoPorta` — storage health (`verificar`), used by `shell/saude`.
 - `portas/telegram_porta.TelegramPorta` — Bot API operations other than messaging: `getUpdates` long polling, chat actions (typed `AcaoChat`), file download.
 
 ### Adapters
 
 - `adaptadores/whatsmeow_http` → implements `MensageiroPorta` (`criar`) and `PontePorta` (`criar_ponte`) for WhatsApp (calls Go bridge, parses structured `APIError` and network errors).
 - `adaptadores/telegram_http` → implements `MensageiroPorta` (`criar`) and `TelegramPorta` (`criar_api`) for Telegram (sends text, chat actions, reactions, downloads media).
+- `adaptadores/whatsmeow_webhook` → inbound: decodes the bridge's JSON (`decodificar_webhook`, `decodificar_evento`) and validates media paths in the spool. Counterpart of `telegram_webhook`.
 - `adaptadores/roteador_mensageiro` → routes calls to `whatsmeow_http` or `telegram_http` by `id_chat.canal`.
 - `adaptadores/gemini_http` → implements `IAPorta` (Google Gemini REST & File API).
 - `adaptadores/openrouter_http` → implements `IAPorta` (OpenRouter API).
@@ -143,6 +145,7 @@ A Amélie só atende conversas privadas, nos dois canais. No WhatsApp, a ponte d
 - `adaptadores/historico_sqlite` → implements `HistoricoPorta`.
 - `adaptadores/transacao_sqlite` → implements `TransacaoPorta`.
 - `adaptadores/usuario_sqlite`, `grupo_sqlite`, `prompt_sqlite` → SQLite storage.
+- `adaptadores/armazenamento_sqlite` → implements `ArmazenamentoPorta` (`SELECT 1`).
 
 ### Commands
 
