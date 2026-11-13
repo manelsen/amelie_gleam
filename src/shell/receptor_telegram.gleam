@@ -19,7 +19,8 @@ import shell/anti_spam
 import shell/arquivos_temporarios
 import shell/fila_atrasadas.{type FilaAtrasadas}
 import shell/sistema
-import shell/tratador_mensagem.{type Portas}
+import shell/tratador/base.{type Portas}
+import shell/tratador_mensagem
 
 pub fn iniciar(
   api: TelegramPorta,

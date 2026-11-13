@@ -14,7 +14,8 @@ import portas/ponte_porta.{type PontePorta, PontePorta, StatusPonte}
 import portas/spammer_porta.{SpammerPorta}
 import shell/fila_midia
 import shell/metricas
-import shell/tratador_mensagem.{Portas}
+import shell/tratador/base.{Portas}
+import shell/tratador_mensagem
 
 fn fila() {
   let assert Ok(f) = fila_midia.iniciar_todas()
