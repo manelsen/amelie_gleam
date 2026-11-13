@@ -1,3 +1,4 @@
+import adaptadores/armazenamento_sqlite
 import adaptadores/config_sqlite
 import adaptadores/gemini_http
 import adaptadores/grupo_sqlite
@@ -20,11 +21,11 @@ import gleam/erlang/process
 import gleam/http/request.{type Request}
 import gleam/http/response
 import gleam/int
-import gleam/json
 import gleam/option.{type Option}
 import gleam/result
 import gleam/string
 import mist.{type Connection, type ResponseData}
+import portas/armazenamento_porta.{type ArmazenamentoPorta}
 import portas/mensageiro_porta.{type MensageiroPorta}
 import portas/ponte_porta
 import portas/telegram_porta
@@ -34,9 +35,9 @@ import shell/despachante_ia
 import shell/fila_atrasadas.{type FilaAtrasadas}
 import shell/fila_offline
 import shell/ia_resiliente
-import shell/metricas
 import shell/receptor_telegram
 import shell/receptor_whatsapp
+import shell/saude
 import shell/seguranca_http
 import shell/sistema
 import shell/tratador/base.{type Portas, Portas}
@@ -179,19 +180,20 @@ pub fn main() {
     _ -> telegram_admin_chat_id
   }
 
+  let rotas =
+    Rotas(
+      portas: portas,
+      atrasadas: procs.fila_atrasadas,
+      armazenamento: armazenamento_sqlite.criar(conn),
+      telegram_secret: telegram_secret_token,
+      telegram_bot_token: telegram_bot_token,
+      telegram_ativo: telegram_bot_token != "",
+      admin_avisos: admin_avisos,
+      bridge_token: bridge_token,
+    )
+
   let assert Ok(_) =
-    mist.new(fn(req) {
-      tratar_requisicao(
-        req,
-        portas,
-        procs.fila_atrasadas,
-        conn,
-        telegram_secret_token,
-        telegram_bot_token,
-        admin_avisos,
-        bridge_token,
-      )
-    })
+    mist.new(fn(req) { tratar_requisicao(req, rotas) })
     |> mist.port(port)
     |> mist.bind("0.0.0.0")
     |> mist.start
@@ -203,16 +205,34 @@ pub fn main() {
 // HTTP handlers
 // ---------------------------------------------------------------------------
 
+/// O que o roteador HTTP precisa, montado uma vez no `main`.
+type Rotas {
+  Rotas(
+    portas: Portas,
+    atrasadas: FilaAtrasadas,
+    armazenamento: ArmazenamentoPorta,
+    telegram_secret: String,
+    telegram_bot_token: String,
+    telegram_ativo: Bool,
+    admin_avisos: Option(IdChat),
+    bridge_token: String,
+  )
+}
+
 fn tratar_requisicao(
   req: Request(Connection),
-  portas: Portas,
-  atrasadas: FilaAtrasadas,
-  conn: sqlight.Connection,
-  telegram_secret: String,
-  telegram_bot_token: String,
-  admin_avisos: Option(IdChat),
-  bridge_token: String,
+  rotas: Rotas,
 ) -> response.Response(ResponseData) {
+  let Rotas(
+    portas:,
+    atrasadas:,
+    armazenamento:,
+    telegram_secret:,
+    telegram_bot_token:,
+    telegram_ativo:,
+    admin_avisos:,
+    bridge_token:,
+  ) = rotas
   case req.path {
     "/webhook" ->
       proteger_webhook(req, ponte_porta.cabecalho_token, bridge_token, fn(req) {
@@ -230,17 +250,19 @@ fn tratar_requisicao(
       proteger_webhook(req, ponte_porta.cabecalho_token, bridge_token, fn(req) {
         tratar_evento_ponte(req, portas.mensageiro, admin_avisos)
       })
-    "/health" ->
-      case
+    "/health" -> {
+      let detalhada =
         seguranca_http.autorizado(
           req,
           ponte_porta.cabecalho_token,
           bridge_token,
         )
-      {
-        True -> tratar_saude(conn, portas.ponte, telegram_bot_token)
-        False -> tratar_saude_publica(conn, portas.ponte)
+      let #(codigo, corpo) = case detalhada {
+        True -> saude.detalhada(armazenamento, portas.ponte, telegram_ativo)
+        False -> saude.publica(armazenamento, portas.ponte)
       }
+      resposta_json(codigo, corpo)
+    }
     _ -> resposta_json(404, "{\"error\":\"not found\"}")
   }
 }
@@ -255,108 +277,6 @@ fn proteger_webhook(
     Ok(_) -> handler(req)
     Error(status) -> resposta_json(status, "{\"error\":\"request rejected\"}")
   }
-}
-
-pub fn tratar_saude(
-  conn: sqlight.Connection,
-  ponte: ponte_porta.PontePorta,
-  telegram_bot_token: String,
-) -> response.Response(ResponseData) {
-  let #(sqlite_status, sqlite_ok) = case sqlight.exec("SELECT 1;", conn) {
-    Ok(_) -> #("ok", True)
-    Error(err) -> #(err.message, False)
-  }
-
-  let #(wa_status, wa_connected, wa_logged_in) = case ponte.checar_status() {
-    Ok(ponte_porta.StatusPonte(conectado, logado)) -> {
-      let st = case logado {
-        True -> "ok"
-        False -> "unauthenticated"
-      }
-      #(st, conectado, logado)
-    }
-    Error(_) -> #("unreachable", False, False)
-  }
-
-  let telegram_enabled = telegram_bot_token != ""
-  let mem_total = metricas.memoria_total_mb()
-  let mem_proc = metricas.memoria_processos_mb()
-  let proc_count = metricas.contagem_processos()
-
-  let overall_status = case sqlite_ok {
-    False -> "error"
-    True ->
-      case wa_logged_in {
-        True -> "ok"
-        False -> "degraded"
-      }
-  }
-
-  let http_code = case sqlite_ok {
-    True -> 200
-    False -> 503
-  }
-
-  let body =
-    json.object([
-      #("status", json.string(overall_status)),
-      #(
-        "sqlite",
-        json.object([
-          #("status", json.string(sqlite_status)),
-          #("ok", json.bool(sqlite_ok)),
-        ]),
-      ),
-      #(
-        "whatsapp_bridge",
-        json.object([
-          #("status", json.string(wa_status)),
-          #("connected", json.bool(wa_connected)),
-          #("logged_in", json.bool(wa_logged_in)),
-        ]),
-      ),
-      #(
-        "telegram",
-        json.object([
-          #("status", json.string("ok")),
-          #("enabled", json.bool(telegram_enabled)),
-        ]),
-      ),
-      #(
-        "beam",
-        json.object([
-          #("memoria_total_mb", json.int(mem_total)),
-          #("memoria_processos_mb", json.int(mem_proc)),
-          #("contagem_processos", json.int(proc_count)),
-        ]),
-      ),
-    ])
-    |> json.to_string
-
-  resposta_json(http_code, body)
-}
-
-/// Healthcheck sem autenticação: só o status agregado. O detalhe (estado do
-/// WhatsApp, métricas da BEAM, mensagem de erro do SQLite) exige o mesmo
-/// token da ponte, em `x-amelie-bridge-token`.
-pub fn tratar_saude_publica(
-  conn: sqlight.Connection,
-  ponte: ponte_porta.PontePorta,
-) -> response.Response(ResponseData) {
-  let sqlite_ok = case sqlight.exec("SELECT 1;", conn) {
-    Ok(_) -> True
-    Error(_) -> False
-  }
-  let wa_logado = case ponte.checar_status() {
-    Ok(ponte_porta.StatusPonte(_, logado)) -> logado
-    Error(_) -> False
-  }
-  let #(codigo, status) = case sqlite_ok, wa_logado {
-    False, _ -> #(503, "error")
-    True, True -> #(200, "ok")
-    True, False -> #(200, "degraded")
-  }
-  resposta_json(codigo, "{\"status\":\"" <> status <> "\"}")
 }
 
 fn tratar_evento_ponte(
