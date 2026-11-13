@@ -2222,7 +2222,8 @@ func (b *Bridge) religarVoltaLocked() {
 }
 
 func (b *Bridge) avisarVoltaSeConectado() {
-	if c := b.wa(); c != nil && c.IsLoggedIn() {
+	// IsLoggedIn sozinho pode seguir verdadeiro com o socket caído.
+	if c := b.wa(); c != nil && c.IsConnected() && c.IsLoggedIn() {
 		b.avisarVolta()
 	}
 }
