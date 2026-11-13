@@ -49,7 +49,7 @@ fn imports(fonte: String) -> List(String) {
     string.split(fonte, "\n")
     |> list.fold(#([], False), fn(estado, linha) {
       let #(achados, em_string) = estado
-      let achados = case em_string, linha {
+      let achados = case em_string, string.trim_start(linha) {
         False, "import " <> resto -> [modulo_importado(resto), ..achados]
         _, _ -> achados
       }
@@ -166,4 +166,9 @@ pub fn guarda_ignora_import_dentro_de_string_test() {
     "import dominio/a\npub const exemplo = \"\nimport sqlight\n\\\" ainda\n\"\n// \"\nimport sqlight\n"
   assert violacoes("src/dominio/x.gleam", fonte)
     == ["src/dominio/x.gleam: sqlight"]
+}
+
+pub fn guarda_acusa_import_recuado_test() {
+  assert violacoes("src/shell/x.gleam", "  import adaptadores/telegram_http\n")
+    == ["src/shell/x.gleam: adaptadores/telegram_http"]
 }
