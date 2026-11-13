@@ -28,7 +28,7 @@ import mist.{type Connection, type ResponseData}
 import portas/armazenamento_porta.{type ArmazenamentoPorta}
 import portas/mensageiro_porta.{type MensageiroPorta}
 import portas/ponte_porta
-import portas/telegram_porta
+import portas/telegram_porta.{type TelegramPorta}
 import shell/arvore_supervisao
 import shell/avisos_ponte
 import shell/despachante_ia
@@ -163,14 +163,11 @@ pub fn main() {
       ponte: ponte,
     )
 
+  // Uma TelegramPorta só, para o long polling e para o webhook.
+  let telegram_api = telegram_http.criar_api(string.trim(telegram_bot_token))
   case string.trim(telegram_bot_token) {
     "" -> Nil
-    token ->
-      receptor_telegram.iniciar(
-        telegram_http.criar_api(token),
-        portas,
-        procs.fila_atrasadas,
-      )
+    _ -> receptor_telegram.iniciar(telegram_api, portas, procs.fila_atrasadas)
   }
 
   // O admin recebe os avisos da ponte pelo Telegram; sem bot, não há a quem
@@ -186,7 +183,7 @@ pub fn main() {
       atrasadas: procs.fila_atrasadas,
       armazenamento: armazenamento_sqlite.criar(conn),
       telegram_secret: telegram_secret_token,
-      telegram_bot_token: telegram_bot_token,
+      telegram_api: telegram_api,
       telegram_ativo: telegram_bot_token != "",
       admin_avisos: admin_avisos,
       bridge_token: bridge_token,
@@ -212,7 +209,7 @@ type Rotas {
     atrasadas: FilaAtrasadas,
     armazenamento: ArmazenamentoPorta,
     telegram_secret: String,
-    telegram_bot_token: String,
+    telegram_api: TelegramPorta,
     telegram_ativo: Bool,
     admin_avisos: Option(IdChat),
     bridge_token: String,
@@ -228,7 +225,7 @@ fn tratar_requisicao(
     atrasadas:,
     armazenamento:,
     telegram_secret:,
-    telegram_bot_token:,
+    telegram_api:,
     telegram_ativo:,
     admin_avisos:,
     bridge_token:,
@@ -244,7 +241,7 @@ fn tratar_requisicao(
         portas,
         atrasadas,
         telegram_secret,
-        telegram_bot_token,
+        telegram_api,
       )
     "/webhook/bridge-event" ->
       proteger_webhook(req, ponte_porta.cabecalho_token, bridge_token, fn(req) {
@@ -306,13 +303,13 @@ fn tratar_webhook_telegram(
   portas: Portas,
   atrasadas: FilaAtrasadas,
   secret_token: String,
-  bot_token: String,
+  api: TelegramPorta,
 ) -> response.Response(ResponseData) {
   proteger_webhook(
     req,
     "x-telegram-bot-api-secret-token",
     secret_token,
-    fn(req) { processar_corpo_telegram(req, portas, atrasadas, bot_token) },
+    fn(req) { processar_corpo_telegram(req, portas, atrasadas, api) },
   )
 }
 
@@ -320,7 +317,7 @@ fn processar_corpo_telegram(
   req: Request(Connection),
   portas: Portas,
   atrasadas: FilaAtrasadas,
-  bot_token: String,
+  api: TelegramPorta,
 ) -> response.Response(ResponseData) {
   case mist.read_body(req, 1024 * 1024) {
     Error(_) -> resposta_json(400, "{\"error\":\"failed to read body\"}")
@@ -331,12 +328,7 @@ fn processar_corpo_telegram(
         Ok(telegram_porta.EventoIgnorado(_)) ->
           resposta_json(200, "{\"ok\":true,\"ignored\":true}")
         Ok(evento) -> {
-          receptor_telegram.despachar_evento(
-            evento,
-            telegram_http.criar_api(bot_token),
-            portas,
-            atrasadas,
-          )
+          receptor_telegram.despachar_evento(evento, api, portas, atrasadas)
           resposta_json(200, "{\"ok\":true}")
         }
       }
