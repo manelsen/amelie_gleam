@@ -25,11 +25,11 @@ import gleam/option.{type Option}
 import gleam/result
 import gleam/string
 import mist.{type Connection, type ResponseData}
-import portas/ponte_porta.{
-  type EventoPonte, CodigoPareamentoGerado, WhatsappCaiu, WhatsappVoltou,
-}
+import portas/mensageiro_porta.{type MensageiroPorta}
+import portas/ponte_porta
 import portas/telegram_porta
 import shell/arvore_supervisao
+import shell/avisos_ponte
 import shell/despachante_ia
 import shell/fila_atrasadas.{type FilaAtrasadas}
 import shell/fila_offline
@@ -172,6 +172,13 @@ pub fn main() {
       )
   }
 
+  // O admin recebe os avisos da ponte pelo Telegram; sem bot, não há a quem
+  // avisar e o evento é só aceito.
+  let admin_avisos = case telegram_bot_token {
+    "" -> option.None
+    _ -> telegram_admin_chat_id
+  }
+
   let assert Ok(_) =
     mist.new(fn(req) {
       tratar_requisicao(
@@ -181,7 +188,7 @@ pub fn main() {
         conn,
         telegram_secret_token,
         telegram_bot_token,
-        telegram_admin_chat_id,
+        admin_avisos,
         bridge_token,
       )
     })
@@ -203,7 +210,7 @@ fn tratar_requisicao(
   conn: sqlight.Connection,
   telegram_secret: String,
   telegram_bot_token: String,
-  telegram_admin_chat_id: Option(IdChat),
+  admin_avisos: Option(IdChat),
   bridge_token: String,
 ) -> response.Response(ResponseData) {
   case req.path {
@@ -221,7 +228,7 @@ fn tratar_requisicao(
       )
     "/webhook/bridge-event" ->
       proteger_webhook(req, ponte_porta.cabecalho_token, bridge_token, fn(req) {
-        tratar_evento_ponte(req, telegram_bot_token, telegram_admin_chat_id)
+        tratar_evento_ponte(req, portas.mensageiro, admin_avisos)
       })
     "/health" ->
       case
@@ -354,8 +361,8 @@ pub fn tratar_saude_publica(
 
 fn tratar_evento_ponte(
   req: Request(Connection),
-  bot_token: String,
-  admin_chat_id: Option(IdChat),
+  mensageiro: MensageiroPorta,
+  admin: Option(IdChat),
 ) -> response.Response(ResponseData) {
   case mist.read_body(req, 1024 * 1024) {
     Error(_) -> resposta_json(400, "{\"error\":\"failed to read body\"}")
@@ -363,50 +370,14 @@ fn tratar_evento_ponte(
       case whatsmeow_webhook.decodificar_evento(req_with_body.body) {
         Error(_) -> resposta_json(400, "{\"error\":\"invalid payload\"}")
         Ok(evt) ->
-          case bot_token, admin_chat_id {
-            "", _ | _, option.None -> resposta_json(200, "{\"ok\":true}")
-            _, option.Some(admin_chat_id) ->
-              // Falha no Telegram vira 502: a ponte tenta de novo.
-              case
-                telegram_http.enviar_mensagem(
-                  bot_token,
-                  admin_chat_id,
-                  texto_evento_ponte(evt),
-                )
-              {
-                Ok(Nil) -> resposta_json(200, "{\"ok\":true}")
-                Error(_) ->
-                  resposta_json(502, "{\"error\":\"telegram send failed\"}")
-              }
+          // Falha no envio vira 502: a ponte tenta de novo.
+          case avisos_ponte.avisar(evt, mensageiro, admin) {
+            Ok(Nil) -> resposta_json(200, "{\"ok\":true}")
+            Error(_) ->
+              resposta_json(502, "{\"error\":\"telegram send failed\"}")
           }
       }
     }
-  }
-}
-
-fn texto_evento_ponte(evt: EventoPonte) -> String {
-  case evt {
-    CodigoPareamentoGerado(phone, code) ->
-      "⚠️ *Alerta: WhatsApp desconectado!*\n\n"
-      <> "📱 *Novo código de pareamento para* `+"
-      <> phone
-      <> "`:\n"
-      <> "`"
-      <> code
-      <> "`\n\n"
-      <> "👉 *No WhatsApp do seu celular:*\n"
-      <> "Aparelhos conectados > Conectar com número de telefone > Digite o código acima.\n\n"
-      <> "⏳ Vale por cerca de 2 minutos. Se expirar, mando outro, e os anteriores deixam de valer."
-    WhatsappCaiu(motivo) ->
-      "⚠️ *Alerta: A conexão do WhatsApp caiu!*\n\n"
-      <> "Motivo: "
-      <> motivo
-      <> "\n\n"
-      <> "Para gerar um novo código de pareamento, envie:\n"
-      <> "`/parear <seu_numero>`"
-    WhatsappVoltou ->
-      "✅ *A Amélie voltou!*\n\n"
-      <> "O WhatsApp está conectado e atendendo de novo."
   }
 }
 
