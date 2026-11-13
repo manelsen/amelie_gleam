@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -619,6 +620,88 @@ func TestAvisoDeVoltaSoDepoisDeQueda(t *testing.T) {
 	// Só uma vez por queda.
 	bridge.handleEvent(&events.Connected{})
 	nada()
+}
+
+func TestAvisoDeVoltaNaoEntregueFicaPendente(t *testing.T) {
+	antigos := notifyRetryDelays
+	notifyRetryDelays = []time.Duration{10 * time.Millisecond}
+	defer func() { notifyRetryDelays = antigos }()
+
+	var falhar atomic.Bool
+	falhar.Store(true)
+	received := make(chan string, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if falhar.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		var payload map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		received <- payload["evento"].(string)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	bridge := &Bridge{cfg: Config{GleamURL: server.URL + "/webhook", Token: testBridgeToken}}
+	bridge.avisoQuedaPendente.Store(true) // como no início do processo
+
+	// Gleam ainda fora do ar: o aviso se perde, mas fica pendente.
+	bridge.handleEvent(&events.Connected{})
+	deadline := time.Now().Add(2 * time.Second)
+	for !bridge.avisoQuedaPendente.Load() {
+		if time.Now().After(deadline) {
+			t.Fatal("aviso de volta não voltou a ficar pendente")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	falhar.Store(false)
+	bridge.handleEvent(&events.Connected{})
+	select {
+	case evt := <-received:
+		if evt != "whatsapp_up" {
+			t.Fatalf("evento = %q, want whatsapp_up", evt)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout esperando whatsapp_up")
+	}
+}
+
+func TestEventosChegamAoGleamEmOrdem(t *testing.T) {
+	antigos := notifyRetryDelays
+	notifyRetryDelays = []time.Duration{50 * time.Millisecond}
+	defer func() { notifyRetryDelays = antigos }()
+
+	var primeira atomic.Bool
+	primeira.Store(true)
+	received := make(chan string, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A primeira tentativa (o aviso de queda) falha e precisa de retentativa.
+		if primeira.CompareAndSwap(true, false) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		var payload map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		received <- payload["evento"].(string)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	bridge := &Bridge{cfg: Config{GleamURL: server.URL + "/webhook", Token: testBridgeToken}}
+	bridge.notifyGleamEvent(map[string]interface{}{"evento": "whatsapp_down", "motivo": "x"})
+	bridge.handleEvent(&events.Connected{})
+
+	for _, want := range []string{"whatsapp_down", "whatsapp_up"} {
+		select {
+		case evt := <-received:
+			if evt != want {
+				t.Fatalf("evento = %q, want %q", evt, want)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timeout esperando %s", want)
+		}
+	}
 }
 
 func TestHandleResetSessionMethodNotAllowed(t *testing.T) {

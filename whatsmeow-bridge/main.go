@@ -247,6 +247,8 @@ type Bridge struct {
 	// (whatsapp_down ou código de pareamento) e ainda não soube da volta. A
 	// ponte nasce com ele ligado: subir o processo também é uma volta.
 	avisoQuedaPendente atomic.Bool
+	eventos            chan gleamEvent
+	eventosOnce        sync.Once
 }
 
 type mediaRetryPending struct {
@@ -2125,6 +2127,22 @@ func (b *Bridge) avisarVolta() {
 	b.notifyGleamEvent(map[string]interface{}{"evento": "whatsapp_up"})
 }
 
+// Esperas entre tentativas de entregar um evento ao Gleam: somam cerca de
+// dois minutos, o bastante para o Gleam subir quando a ponte reinicia junto.
+var notifyRetryDelays = []time.Duration{
+	1 * time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second,
+	15 * time.Second, 15 * time.Second, 15 * time.Second, 15 * time.Second,
+	15 * time.Second, 15 * time.Second,
+}
+
+type gleamEvent struct {
+	nome  interface{}
+	dados []byte
+}
+
+// notifyGleamEvent enfileira o evento para o Gleam. Uma fila só, entregue em
+// ordem por um único worker: um aviso de queda em retentativa não pode chegar
+// ao admin depois do aviso de volta.
 func (b *Bridge) notifyGleamEvent(payload map[string]interface{}) {
 	switch payload["evento"] {
 	case "whatsapp_down", "pairing_code":
@@ -2138,23 +2156,51 @@ func (b *Bridge) notifyGleamEvent(payload map[string]interface{}) {
 		log.Printf("[Bridge] Erro ao codificar evento para o Gleam: %v\n", err)
 		return
 	}
-	eventURL := strings.Replace(b.cfg.GleamURL, "/webhook", "/webhook/bridge-event", 1)
-
-	go func() {
-		for attempt := 1; attempt <= 5; attempt++ {
-			resp, err := b.postAuthenticated(eventURL, data)
-			if err == nil {
-				_ = resp.Body.Close()
-				if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-					log.Printf("[Bridge] Evento '%v' notificado ao Gleam com sucesso\n", payload["evento"])
-					return
-				}
-				err = fmt.Errorf("Gleam retornou status %d", resp.StatusCode)
-			}
-			log.Printf("[Bridge] Falha ao notificar evento ao Gleam (tentativa %d/5): %v\n", attempt, err)
-			time.Sleep(1 * time.Second)
+	b.eventosOnce.Do(func() {
+		b.eventos = make(chan gleamEvent, 64)
+		go b.entregarEventos()
+	})
+	select {
+	case b.eventos <- gleamEvent{nome: payload["evento"], dados: data}:
+	default:
+		log.Printf("[Bridge] Fila de eventos para o Gleam cheia; evento '%v' descartado\n", payload["evento"])
+		if payload["evento"] == "whatsapp_up" {
+			b.avisoQuedaPendente.Store(true)
 		}
-	}()
+	}
+}
+
+func (b *Bridge) entregarEventos() {
+	eventURL := strings.Replace(b.cfg.GleamURL, "/webhook", "/webhook/bridge-event", 1)
+	for evt := range b.eventos {
+		if b.entregarEvento(eventURL, evt) {
+			continue
+		}
+		// O aviso de volta não chegou: a próxima conexão tenta de novo.
+		if evt.nome == "whatsapp_up" {
+			b.avisoQuedaPendente.Store(true)
+		}
+	}
+}
+
+func (b *Bridge) entregarEvento(eventURL string, evt gleamEvent) bool {
+	total := len(notifyRetryDelays) + 1
+	for attempt := 1; attempt <= total; attempt++ {
+		resp, err := b.postAuthenticated(eventURL, evt.dados)
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				log.Printf("[Bridge] Evento '%v' notificado ao Gleam com sucesso\n", evt.nome)
+				return true
+			}
+			err = fmt.Errorf("Gleam retornou status %d", resp.StatusCode)
+		}
+		log.Printf("[Bridge] Falha ao notificar evento '%v' ao Gleam (tentativa %d/%d): %v\n", evt.nome, attempt, total, err)
+		if attempt < total {
+			time.Sleep(notifyRetryDelays[attempt-1])
+		}
+	}
+	return false
 }
 
 func writeAPIError(w http.ResponseWriter, status int, apiError APIError) {
