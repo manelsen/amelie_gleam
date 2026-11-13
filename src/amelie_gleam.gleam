@@ -367,6 +367,7 @@ pub fn tratar_saude_publica(
 type EventoPonte {
   CodigoPareamentoGerado(telefone: String, codigo: String)
   WhatsappCaiu(motivo: String)
+  WhatsappVoltou
 }
 
 fn tratar_evento_ponte(
@@ -379,54 +380,51 @@ fn tratar_evento_ponte(
     Ok(req_with_body) -> {
       case decodificar_evento_ponte(req_with_body.body) {
         Error(_) -> resposta_json(400, "{\"error\":\"invalid payload\"}")
-        Ok(evt) -> {
+        Ok(evt) ->
           case bot_token, admin_chat_id {
-            "", _ | _, option.None -> Nil
-            _, option.Some(admin_chat_id) -> {
-              case evt {
-                CodigoPareamentoGerado(phone, code) -> {
-                  let texto =
-                    "⚠️ *Alerta: WhatsApp desconectado!*\n\n"
-                    <> "📱 *Novo código de pareamento para* `+"
-                    <> phone
-                    <> "`:\n"
-                    <> "`"
-                    <> code
-                    <> "`\n\n"
-                    <> "👉 *No WhatsApp do seu celular:*\n"
-                    <> "Aparelhos conectados > Conectar com número de telefone > Digite o código acima.\n\n"
-                    <> "⏳ Vale por cerca de 2 minutos. Se expirar, mando outro, e os anteriores deixam de valer."
-                  let _ =
-                    telegram_http.enviar_mensagem(
-                      bot_token,
-                      admin_chat_id,
-                      texto,
-                    )
-                  Nil
-                }
-                WhatsappCaiu(motivo) -> {
-                  let texto =
-                    "⚠️ *Alerta: A conexão do WhatsApp caiu!*\n\n"
-                    <> "Motivo: "
-                    <> motivo
-                    <> "\n\n"
-                    <> "Para gerar um novo código de pareamento, envie:\n"
-                    <> "`/parear <seu_numero>`"
-                  let _ =
-                    telegram_http.enviar_mensagem(
-                      bot_token,
-                      admin_chat_id,
-                      texto,
-                    )
-                  Nil
-                }
+            "", _ | _, option.None -> resposta_json(200, "{\"ok\":true}")
+            _, option.Some(admin_chat_id) ->
+              // Falha no Telegram vira 502: a ponte tenta de novo.
+              case
+                telegram_http.enviar_mensagem(
+                  bot_token,
+                  admin_chat_id,
+                  texto_evento_ponte(evt),
+                )
+              {
+                Ok(Nil) -> resposta_json(200, "{\"ok\":true}")
+                Error(_) ->
+                  resposta_json(502, "{\"error\":\"telegram send failed\"}")
               }
-            }
           }
-          resposta_json(200, "{\"ok\":true}")
-        }
       }
     }
+  }
+}
+
+fn texto_evento_ponte(evt: EventoPonte) -> String {
+  case evt {
+    CodigoPareamentoGerado(phone, code) ->
+      "⚠️ *Alerta: WhatsApp desconectado!*\n\n"
+      <> "📱 *Novo código de pareamento para* `+"
+      <> phone
+      <> "`:\n"
+      <> "`"
+      <> code
+      <> "`\n\n"
+      <> "👉 *No WhatsApp do seu celular:*\n"
+      <> "Aparelhos conectados > Conectar com número de telefone > Digite o código acima.\n\n"
+      <> "⏳ Vale por cerca de 2 minutos. Se expirar, mando outro, e os anteriores deixam de valer."
+    WhatsappCaiu(motivo) ->
+      "⚠️ *Alerta: A conexão do WhatsApp caiu!*\n\n"
+      <> "Motivo: "
+      <> motivo
+      <> "\n\n"
+      <> "Para gerar um novo código de pareamento, envie:\n"
+      <> "`/parear <seu_numero>`"
+    WhatsappVoltou ->
+      "✅ *A Amélie voltou!*\n\n"
+      <> "O WhatsApp está conectado e atendendo de novo."
   }
 }
 
@@ -442,6 +440,7 @@ fn decodificar_evento_ponte(body: BitArray) -> Result(EventoPonte, Nil) {
     use motivo <- decode.optional_field("motivo", "Desconectado", decode.string)
     case evento {
       "pairing_code" -> decode.success(CodigoPareamentoGerado(phone, code))
+      "whatsapp_up" -> decode.success(WhatsappVoltou)
       _ -> decode.success(WhatsappCaiu(motivo))
     }
   }
