@@ -11,7 +11,8 @@ import helpers/portas_fake
 import portas/telegram_porta
 import shell/fila_midia
 import shell/metricas
-import shell/tratador_mensagem.{Portas}
+import shell/tratador/base.{Portas}
+import shell/tratador_mensagem
 
 pub fn parsear_mensagem_privada_texto_test() {
   let json =

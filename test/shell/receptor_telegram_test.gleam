@@ -15,7 +15,7 @@ import shell/fila_midia
 import shell/metricas
 import shell/receptor_telegram
 import shell/sistema
-import shell/tratador_mensagem.{type Portas, Portas}
+import shell/tratador/base.{type Portas, Portas}
 
 pub fn extrair_updates_json_test() {
   let json =

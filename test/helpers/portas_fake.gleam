@@ -23,7 +23,7 @@ import portas/video_contexto_porta.{type VideoContextoPorta, VideoContextoPorta}
 import shell/despachante_ia
 import shell/fila_midia
 import shell/metricas
-import shell/tratador_mensagem.{type Portas, Portas}
+import shell/tratador/base.{type Portas, Portas}
 
 // ---------------------------------------------------------------------------
 // Ponte whatsmeow e Bot API do Telegram fakes (sem rede)

@@ -130,3 +130,7 @@ func (b *Bridge) renewPairing(gen uint64, phone string, renewals int) {
 		})
 	}
 }
+
+// Espera entre o reset da sessão e o novo pairing code. Variável para os
+// testes poderem adiá-lo para além do fim da suíte.
+var resetPairingDelay = 2 * time.Second

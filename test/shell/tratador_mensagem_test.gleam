@@ -15,6 +15,7 @@ import portas/ia_porta
 import shell/despachante_ia
 import shell/fila_midia
 import shell/metricas
+import shell/tratador/base
 import shell/tratador_mensagem
 
 @external(erlang, "amelie_gleam_ffi", "now_ms")
@@ -46,7 +47,7 @@ pub fn tratar_texto_envia_para_whatsapp_test() {
     Error(_) -> panic as "fila"
   }
   let portas =
-    tratador_mensagem.Portas(
+    base.Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref),
       despachante_ia: portas_fake.despachante_ia_ok("resposta esperada"),
       config: portas_fake.config_ok(cfg),
@@ -81,7 +82,7 @@ pub fn tratar_texto_frio_sem_midia_orienta_usuario_test() {
     Error(_) -> panic as "fila"
   }
   let portas =
-    tratador_mensagem.Portas(
+    base.Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref),
       despachante_ia: portas_fake.despachante_ia_ok("resposta esperada"),
       config: portas_fake.config_ok(cfg),
@@ -114,7 +115,7 @@ pub fn tratar_texto_marca_transacao_entregue_test() {
     Error(_) -> panic as "fila"
   }
   let portas =
-    tratador_mensagem.Portas(
+    base.Portas(
       mensageiro: portas_fake.mensageiro_ok(),
       despachante_ia: portas_fake.despachante_ia_ok("resposta esperada"),
       config: portas_fake.config_ok(fixtures.config_padrao()),
@@ -147,7 +148,7 @@ pub fn tratar_texto_falha_fica_na_fila_test() {
     Error(_) -> panic as "fila"
   }
   let portas =
-    tratador_mensagem.Portas(
+    base.Portas(
       mensageiro: portas_fake.mensageiro_erro(erro.ErroComunicacao("offline")),
       despachante_ia: portas_fake.despachante_ia_ok("resposta esperada"),
       config: portas_fake.config_ok(fixtures.config_padrao()),
@@ -178,7 +179,7 @@ pub fn tratar_erro_config_retorna_erro_test() {
     Error(_) -> panic as "fila"
   }
   let portas =
-    tratador_mensagem.Portas(
+    base.Portas(
       mensageiro: portas_fake.mensageiro_ok(),
       despachante_ia: portas_fake.despachante_ia_ok("ok"),
       config: portas_fake.config_erro(erro.ErroBancoDados("DB offline")),
@@ -206,7 +207,7 @@ pub fn tratar_erro_ia_retorna_erro_test() {
     Error(_) -> panic as "fila"
   }
   let portas =
-    tratador_mensagem.Portas(
+    base.Portas(
       mensageiro: portas_fake.mensageiro_ok(),
       despachante_ia: portas_fake.despachante_ia_erro(erro.ErroIA("timeout")),
       config: portas_fake.config_ok(fixtures.config_padrao()),
@@ -243,17 +244,17 @@ pub fn tratar_imagem_desativada_retorna_ok_test() {
 
 pub fn extrair_trace_id_test() {
   let msg_com_id = fixtures.mensagem_texto("com id")
-  tratador_mensagem.extrair_trace_id(msg_com_id)
+  base.extrair_trace_id(msg_com_id)
   |> should.equal("MSG00")
 
   // ID longo típico do WhatsApp (ex: 3EB02...)
   let msg_whatsapp =
     Mensagem(..msg_com_id, message_id: option.Some("3EB0286653E6E8F95418C0"))
-  tratador_mensagem.extrair_trace_id(msg_whatsapp)
+  base.extrair_trace_id(msg_whatsapp)
   |> should.equal("3EB02")
 
   let msg_sem_id = Mensagem(..msg_com_id, message_id: option.None)
-  tratador_mensagem.extrair_trace_id(msg_sem_id)
+  base.extrair_trace_id(msg_sem_id)
   |> should.equal(string.slice(
     "req_"
       <> int.to_string(msg_sem_id.timestamp)
@@ -267,7 +268,7 @@ pub fn extrair_trace_id_test() {
 pub fn tratar_com_rate_limit_envia_aviso_ao_usuario_test() {
   let ref = process.new_subject()
   let portas =
-    tratador_mensagem.Portas(
+    base.Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref),
       despachante_ia: portas_fake.despachante_ia_ok("resposta"),
       config: portas_fake.config_ok(fixtures.config_padrao()),
@@ -297,7 +298,7 @@ pub fn tratar_com_rate_limit_envia_aviso_ao_usuario_test() {
 pub fn atrasadas_em_lote_nao_recebem_aviso_de_spam_test() {
   let ref = process.new_subject()
   let portas =
-    tratador_mensagem.Portas(
+    base.Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref),
       despachante_ia: portas_fake.despachante_ia_ok("resposta"),
       config: portas_fake.config_ok(fixtures.config_padrao()),
@@ -350,7 +351,7 @@ pub fn tratar_com_unban_admin_test() {
   let ref = process.new_subject()
   let spam_actor = spam()
   let portas =
-    tratador_mensagem.Portas(
+    base.Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref),
       despachante_ia: portas_fake.despachante_ia_ok("resposta"),
       config: portas_fake.config_ok(fixtures.config_padrao()),
@@ -381,7 +382,7 @@ pub fn tratar_com_rate_limit_registra_incidente_spammer_test() {
   let ref_msg = process.new_subject()
   let ref_spam = process.new_subject()
   let portas =
-    tratador_mensagem.Portas(
+    base.Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref_msg),
       despachante_ia: portas_fake.despachante_ia_ok("resposta"),
       config: portas_fake.config_ok(fixtures.config_padrao()),
@@ -426,7 +427,7 @@ pub fn tratar_followup_video_ativo_responde_e_decrementa_test() {
       criado_em: agora_s - 10,
     )
   let portas =
-    tratador_mensagem.Portas(
+    base.Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
       despachante_ia: portas_fake.despachante_ia_ok(
         "O carro no vídeo é vermelho.",
@@ -471,7 +472,7 @@ pub fn tratar_followup_video_expirado_limpa_e_responde_normalmente_test() {
       criado_em: agora_s - 2000,
     )
   let portas =
-    tratador_mensagem.Portas(
+    base.Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
       despachante_ia: portas_fake.despachante_ia_ok("resposta normal"),
       config: portas_fake.config_ok(fixtures.config_padrao()),
@@ -513,7 +514,7 @@ pub fn tratar_followup_video_esgotado_limpa_e_responde_normalmente_test() {
       criado_em: agora_s - 60,
     )
   let portas =
-    tratador_mensagem.Portas(
+    base.Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
       despachante_ia: portas_fake.despachante_ia_ok("resposta normal"),
       config: portas_fake.config_ok(fixtures.config_padrao()),
@@ -555,7 +556,7 @@ pub fn tratar_followup_video_zera_perguntas_remove_arquivo_test() {
       criado_em: agora_s - 10,
     )
   let portas =
-    tratador_mensagem.Portas(
+    base.Portas(
       mensageiro: portas_fake.mensageiro_capturar(ref_envio),
       despachante_ia: portas_fake.despachante_ia_ok(
         "Última resposta sobre o vídeo.",
@@ -588,13 +589,9 @@ pub fn tratar_followup_video_zera_perguntas_remove_arquivo_test() {
   let assert Ok(portas_fake.VideoRemovido(_)) = process.receive(ref_video, 1000)
 }
 
-fn portas_com_video(
-  ref,
-  despachante,
-  video_contexto,
-) -> tratador_mensagem.Portas {
+fn portas_com_video(ref, despachante, video_contexto) -> base.Portas {
   let assert Ok(fila) = fila_midia.iniciar_todas()
-  tratador_mensagem.Portas(
+  base.Portas(
     mensageiro: portas_fake.mensageiro_capturar(ref),
     despachante_ia: despachante,
     config: portas_fake.config_ok(fixtures.config_padrao()),
@@ -656,7 +653,7 @@ fn receber_ate(sub, alvo) -> Bool {
   }
 }
 
-fn enviar_fotos(portas: tratador_mensagem.Portas, n: Int) -> Nil {
+fn enviar_fotos(portas: base.Portas, n: Int) -> Nil {
   list.each(de_1_a(n), fn(i) {
     let foto =
       Mensagem(
@@ -677,7 +674,7 @@ pub fn album_maior_que_o_balde_e_adiado_com_um_aviso_test() {
   let ref = process.new_subject()
   let ref_spam = process.new_subject()
   let portas =
-    tratador_mensagem.Portas(
+    base.Portas(
       ..portas_fake.portas_ok(fixtures.config_padrao(), "Uma foto."),
       mensageiro: portas_fake.mensageiro_capturar(ref),
       anti_spam: spam(),

@@ -39,7 +39,8 @@ import shell/metricas
 import shell/receptor_telegram
 import shell/seguranca_http
 import shell/sistema
-import shell/tratador_mensagem.{type Portas, Portas}
+import shell/tratador/base.{type Portas, Portas}
+import shell/tratador_mensagem
 import simplifile
 import sqlight
 
@@ -525,7 +526,7 @@ fn despachar_webhook(
       logging.log(
         logging.Info,
         "["
-          <> tratador_mensagem.extrair_trace_id(webhook.msg)
+          <> base.extrair_trace_id(webhook.msg)
           <> "] Mensagem atrasada "
           <> int.to_string(sistema.agora_s() - webhook.msg.timestamp)
           <> "s, enviada à fila serial: "
